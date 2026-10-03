@@ -2,6 +2,7 @@
 schema: 1
 id: wp-032
 title: Doc lints — spec-lint scorer, coverage matrix, fail-closed validators
+status: done
 status: in-progress
 priority: medium
 depth: standard
@@ -26,7 +27,7 @@ line-overlap + text_hash — document formula in SCHEMAS.md §6).
 `packages/lints/**`, `docs/SCHEMAS.md` (rule backports)
 
 ## Acceptance criteria
-- [ ] spec-lint rules documented in SCHEMAS.md, implemented, unit-tested
-- [ ] Coverage lint: missing case_id fails closed; untestable row exempt
-- [ ] Fingerprint: same finding across shifted line numbers still matches
-- [ ] All lints pure functions: doc in → violations list out
+- [x] spec-lint rules documented in SCHEMAS.md, implemented, unit-tested
+- [x] Coverage lint: missing case_id fails closed; untestable row exempt
+- [x] Fingerprint: same finding across shifted line numbers still matches
+- [x] All lints pure functions: doc in → violations list out

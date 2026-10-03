@@ -168,6 +168,26 @@ Fingerprint dedupe across rounds: same `file`+`symbol`+`category` +
 overlapping `line_range` → same `thread_id`, `rounds_seen` grows,
 status transitions `open → fixed → reopened`.
 
+**Fingerprint formula (runner-computed, `packages/lints`):**
+
+```
+normalized_text = collapse_whitespace(trim(finding.body))
+                  — all runs of whitespace → single space; the hash is
+                    stable across reformatting/reflow of the same text
+text_hash       = "sha256:" + hex( sha256(
+                    file + "|" + category + "|" + normalized_text ) )
+```
+
+`thread_id` = `"f-"` + the first 4 hex chars of the digest
+(e.g. `f-8f3a`). Collisions are resolved by the runner with a `-2`,
+`-3` suffix. Reopened/duplicate detection
+(`matchThread`): a new finding matches an existing thread — same
+`thread_id`, `rounds_seen` grows — iff it shares `file` **and**
+`category` **and** either (a) identical `text_hash` (same text at any
+line — covers shifted line numbers after edits), or (b) `line_range`s
+overlap OR come within ±5 lines of each other (same site, reworded
+report). Otherwise → new thread.
+
 **Fingerprints are computed by the RUNNER, not the agent** — agents emit
 `file`/`line`/`evidence`; the runner derives `symbol` (ctags/tree-sitter
 when a repo-map is available, else null), `line_range`, and `text_hash`.
@@ -356,6 +376,43 @@ real ids via next-id CAS, rewrites frontmatter (`id`, `depends_on` →
 sibling ids), moves drafts to `tickets/<new-id>/ticket.md`, sets the
 parent → `split` (`split_materialized` event). On reject, plan and
 drafts stay in place and the ticket returns to triage.
+
+## 15. Spec lint — runner rule set (spec_score)
+
+Mechanical quality score for `ticket.md`, computed by the runner inline
+(`packages/lints` `specLint`) before triage; injected into the triage
+prompt as `{{SPEC_LINT}}` and echoed into `triage.json.spec_lint`. Pure
+function — doc text in, `{score, flags}` out. It is advisory (weigh it,
+don't worship it): it never blocks a transition on its own.
+
+**Checks (weights sum to 100):**
+
+| check | weight | rule |
+| --- | --- | --- |
+| `frontmatter` | 10 | `---` block parses as YAML mapping with required §1 keys: `schema`, `id`, `title`, `status`, `priority`, `repos`, `depth`; `status`/`priority`/`depth` ∈ their enums |
+| `repos` | 15 | `repos:` is a non-empty list of non-empty strings |
+| `description` | 15 | `## Description` section exists and its text is ≥ 80 chars |
+| `ac_present` | 20 | `## Acceptance criteria` section has ≥1 row — a `- [ ]` checklist item or an `ac_id` table row |
+| `ac_verifiable` | 15 | every AC row is a checkable statement — fails on vague/aspirational verbs per §2: `works`, `handles`, `supports`, `improves`, `is fast`, `properly`, `correctly`, `seamlessly`, `user-friendly`, `robust`, `intuitive`, `as appropriate`, `etc.` — one flag per offending row |
+| `no_placeholders` | 15 | no placeholder strings anywhere in the doc: `TBD`, `TODO`, `FIXME`, `XXX`, `<placeholder>`, `lorem ipsum`, `to be determined`, `???` (case-insensitive) |
+| `dod` | 10 | `## Definition of Done` section present — **full specs only** (doc carries `depth: deep` in frontmatter OR contains `## Requirements`); light tickets get these 10 points free |
+
+**Formula:** `spec_score = 100 − Σ weights of failed checks`, clamped to
+`[0, 100]`. `flags` = one human-readable string per failed check (one
+per vague-AC row for `ac_verifiable`), ordered by the table above.
+
+**`{{SPEC_LINT}}` rendered shape** (plain text block in the prompt):
+
+```
+spec_score: 65/100
+flags:
+- description only 42 chars (min 80)
+- ac2 vague verb: 'handles'
+- placeholder 'TBD' at line 9
+```
+
+(`flags: none` when empty.) The same `{score, flags}` pair is stored in
+`triage.json.spec_lint` (§5) and `tickets.spec_score` (DB-SCHEMA).
 
 ---
 
