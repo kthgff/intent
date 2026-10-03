@@ -2,7 +2,7 @@
 schema: 1
 id: wp-012
 title: Git ops — tickets-repo sync, worktrees, ref-CAS, next-id
-status: in-progress
+status: done
 priority: high
 depth: standard
 repos: []
