@@ -2,7 +2,7 @@
 schema: 1
 id: wp-011
 title: Store — Store interface + SQLite impl + migrations
-status: in-progress
+status: done
 priority: high
 depth: standard
 repos: []

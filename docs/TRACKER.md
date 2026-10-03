@@ -29,8 +29,10 @@ Work packages: `docs/exec/wp-*.md` (v1 ticket schema, dogfooded).
 | W0 | wp-001 | Scaffold: pnpm workspace, TS config, vitest, lint, CI, layout | — | done |
 | W0 | wp-002 | Contracts freeze: port `docs/prompts` + token table + SCHEMAS types into `packages/core` (zod) | wp-001 | done |
 | W1 | wp-010 | Config layer: layered YAML load, precedence, .env, validation | wp-002 | done |
-| W1 | wp-011 | Store: `Store` iface + SQLite impl (DB-SCHEMA), migrations | wp-002 | in-progress |
 | W1 | wp-012 | Git ops: tickets-repo sync (pull-rebase-retry), worktrees, ref-CAS, next-id | wp-002 | in-progress |
+| W1 | wp-010 | Config layer: layered YAML load, precedence, .env, validation | wp-002 | todo |
+| W1 | wp-011 | Store: `Store` iface + SQLite impl (DB-SCHEMA), migrations | wp-002 | done |
+| W1 | wp-012 | Git ops: tickets-repo sync (pull-rebase-retry), worktrees, ref-CAS, next-id | wp-002 | todo |
 | W1 | wp-013 | Ticket projection: frontmatter parse → `tickets`/`ticket_repos` rows | wp-010,011,012 | todo |
 | W2 | wp-020 | Prompt renderer: tokens, ARTIFACT_TARGETS, capability shaping | wp-010 | todo |
 | W2 | wp-021 | Adapter iface + **mock adapter** (scripted sentinels — the test backend) | wp-020 | todo |
