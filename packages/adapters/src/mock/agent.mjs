@@ -75,12 +75,12 @@ const arg = sep === -1 ? '' : scenario.slice(sep + 1);
 if (kind === 'hang') {
   say(`MOCK scenario=hang pid=${process.pid}`);
   setInterval(() => {}, 60_000);
-  if (timeoutS === 0) {
-    // genuinely forever — no timeout self-exit
-  } else {
+  if (timeoutS !== 0) {
     setTimeout(() => process.exit(124), timeoutS * 1000).unref();
   }
-  await sleep(365 * 24 * 3600 * 1000);
+  // Forever — setTimeout clamps delays >24.8d to ~1ms, so never await a
+  // giant sleep here (that falls through to the switch → exit 2).
+  await new Promise(() => {});
 }
 
 // Optional self-timeout for timeout-path tests (exit code 124, no sentinel).

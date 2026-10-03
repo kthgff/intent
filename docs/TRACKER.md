@@ -22,6 +22,7 @@ Work packages: `docs/exec/wp-*.md` (v1 ticket schema, dogfooded).
 | D12 | Embeddings `local` via onnxruntime-node/transformers.js — spike before commit; `off` always works | open |
 | D13 | External binaries (gitleaks, gh, aider, devin) = PATH deps, detected at startup; scanner absent = fail-closed | done |
 | D14 | Ticket projection (wp-013): SCHEMAS §1 inline defaults (`depth: standard`, `depends_on: []`, `forced: false`) applied before `TicketFrontmatterSchema` — fixtures omit them; parse-error detail rides in the notifications payload (gate_items has no detail column) | done |
+| D15 | Conductor (wp-030): per-ticket spend/token "cumulative counters" are computed by summing `runs` rows (DB-SCHEMA `tickets` has no cost columns); cardless/doc stages run with the tickets-repo checkout as cwd (no worktree); `stalled` uses log/artifact mtime only — `heartbeat_at` is conductor-written and would mask silence | done |
 
 ## Waves (see EXEC-PLAN.md)
 
@@ -34,7 +35,7 @@ Work packages: `docs/exec/wp-*.md` (v1 ticket schema, dogfooded).
 | W1 | wp-012 | Git ops: tickets-repo sync (pull-rebase-retry), worktrees, ref-CAS, next-id | wp-002 | done |
 | W2 | wp-020 | Prompt renderer: tokens, ARTIFACT_TARGETS, capability shaping | wp-010 | done |
 | W2 | wp-021 | Adapter iface + **mock adapter** (scripted sentinels — the test backend) | wp-020 | done |
-| W3 | wp-030 | Conductor core: tick loop, reconcile, leases, heartbeats, kill/pause | wp-011,021,023 | todo |
+| W3 | wp-030 | Conductor core: tick loop, reconcile, leases, heartbeats, kill/pause | wp-011,021,023 | done |
 | W3 | wp-031 | State machine: sentinel→transition table, gate items, events.jsonl | wp-030 | todo |
 | W3 | wp-032 | Doc lints: spec-lint scorer, coverage-matrix, fail-closed validator | wp-031 | todo |
 | W4 | wp-040 | E2E vertical: mock-adapter pipeline imported→triage→…→commit on fixture repo | wp-030,031,032 | todo |
