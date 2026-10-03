@@ -35,7 +35,7 @@ Work packages: `docs/exec/wp-*.md` (v1 ticket schema, dogfooded).
 | W2 | wp-020 | Prompt renderer: tokens, ARTIFACT_TARGETS, capability shaping | wp-010 | todo |
 | W2 | wp-021 | Adapter iface + **mock adapter** (scripted sentinels — the test backend) | wp-020 | todo |
 | W2 | wp-022 | Devin adapter: `devin -p`, export parse, usage extract | wp-021 | todo |
-| W2 | wp-023 | Runner env-ops: sanitizer (gitleaks), verify tasks, artifact collect | wp-012 | todo |
+| W2 | wp-023 | Runner env-ops: sanitizer (gitleaks), verify tasks, artifact collect | wp-012 | done |
 | W3 | wp-030 | Conductor core: tick loop, reconcile, leases, heartbeats, kill/pause | wp-011,021,023 | todo |
 | W3 | wp-031 | State machine: sentinel→transition table, gate items, events.jsonl | wp-030 | todo |
 | W3 | wp-032 | Doc lints: spec-lint scorer, coverage-matrix, fail-closed validator | wp-031 | todo |

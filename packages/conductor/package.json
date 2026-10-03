@@ -10,6 +10,9 @@
     "typecheck": "tsc -b --pretty",
     "test": "vitest run --passWithNoTests"
   },
+  "dependencies": {
+    "@sprint-runner/core": "workspace:*"
+  },
   "devDependencies": {
     "@types/node": "^22.10.0",
     "typescript": "^5.7.0",
