@@ -46,7 +46,7 @@ export function makeTransitionTools(ctx: ToolCtx): TransitionTools {
 
     surfaceGateItem: async (item) => {
       const ts = base.now().toISOString();
-      await deps.store.upsertGateItem({
+      const row = {
         workspace: base.workspace,
         subject: item.subject,
         gate: item.gate,
@@ -55,15 +55,24 @@ export function makeTransitionTools(ctx: ToolCtx): TransitionTools {
         cleared_at: null,
         blocked_agent: item.blockedAgent ?? false,
         priority: item.priority ?? null,
-      });
+      };
+      await deps.store.upsertGateItem(row);
       // DB-SCHEMA: notifications generated on gate_items insert.
-      await deps.store.insertNotification({
+      const notification = {
         workspace: base.workspace,
         subject: item.subject,
         kind: `gate:${item.kind}`,
         payload: JSON.stringify(item),
         created_at: ts,
         read_at: null,
+      };
+      const notificationId = await deps.store.insertNotification(notification);
+      // API.md stream: gate_surfaced + notification after the durable
+      // writes above.
+      deps.notify?.({ type: 'gate_surfaced', payload: row });
+      deps.notify?.({
+        type: 'notification',
+        payload: { id: notificationId, ...notification },
       });
     },
 

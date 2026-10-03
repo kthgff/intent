@@ -46,6 +46,11 @@ export async function controlRun(
     status: STATUS_BY_OP[op],
     ...(op === 'kill' ? { exited_at: ts } : {}),
   });
+  // API.md stream: run_status after the durable row update.
+  deps.notify?.({
+    type: 'run_status',
+    payload: { id: runId, workspace: run.workspace, status: STATUS_BY_OP[op] },
+  });
   await deps.store.appendEvent({
     workspace: run.workspace,
     ticket_id: run.ticket_id,
