@@ -26,8 +26,8 @@ Work packages: `docs/exec/wp-*.md` (v1 ticket schema, dogfooded).
 
 | Wave | Package | Scope | Depends | Status |
 | --- | --- | --- | --- | --- |
-| W0 | wp-001 | Scaffold: pnpm workspace, TS config, vitest, lint, CI, layout | — | done |
-| W0 | wp-002 | Contracts freeze: port `docs/prompts` + token table + SCHEMAS types into `packages/core` (zod) | wp-001 | in-progress |
+| W0 | wp-001 | Scaffold: pnpm workspace, TS config, vitest, lint, CI, layout | — | todo |
+| W0 | wp-002 | Contracts freeze: port `docs/prompts` + token table + SCHEMAS types into `packages/core` (zod) | wp-001 | done |
 | W1 | wp-010 | Config layer: layered YAML load, precedence, .env, validation | wp-002 | todo |
 | W1 | wp-011 | Store: `Store` iface + SQLite impl (DB-SCHEMA), migrations | wp-002 | todo |
 | W1 | wp-012 | Git ops: tickets-repo sync (pull-rebase-retry), worktrees, ref-CAS, next-id | wp-002 | todo |

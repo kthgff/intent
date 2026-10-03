@@ -2,7 +2,7 @@
 schema: 1
 id: wp-002
 title: Contract freeze — port SCHEMAS/DB-SCHEMA/ADAPTERS to packages/core
-status: in-progress
+status: done
 priority: high
 depth: standard
 repos: []
