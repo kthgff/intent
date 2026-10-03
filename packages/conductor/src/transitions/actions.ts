@@ -169,7 +169,18 @@ const SPEC_INPUTS = ['ticket.md', 'prd.md', 'tdd.md', 'test.md'] as const;
 export async function specInputsHash(ticketDir: string): Promise<string> {
   const h = createHash('sha256');
   for (const name of SPEC_INPUTS) {
-    const raw = await readOrNull(join(ticketDir, name));
+    let raw = await readOrNull(join(ticketDir, name));
+    if (name === 'ticket.md' && raw !== null) {
+      // Exclude the `spec_hash:` frontmatter line entirely —
+      // recordSpecHash appends it to ticket.md AFTER computing the
+      // baseline; hashing the file with the line present (even emptied)
+      // self-invalidates on the next check and the ticket parks at
+      // test-approved forever.
+      raw = raw
+        .split('\n')
+        .filter((l) => !/^spec_hash\s*:/.test(l))
+        .join('\n');
+    }
     if (raw !== null) h.update(`${name}\n${raw}\n`);
   }
   return `sha256:${h.digest('hex')}`;

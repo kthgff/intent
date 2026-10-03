@@ -18,6 +18,18 @@ import type { TransitionContext } from '../contracts.js';
 /** Narrow emit surface — works with either a TransitionContext (claim
  *  path) or the richer TransitionTools (reconcile path). */
 export interface EventSink {
+  /** When present (TransitionContext/TransitionTools), emitted ticket
+   *  events also land in `tickets/<id>/events.jsonl` (SCHEMAS §7 — the
+   *  git-side ledger the events_idx table projects). */
+  ticketsRepoPath?: string;
+  /** Store — needed for the events.jsonl/LOG.md rewrite on emit. */
+  store?: {
+    listEvents(f: { workspace: string; ticket_id: string }): Promise<
+      EventRow[]
+    >;
+  };
+  /** Workspace key — needed alongside ticketsRepoPath for regen. */
+  workspace?: string;
   appendEvent(e: {
     ticketId?: string | null;
     stage?: string | null;
@@ -51,7 +63,28 @@ export async function emitEvent(
   sink: EventSink,
   args: EmitArgs,
 ): Promise<number> {
-  return sink.appendEvent({ ...args, ticketId: args.ticketId ?? null });
+  const seq = await sink.appendEvent({
+    ...args,
+    ticketId: args.ticketId ?? null,
+  });
+  // PRD: tickets/<id>/events.jsonl is the git-side ledger (events_idx is
+  // its projection). Regenerate it (+ LOG.md, which derives from it) on
+  // every emitted event so the file never trails the DB. Sinks without
+  // a repo path (pure DB callers) skip the write. Best-effort: a fs
+  // hiccup must not mask the event itself.
+  if (args.ticketId && sink.ticketsRepoPath && sink.store && sink.workspace) {
+    await regenerateLog(
+      {
+        workspace: sink.workspace,
+        ticketsRepoPath: sink.ticketsRepoPath,
+        store: sink.store as TransitionContext['store'],
+        actor: '',
+        now: () => new Date(),
+      },
+      args.ticketId,
+    ).catch(() => {});
+  }
+  return seq;
 }
 
 /**
@@ -82,6 +115,29 @@ export function renderLogMd(ticketId: string, events: EventRow[]): string {
  * ticket subject (CONDUCTOR "Runner tasks … LOG.md regeneration").
  * Returns the written path, or null for non-ticket subjects.
  */
+/** Serialize one events_idx row as a SCHEMAS §7 events.jsonl line. */
+export function renderEventLine(e: EventRow): string {
+  return JSON.stringify({
+    v: 1,
+    seq: (e as { seq?: number }).seq ?? undefined,
+    ts: e.ts,
+    ticket: e.ticket_id,
+    stage: e.stage,
+    actor: { type: e.actor_type, id: e.actor_id },
+    event: e.event,
+    run: e.run,
+    refs: e.refs ?? [],
+    data: e.data ?? {},
+    cost_usd: e.cost_usd,
+    tokens_in: e.tokens_in,
+    tokens_out: e.tokens_out,
+    tokens_cached: e.tokens_cached,
+    usage_source: e.usage_source,
+    duration_s: e.duration_s,
+    human_minutes: e.human_minutes,
+  });
+}
+
 export async function regenerateLog(
   ctx: TransitionContext,
   ticketId: string,
@@ -92,6 +148,13 @@ export async function regenerateLog(
   });
   const dir = join(ctx.ticketsRepoPath, 'tickets', ticketId);
   await mkdir(dir, { recursive: true });
+  // events.jsonl is the machine ledger (SCHEMAS §7); LOG.md is generated
+  // from the same projection — write the ledger first, then its mirror.
+  await writeFile(
+    join(dir, 'events.jsonl'),
+    `${events.map(renderEventLine).join('\n')}${events.length ? '\n' : ''}`,
+    'utf8',
+  );
   const path = join(dir, 'LOG.md');
   await writeFile(path, renderLogMd(ticketId, events), 'utf8');
   return path;
