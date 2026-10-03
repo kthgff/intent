@@ -1,0 +1,15 @@
+schema: 1
+actor: fixture-bot
+gates: full
+spec_depth: standard
+tickets_repos: []
+repos:
+  code-repo:
+    path: ../code-repo
+    card:
+      test: make test
+      lint: make lint
+      build: make build
+      forbidden_paths: []
+      probed_at: 2026-10-03T00:00:00Z
+      verified: true
