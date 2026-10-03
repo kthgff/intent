@@ -19,7 +19,7 @@ Work packages: `docs/exec/wp-*.md` (v1 ticket schema, dogfooded).
 | D9 | Platforms: macOS/Linux only v1 (POSIX signals, worktree paths) | done |
 | D10 | Prompts ship in-package + `PROMPT_VERSION` stamped on runs | done |
 | D11 | Spec-lint rules + fingerprint formula must be specified in code AND back-ported to SCHEMAS.md | done |
-| D12 | Embeddings `local` via onnxruntime-node/transformers.js — spike before commit; `off` always works | open |
+| D12 | Embeddings `local` via onnxruntime-node/transformers.js — spike before commit; `off` always works | done — SPIKE PASSED: `@huggingface/transformers` + `Xenova/all-MiniLM-L6-v2` loads in ~2.4s, 384-dim normalized vectors; `local` = real bundled path, `openrouter` remote, `off` no-op. See docs/EMBEDDINGS.md |
 | D13 | External binaries (gitleaks, gh, aider, devin) = PATH deps, detected at startup; scanner absent = fail-closed | done |
 | D14 | Ticket projection (wp-013): SCHEMAS §1 inline defaults (`depth: standard`, `depends_on: []`, `forced: false`) applied before `TicketFrontmatterSchema` — fixtures omit them; parse-error detail rides in the notifications payload (gate_items has no detail column) | done |
 | D15 | Conductor (wp-030): per-ticket spend/token "cumulative counters" are computed by summing `runs` rows (DB-SCHEMA `tickets` has no cost columns); cardless/doc stages run with the tickets-repo checkout as cwd (no worktree); `stalled` uses log/artifact mtime only — `heartbeat_at` is conductor-written and would mask silence | done |
@@ -50,7 +50,7 @@ Work packages: `docs/exec/wp-*.md` (v1 ticket schema, dogfooded).
 | W5 | wp-052 | Aider adapter + OpenRouter pricing table, usage stream-parse | wp-021 | done |
 | W6 | wp-060 | API: REST + SSE per API.md, token auth | wp-031 | todo |
 | W6 | wp-061 | Importers: GitHub issues → ticket folders | wp-013 | done |
-| W7 | wp-070 | KB/survey: dossiers, entities, embeddings spike → impl | wp-011 | in-progress |
+| W7 | wp-070 | KB/survey: dossiers, entities, embeddings spike → impl | wp-011 | done |
 | W8 | wp-080 | UI: 14 screens on the API (React+Vite, served by conductor) | wp-060 | todo |
 
 ## Parallel-agent rules

@@ -2,6 +2,7 @@
 schema: 1
 id: wp-070
 title: Knowledge base — survey runs, dossiers, entities, embeddings
+status: done
 status: in-progress
 priority: low
 depth: deep

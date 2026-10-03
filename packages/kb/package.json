@@ -1,0 +1,24 @@
+{
+  "name": "@sprint-runner/kb",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --pretty",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^4.3.0",
+    "@sprint-runner/core": "workspace:*",
+    "@sprint-runner/store": "workspace:*",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  }
+}
