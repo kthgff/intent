@@ -22,6 +22,7 @@ Work packages: `docs/exec/wp-*.md` (v1 ticket schema, dogfooded).
 | D12 | Embeddings `local` via onnxruntime-node/transformers.js — spike before commit; `off` always works | open |
 | D13 | External binaries (gitleaks, gh, aider, devin) = PATH deps, detected at startup; scanner absent = fail-closed | done |
 | D14 | Ticket projection (wp-013): SCHEMAS §1 inline defaults (`depth: standard`, `depends_on: []`, `forced: false`) applied before `TicketFrontmatterSchema` — fixtures omit them; parse-error detail rides in the notifications payload (gate_items has no detail column) | done |
+| D15 | Conductor (wp-030): per-ticket spend/token "cumulative counters" are computed by summing `runs` rows (DB-SCHEMA `tickets` has no cost columns); cardless/doc stages run with the tickets-repo checkout as cwd (no worktree); `stalled` uses log/artifact mtime only — `heartbeat_at` is conductor-written and would mask silence | done |
 | D15 | `'mock'` added to core `BACKENDS` — test backend, never user-configured | done |
 | D16 | Devin CLI unauthenticated on this machine → real `--export` schema unverifiable (wp-022 spike); `usageFromExport` parses multiple spellings defensively, `source: estimated` fallback. Re-verify once `devin auth` exists | open |
 
@@ -36,10 +37,10 @@ Work packages: `docs/exec/wp-*.md` (v1 ticket schema, dogfooded).
 | W1 | wp-012 | Git ops: tickets-repo sync (pull-rebase-retry), worktrees, ref-CAS, next-id | wp-002 | done |
 | W2 | wp-020 | Prompt renderer: tokens, ARTIFACT_TARGETS, capability shaping | wp-010 | done |
 | W2 | wp-021 | Adapter iface + **mock adapter** (scripted sentinels — the test backend) | wp-020 | done |
+| W3 | wp-030 | Conductor core: tick loop, reconcile, leases, heartbeats, kill/pause | wp-011,021,023 | done |
 | W2 | wp-022 | Devin adapter: `devin -p`, export parse, usage extract | wp-021 | done |
 | W2 | wp-023 | Runner env-ops: sanitizer (gitleaks), verify tasks, artifact collect | wp-012 | done |
 | W1 | wp-013 | Ticket projection: frontmatter parse → `tickets`/`ticket_repos` rows | wp-010,011,012 | done |
-| W3 | wp-030 | Conductor core: tick loop, reconcile, leases, heartbeats, kill/pause | wp-011,021,023 | in-progress |
 | W3 | wp-031 | State machine: sentinel→transition table, gate items, events.jsonl | wp-030 | todo |
 | W3 | wp-032 | Doc lints: spec-lint scorer, coverage-matrix, fail-closed validator | wp-031 | done |
 | W4 | wp-040 | E2E vertical: mock-adapter pipeline imported→triage→…→commit on fixture repo | wp-030,031,032 | todo |

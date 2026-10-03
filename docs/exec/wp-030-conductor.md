@@ -2,6 +2,7 @@
 schema: 1
 id: wp-030
 title: Conductor core — tick loop, reconcile, claim, launch, heartbeats
+status: done
 status: in-progress
 priority: high
 depth: deep
@@ -27,8 +28,36 @@ row. Run control: kill/pause/resume via signals. Retry ladder (1 same
 `packages/conductor/src/{loop,reconcile,claim,launch,control}/**`
 
 ## Acceptance criteria
-- [ ] Full tick drives a fixture ticket through one transition end-to-end
-- [ ] Killed/detached-dead run detected within 2 ticks → stalled → killed
-- [ ] Lease contention across two conductor instances → one claimer
-- [ ] Spend cap hit mid-run → kill + blocked reason (dual caps)
-- [ ] Heartbeat never written by the detached process (conductor-observed)
+- [x] Full tick drives a fixture ticket through one transition end-to-end
+- [x] Killed/detached-dead run detected within 2 ticks → stalled → killed
+- [x] Lease contention across two conductor instances → one claimer
+- [x] Spend cap hit mid-run → kill + blocked reason (dual caps)
+- [x] Heartbeat never written by the detached process (conductor-observed)
+
+## Implementation notes (2026-10-03)
+
+- `contracts.ts` is the wp-031 seam: `TransitionHandler.nextStage()`
+  (CLAIM query) + `TransitionHandler.onRunComplete()` (RECONCILE
+  handoff), plus the `TransitionTools` write surface
+  (`applyTicketStatus` — line-preserving frontmatter status write +
+  `commitAll` + projection + `status_changed` event;
+  `surfaceGateItem` + notification; `appendEvent`; `requestRun` →
+  dedup'd `pending` run row). `StubTransitionHandler` is a status→stage
+  map until wp-031 lands the real table.
+- Spec decisions (TRACKER D15): cumulative per-ticket spend/token
+  counters are computed by summing `runs` rows — DB-SCHEMA `tickets`
+  has no cost columns; the counters would be pure projection of
+  coordination data anyway. Cardless/doc stages launch with the
+  tickets-repo checkout as cwd (worktrees are only for
+  REPO_EXECUTING_STAGES). `stalled` detection uses log/artifact mtime
+  only — `runs.heartbeat_at` is written BY the sweep each tick, so
+  including it would mask silence. Run-handle persistence via
+  `runs/<id>/handle.json` so a restarted conductor can still signal/
+  collect runs it didn't spawn.
+- ADAPTERS failure mapping implemented in collect: exit 124 →
+  `killed` + `run_killed` (no sentinel handoff); missing/garbage
+  sentinel → `failed` + `run_failed` → `retryDecision()` ladder →
+  `pending` re-queue or ticket `failed`.
+- Fixed upstream dep bug: `adapters/mock/agent.mjs` `hang` scenario
+  awaited a ~365-day setTimeout (Node clamps >24.8d to ~1ms) and fell
+  through to `exit 2`; now awaits a never-resolving promise.
