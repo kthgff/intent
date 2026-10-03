@@ -2,7 +2,7 @@
 schema: 1
 id: wp-010
 title: Config layer — layered YAML + .env + precedence
-status: todo
+status: in-progress
 priority: high
 depth: standard
 repos: []
