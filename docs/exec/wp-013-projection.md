@@ -2,7 +2,7 @@
 schema: 1
 id: wp-013
 title: Ticket projection — frontmatter scan → tickets/ticket_repos rows
-status: todo
+status: in-progress
 priority: high
 depth: standard
 repos: []

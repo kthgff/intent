@@ -2,7 +2,7 @@
 schema: 1
 id: wp-020
 title: Prompt renderer — token table, ARTIFACT_TARGETS, capability shaping
-status: todo
+status: in-progress
 priority: high
 depth: standard
 repos: []

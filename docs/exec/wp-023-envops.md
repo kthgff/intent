@@ -2,7 +2,7 @@
 schema: 1
 id: wp-023
 title: Runner env-ops — gitleaks sanitizer, verify tasks, artifact collect
-status: todo
+status: in-progress
 priority: high
 depth: standard
 repos: []
