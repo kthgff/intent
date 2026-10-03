@@ -2,6 +2,7 @@
 schema: 1
 id: wp-061
 title: GitHub importer — issues → ticket folders
+status: done
 status: in-progress
 priority: medium
 depth: standard
@@ -22,7 +23,13 @@ where possible; collision → flagged inbox item (never renumber).
 `packages/conductor/src/import/**` or `packages/importers/**`
 
 ## Acceptance criteria
-- [ ] Fixture issues → correct ticket.md frontmatter + folders committed
-- [ ] Id collision → inbox item, original untouched
-- [ ] Repo map applied; unmapped → needs-info-style flag, not guess
-- [ ] Jira/Linear: importer contract seam exists, impls absent (v1-out)
+- [x] Fixture issues → correct ticket.md frontmatter + folders committed
+- [x] Id collision → inbox item, original untouched
+- [x] Repo map applied; unmapped → needs-info-style flag, not guess
+- [x] Jira/Linear: importer contract seam exists, impls absent (v1-out)
+
+## Notes
+Landed in `packages/conductor/src/import/`: `github.ts` (`gh` CLI fetch),
+`preview.ts` (label→priority heuristic + repo-map application),
+`materialize.ts` (ticket.md emit + commitAll + collision gate items),
+`run.ts` (`runImport` → `IMPORTED: <n>` / `IMPORT-FAILED: <r>`).
