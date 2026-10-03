@@ -14,6 +14,7 @@ export * from './reconcile/index.js';
 export * from './review/index.js';
 export * from './import/index.js';
 export * from './claim/index.js';
+export * from './shepherd/index.js';
 export * from './launch/index.js';
 export * from './launch/caps-action.js';
 export * from './control/index.js';

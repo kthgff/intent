@@ -20,6 +20,7 @@ import type {
 } from '@sprint-runner/core';
 import type { TransitionHandler } from '../contracts.js';
 import type { ScanResult } from '../envops/index.js';
+import type { GhClient } from '../shepherd/gh.js';
 
 /** A tickets repo the conductor is responsible for. */
 export interface ConductorWorkspace {
@@ -78,6 +79,13 @@ export interface ConductorDeps {
    *  (CONDUCTOR loop step 1). Skipped automatically when the checkout
    *  has no `origin` remote. Default true. */
   pull?: boolean;
+  /**
+   * Shepherd's `gh` client (wp-051 — CONDUCTOR "Shepherd loop").
+   * Tests inject a stub; default is `ShellGhClient` (shells `gh` on
+   * PATH). The poll runs inside the tick, throttled by
+   * `shepherd.poll_interval_s`.
+   */
+  gh?: GhClient;
   /** Sink for errors on detached async paths (the usage-stream cap
    *  check runs off an adapter callback, outside tick()). */
   onError?: (error: unknown) => void;

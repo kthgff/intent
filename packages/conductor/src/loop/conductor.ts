@@ -20,6 +20,11 @@ import type { ControlOp, RunHandle } from '@sprint-runner/core';
 import { type ClaimReport, claim } from '../claim/index.js';
 import { controlRun } from '../control/index.js';
 import { type ReconcileReport, reconcile } from '../reconcile/index.js';
+import {
+  ShellGhClient,
+  type ShepherdReport,
+  pollOpenPrs,
+} from '../shepherd/index.js';
 import type { ConductorDeps, ConductorWorkspace } from './deps.js';
 import { LeaseManager } from './lease.js';
 import type { ToolCtx } from './tools.js';
@@ -27,6 +32,8 @@ import type { ToolCtx } from './tools.js';
 export interface TickReport {
   reconcile: ReconcileReport[];
   claim: ClaimReport[];
+  /** Shepherd pass per workspace (empty between poll intervals). */
+  shepherd: ShepherdReport[];
 }
 
 export class Conductor {
@@ -35,15 +42,20 @@ export class Conductor {
   /** runId → adapter RunHandle (also persisted as handle.json). */
   readonly handles = new Map<string, RunHandle>();
   readonly killedForCap = new Set<string>();
+  /** Last shepherd poll per workspace (throttle for
+   *  `shepherd.poll_interval_s` — the tick fires ~10s, the poll
+   *  default is 60s). */
+  readonly #lastShepherdPoll = new Map<string, number>();
+  #gh: import('../shepherd/index.js').GhClient | null = null;
 
   constructor(deps: ConductorDeps) {
     this.deps = deps;
     this.leases = new LeaseManager(deps);
   }
 
-  /** One RECONCILE → CLAIM pass per workspace. */
+  /** One RECONCILE → CLAIM (+ shepherd poll when due) per workspace. */
   async tick(): Promise<TickReport> {
-    const report: TickReport = { reconcile: [], claim: [] };
+    const report: TickReport = { reconcile: [], claim: [], shepherd: [] };
     for (const ws of this.deps.workspaces) {
       const ctx = this.#ctx(ws);
       const rr: ReconcileReport = {
@@ -56,8 +68,42 @@ export class Conductor {
       await reconcile({ ...ctx, report: rr });
       report.reconcile.push(rr);
       report.claim.push(await claim(ctx));
+      report.shepherd.push(await this.shepherdTick(ctx));
     }
     return report;
+  }
+
+  /**
+   * The shepherd's post-PR poll (CONDUCTOR "Shepherd loop", wp-051) —
+   * additive to the tick, throttled by `shepherd.poll_interval_s`
+   * (seconds; 0 = poll every tick — what tests want). Errors are
+   * report warnings, never tick failures.
+   */
+  async shepherdTick(
+    ctx: ToolCtx,
+    opts: { force?: boolean } = {},
+  ): Promise<ShepherdReport> {
+    const { ws } = ctx;
+    const intervalMs =
+      (this.deps.config.shepherd?.poll_interval_s ?? 60) * 1000;
+    const now = this.deps.now?.().getTime() ?? Date.now();
+    const last =
+      this.#lastShepherdPoll.get(ws.name) ?? Number.NEGATIVE_INFINITY;
+    const empty: ShepherdReport = {
+      workspace: ws.name,
+      polled: [],
+      actions: [],
+      warnings: [],
+    };
+    if (!opts.force && now - last < intervalMs) return empty;
+    this.#lastShepherdPoll.set(ws.name, now);
+    try {
+      this.#gh ??= this.deps.gh ?? new ShellGhClient();
+      return await pollOpenPrs({ ...ctx, gh: this.#gh });
+    } catch (e) {
+      empty.warnings.push(`shepherd: ${(e as Error).message}`);
+      return empty;
+    }
   }
 
   #ctx(ws: ConductorWorkspace): ToolCtx {
