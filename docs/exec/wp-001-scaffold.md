@@ -2,7 +2,7 @@
 schema: 1
 id: wp-001
 title: Scaffold pnpm workspace, toolchain, CI
-status: todo
+status: done
 priority: high
 depth: light
 repos: []
