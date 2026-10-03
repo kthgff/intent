@@ -437,6 +437,16 @@ export async function mergeFindingsPass(args: {
         const seen = (existing.rounds_seen as number[] | undefined) ?? [];
         if (!seen.includes(round)) seen.push(round);
         existing.rounds_seen = seen;
+        // Cross-pass provenance (wp-050): which passes flagged the
+        // thread + later passes' evidence joins tagged.
+        const passList = (existing.passes as string[] | undefined) ?? [];
+        if (!passList.includes(pass)) passList.push(pass);
+        existing.passes = passList;
+        if (f.evidence) {
+          existing.evidence = existing.evidence
+            ? `${existing.evidence}\n[${pass}] ${f.evidence}`
+            : `[${pass}] ${f.evidence}`;
+        }
         if (existing.status === 'fixed') {
           existing.status = 'reopened';
           reopened += 1;
@@ -462,6 +472,7 @@ export async function mergeFindingsPass(args: {
       rounds_seen: [round],
       author: 'review',
       replies: [],
+      passes: [pass],
     });
     created += 1;
     previousOpen.delete(threadIdFor(fp));

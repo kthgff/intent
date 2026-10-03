@@ -43,6 +43,14 @@ import { emitEvent, regenerateLog } from '../events/index.js';
 import { gateForStatus, gateKindFor } from '../gates/index.js';
 import { retryDecision } from '../loop/retry.js';
 import {
+  type ReviewDocument,
+  applyFixResults,
+  discussReply,
+  dismissalClaimsFromDeviations,
+  parseFixesPayload,
+  planReviewRound,
+} from '../review/index.js';
+import {
   type TriageSuggestions,
   applySuggestionsToTicketMd,
   findingsArtifact,
@@ -917,7 +925,12 @@ export class RealTransitionHandler implements TransitionHandler {
         after,
         this.#config.review.auto_fix_severities,
       );
-      if (blocking.length > 0 && round <= this.#config.review.auto_fix_rounds) {
+      if (
+        planReviewRound(
+          after as unknown as ReviewDocument,
+          this.#config.review,
+        ) === 'fix-run'
+      ) {
         await tools.requestRun({
           workspace: tools.workspace,
           subject: id,
@@ -987,6 +1000,70 @@ export class RealTransitionHandler implements TransitionHandler {
 
     fixesComplete: async ({ outcome, tools, payload }) => {
       const id = outcome.run.ticket_id ?? outcome.run.subject;
+      const ticketDir = join(tools.ticketsRepoPath, 'tickets', id);
+      // Apply the fix run's claims to review.json before the re-review:
+      // FIXES-COMPLETE <f>/<t> + DEVIATIONS.md self-dismissals, capped
+      // by budgets.fix_dismissal_cap — over-cap → the whole batch
+      // escalates to the human (PRD §7.3).
+      const review = await readReviewJson(ticketDir);
+      if (review) {
+        const devPath = outcome.result.artifacts.find((a) =>
+          a.endsWith('DEVIATIONS.md'),
+        );
+        const deviations = devPath ? ((await readOrNull(devPath)) ?? '') : '';
+        const applied = applyFixResults(
+          {
+            payload,
+            dismissed_thread_ids: dismissalClaimsFromDeviations(deviations),
+          },
+          review as unknown as ReviewDocument,
+          { fix_dismissal_cap: this.#config.budgets.fix_dismissal_cap },
+          { ts: tools.now().toISOString() },
+        );
+        if (applied.fixed > 0 || applied.dismissed > 0) {
+          await writeFile(
+            join(ticketDir, 'review.json'),
+            `${JSON.stringify(applied.review, null, 2)}\n`,
+            'utf8',
+          );
+          await commitAll(
+            tools.ticketsRepoPath,
+            `conductor: ${id} fix claims (${payload})`,
+            gitActor(tools),
+          );
+        }
+        if (applied.dismissed > 0) {
+          await emitEvent(tools, {
+            ticketId: id,
+            stage: 'fix',
+            event: 'finding_dismissed',
+            run: outcome.run.id,
+            data: { count: applied.dismissed, by: 'fix-run' },
+          });
+        }
+        if (applied.escalated) {
+          await tools.surfaceGateItem({
+            subject: id,
+            gate: 'fix-dismissal-breach',
+            kind: 'escalation',
+            blockedAgent: true,
+            payload: {
+              reason: `fix run self-dismissed over cap (${applied.dismissed + applied.overCap.length} > ${this.#config.budgets.fix_dismissal_cap}) — ALL findings escalate`,
+              over_cap: applied.overCap,
+            },
+          });
+          await emitEvent(tools, {
+            ticketId: id,
+            stage: 'fix',
+            event: 'escalated',
+            run: outcome.run.id,
+            data: {
+              reason: 'fix dismissal cap breach',
+              over_cap: applied.overCap,
+            },
+          });
+        }
+      }
       // FIXES-COMPLETE → a full re-review round: verify task again,
       // then the 4 passes merge over the grown review.json.
       await tools.requestRun({
@@ -1019,25 +1096,25 @@ export class RealTransitionHandler implements TransitionHandler {
             body?: string;
           };
           const review = await readReviewJson(ticketDir);
-          const finding = review?.findings.find(
-            (f) => f.thread_id === reply.thread_id,
-          );
-          if (review && finding) {
-            (finding.replies as unknown[]).push({
-              actor: 'agent',
-              body: reply.body ?? '',
+          if (review) {
+            const res = discussReply(review as unknown as ReviewDocument, {
+              sentinel: 'REPLIED',
+              thread_id: reply.thread_id,
+              body: reply.body,
               ts: tools.now().toISOString(),
             });
-            await writeFile(
-              join(ticketDir, 'review.json'),
-              `${JSON.stringify(review, null, 2)}\n`,
-              'utf8',
-            );
-            await commitAll(
-              tools.ticketsRepoPath,
-              `conductor: ${id} discuss reply ${reply.thread_id}`,
-              gitActor(tools),
-            );
+            if (res.kind === 'appended') {
+              await writeFile(
+                join(ticketDir, 'review.json'),
+                `${JSON.stringify(res.review, null, 2)}\n`,
+                'utf8',
+              );
+              await commitAll(
+                tools.ticketsRepoPath,
+                `conductor: ${id} discuss reply ${reply.thread_id}`,
+                gitActor(tools),
+              );
+            }
           }
         } catch {
           /* malformed reply.json — the run's own lint path handles it */
