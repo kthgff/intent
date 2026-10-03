@@ -1,1 +1,26 @@
-export {};
+export {
+  DEFAULT_GIT_TIMEOUT_MS,
+  GitError,
+  type GitOptions,
+  type GitResult,
+  NonFastForwardError,
+  git,
+  isNonFastForward,
+} from './git.js';
+export {
+  type Actor,
+  DEFAULT_ACTOR,
+  type LockContent,
+  type LockResult,
+  MAX_RETRIES,
+  acquireRefLock,
+  clone,
+  commitAll,
+  createWorktree,
+  pullRebase,
+  push,
+  removeWorktree,
+  reserveNextId,
+  sweepExpiredLocks,
+  worktreePath,
+} from './ops.js';
