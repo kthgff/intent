@@ -29,7 +29,10 @@ switch (cmd) {
   case 'status':
     console.error(`${cmd}: not yet implemented (see docs/exec/ wave plan)`);
     process.exit(2);
+    break;
   default:
     process.stdout.write(USAGE);
-    process.exit(cmd === undefined || cmd === 'help' || cmd === '--help' ? 0 : 2);
+    process.exit(
+      cmd === undefined || cmd === 'help' || cmd === '--help' ? 0 : 2,
+    );
 }

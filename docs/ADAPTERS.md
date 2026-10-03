@@ -135,6 +135,42 @@ harness exposes, declared via `granularity`:
 | `DISMISSAL_CAP` / `CAPABILITY_NOTES` | budgets + backend flags | fix, implement |
 | `RAW_ISSUES_JSON` / `REPO_MAP` | tracker fetch + settings | import |
 
+## Devin adapter — spike findings (2026-10-03)
+
+Binary: `/Applications/Devin.app/Contents/Resources/app/extensions/windsurf/devin/bin/devin`
+(Devin.app bundle, Sep-29 build; `devin` NOT on PATH, `DEVIN_BIN` unset
+on the spike machine — bundle-path fallback is the live path).
+
+- `devin --help` confirms the documented flag surface:
+  `-p, --print [<PROMPT>]` (optional inline prompt — `-p` alone + a
+  `--prompt-file` is legal), `--prompt-file <FILE>`,
+  `--permission-mode` ∈ `auto | accept-edits | smart | dangerous`
+  (env `DEVIN_PERMISSION_MODE`, default `auto`), `--export [<PATH>]`
+  ("exports after each turn"), `--respect-workspace-trust [true|false]`,
+  `--model <MODEL>` (env `DEVIN_MODEL`), `--sandbox` (seatbelt/bwrap).
+- Permission mapping stands: config `smart`→`smart`,
+  `bypass`→`dangerous`, `accept-edits`→`accept-edits`.
+- `devin acp` exists: ACP (Agent Client Protocol) server over stdio,
+  with `--agent-type` (`summarizer`, `review`) and `--model` /
+  `--refusal-fallback` — a possible future structured-interaction/
+  streaming-usage channel. Noted; NOT implemented in wp-022.
+- **Export schema unknown — auth blocked.** `devin auth status` →
+  "Not logged in"; a minimal `-p "say OK" --export` run launches the
+  interactive login flow and dies (`Error: Login canceled`) producing
+  no export. Per spike rules, not retried. The devin usage extractor
+  therefore parses defensively: it recognizes several plausible
+  token-field spellings (`usage`/`token_usage`/`totals` objects and
+  per-message `messages[].usage` with
+  `tokens_in|input_tokens|prompt_tokens` /
+  `tokens_out|output_tokens|completion_tokens` /
+  `cached|cached_tokens|cache_read_input_tokens`), and falls back to
+  `source: estimated` when the export carries nothing — usage
+  extraction never fails the run (failure-mapping table). Revisit with
+  a real export fixture once auth exists on a dev machine.
+- Failure mode worth noting: unauthenticated `devin -p` exits fast
+  with "Welcome to Devin CLI! … Login canceled" on stdout and no
+  sentinel → sentinel missing → `run_failed` per contract (clean).
+
 ## Adding a backend
 
 Implement `prepare/run/collect` (+ `control`/`on_usage` if the runtime
