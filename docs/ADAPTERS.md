@@ -54,6 +54,16 @@ and purges it — the diff never sees them.
   Full flags: exec/outside-tree/gh all true. Usage: parsed from
   export.json post-run — `run-aggregate` granularity unless the
   export exposes per-call data; `cost_usd` null (non-token billing).
+  **Verified flags (2026-10-03, Devin.app bundled binary)**: real
+  permission modes are `auto | accept-edits | smart | dangerous` —
+  v0's "bypass" maps to `dangerous`, and `permission_mode: smart`
+  passes through unchanged. `--prompt-file <FILE>` exists and is
+  preferred over `-p "$(cat …)"` for large rendered prompts.
+  `--respect-workspace-trust false` required non-interactive in
+  untrusted dirs. `--sandbox` (seatbelt/bwrap) available as a
+  hardening option. Binary discovery: `devin` on PATH, else
+  `DEVIN_BIN`, else Devin.app bundled path
+  (`…/app/extensions/windsurf/devin/bin/devin`).
 - **aider** (OpenRouter BYOK): `aider --message-file <rendered.md>
   --yes-always --auto-commits --model openrouter/<model>` in the
   worktree. Flags: `can_exec: true`, `can_write_outside_tree: false`,
