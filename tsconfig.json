@@ -9,6 +9,7 @@
     { "path": "packages/adapters" },
     { "path": "packages/conductor" },
     { "path": "packages/lints" },
+    { "path": "packages/kb" },
     { "path": "packages/api" },
     { "path": "packages/cli" }
   ]
