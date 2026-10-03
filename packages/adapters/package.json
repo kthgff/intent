@@ -6,9 +6,13 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build": "tsc -b",
+    "build": "tsc -b && mkdir -p dist/mock && cp src/mock/agent.mjs dist/mock/agent.mjs",
     "typecheck": "tsc -b --pretty",
     "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@sprint-runner/core": "workspace:*",
+    "@sprint-runner/prompts": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

@@ -21,6 +21,7 @@ Work packages: `docs/exec/wp-*.md` (v1 ticket schema, dogfooded).
 | D11 | Spec-lint rules + fingerprint formula must be specified in code AND back-ported to SCHEMAS.md | done |
 | D12 | Embeddings `local` via onnxruntime-node/transformers.js — spike before commit; `off` always works | open |
 | D13 | External binaries (gitleaks, gh, aider, devin) = PATH deps, detected at startup; scanner absent = fail-closed | done |
+| D14 | `mock` backend name not yet in core `Backend` union ('devin'\|'aider'); MockAdapter casts `name` until core adds 'mock' (wp-021) | open |
 
 ## Waves (see EXEC-PLAN.md)
 
@@ -33,7 +34,7 @@ Work packages: `docs/exec/wp-*.md` (v1 ticket schema, dogfooded).
 | W1 | wp-012 | Git ops: tickets-repo sync (pull-rebase-retry), worktrees, ref-CAS, next-id | wp-002 | done |
 | W1 | wp-013 | Ticket projection: frontmatter parse → `tickets`/`ticket_repos` rows | wp-010,011,012 | in-progress |
 | W2 | wp-020 | Prompt renderer: tokens, ARTIFACT_TARGETS, capability shaping | wp-010 | done |
-| W2 | wp-021 | Adapter iface + **mock adapter** (scripted sentinels — the test backend) | wp-020 | todo |
+| W2 | wp-021 | Adapter iface + **mock adapter** (scripted sentinels — the test backend) | wp-020 | done |
 | W2 | wp-022 | Devin adapter: `devin -p`, export parse, usage extract | wp-021 | todo |
 | W2 | wp-023 | Runner env-ops: sanitizer (gitleaks), verify tasks, artifact collect | wp-012 | in-progress |
 | W3 | wp-030 | Conductor core: tick loop, reconcile, leases, heartbeats, kill/pause | wp-011,021,023 | todo |
