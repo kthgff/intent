@@ -171,6 +171,38 @@ on the spike machine — bundle-path fallback is the live path).
   with "Welcome to Devin CLI! … Login canceled" on stdout and no
   sentinel → sentinel missing → `run_failed` per contract (clean).
 
+## Aider adapter — spike notes (2026-10-03)
+
+`aider` is NOT installed on the spike machine; neither `pipx` nor `uvx`
+is available (`pipx run aider-chat --help` / `uvx aider-chat --help`
+both fail — no launcher on PATH). Per spike rules nothing was installed
+globally, so the flag set below is **from documentation/knowledge and is
+UNVERIFIED against a real `aider --help`**. Binary discovery covers
+`aider` on PATH → `AIDER_BIN` → `pipx run aider-chat` / `uvx aider-chat`
+shims; re-verify this list on the first machine with a real install.
+
+- **Canonical flags (unverified)**: `aider --message-file <file>` —
+  read the whole prompt from a file and exit non-interactively;
+  `--yes-always` — auto-confirm every prompt; `--auto-commits` —
+  aider commits its own edits (the runner still owns push/PR);
+  `--model openrouter/<org>/<model>` — OpenRouter BYOK routing.
+- **Env**: `OPENROUTER_API_KEY` passthrough — the runner injects it
+  from `.env` secrets into the child env; never logged, never in argv.
+- **Git**: aider assumes a git repo; `--no-git` exists but is NOT used —
+  runs happen in a real worktree and `--auto-commits` is the contract.
+  (Unverified flag name; confirmed present in docs.)
+- **Token-usage stdout format (unverified)**: aider is documented to
+  print per-message lines of the form
+  `Tokens: 12.3k sent, 980 received.` and, in newer builds, a cost
+  suffix `Cost: $0.04 message, $0.31 session.` The usage parser is
+  defensive multi-pattern (k/M suffixes, `sent`/`received`,
+  `cache-write`/`cache-read` hints where present); an unrecognized
+  format simply yields no callback — usage extraction never fails the
+  run (failure-mapping table).
+- Binary discovery order: `aider` on PATH → `AIDER_BIN` →
+  `pipx run aider-chat` → `uvx aider-chat` → not-found error at
+  adapter init (never mid-run).
+
 ## Adding a backend
 
 Implement `prepare/run/collect` (+ `control`/`on_usage` if the runtime

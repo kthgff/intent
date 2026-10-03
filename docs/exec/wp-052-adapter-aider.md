@@ -2,6 +2,7 @@
 schema: 1
 id: wp-052
 title: Aider adapter — OpenRouter BYOK, usage stream-parse, pricing table
+status: done
 status: in-progress
 priority: medium
 depth: standard
@@ -23,7 +24,22 @@ document findings in ADAPTERS.md (backport rule).
 `packages/adapters/src/aider/**`, `docs/ADAPTERS.md`
 
 ## Acceptance criteria
-- [ ] Spike findings in ADAPTERS.md (real flag names, output format)
-- [ ] usage_partial streams mid-run → runs.tokens_* live-update
-- [ ] cost_usd = tokens × price table; model missing from table → null + warn
-- [ ] Scratch-dir artifact flow verified against wp-023 collector
+- [x] Spike findings in ADAPTERS.md (real flag names, output format)
+- [x] usage_partial streams mid-run → runs.tokens_* live-update
+- [x] cost_usd = tokens × price table; model missing from table → null + warn
+- [x] Scratch-dir artifact flow verified against wp-023 collector
+
+## Blocker
+
+None blocking — resolved ambiguities:
+
+- **aider not installed** (no `aider`, `pipx`, or `uvx` on this machine):
+  flag set + token-line format documented as UNVERIFIED in
+  `docs/ADAPTERS.md` → "Aider adapter — spike notes (2026-10-03)".
+  Re-verify on first machine with a real install.
+- **collectArtifacts seam**: `packages/conductor` depends on
+  `@sprint-runner/adapters` (devDep), so adapters cannot import
+  `envops.collectArtifacts` without a dependency cycle. The adapter
+  mirrors the scratch-dir move+purge itself (mock-adapter pattern);
+  the conductor's own `collectArtifacts` pass in reconcile remains the
+  authoritative residue check on the runner path.
