@@ -1,4 +1,7 @@
 export * from './contracts.js';
+export * from './events/index.js';
+export * from './gates/index.js';
+export * from './transitions/index.js';
 export * from './envops/index.js';
 export * from './projection/index.js';
 export * from './loop/conductor.js';
