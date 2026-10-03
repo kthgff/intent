@@ -2,7 +2,7 @@
 schema: 1
 id: wp-031
 title: State machine — sentinel→transition table, gate items, events.jsonl
-status: todo
+status: in-progress
 priority: high
 depth: deep
 repos: []

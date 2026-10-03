@@ -41,7 +41,7 @@ Work packages: `docs/exec/wp-*.md` (v1 ticket schema, dogfooded).
 | W2 | wp-022 | Devin adapter: `devin -p`, export parse, usage extract | wp-021 | done |
 | W2 | wp-023 | Runner env-ops: sanitizer (gitleaks), verify tasks, artifact collect | wp-012 | done |
 | W1 | wp-013 | Ticket projection: frontmatter parse → `tickets`/`ticket_repos` rows | wp-010,011,012 | done |
-| W3 | wp-031 | State machine: sentinel→transition table, gate items, events.jsonl | wp-030 | todo |
+| W3 | wp-031 | State machine: sentinel→transition table, gate items, events.jsonl | wp-030 | in-progress |
 | W3 | wp-032 | Doc lints: spec-lint scorer, coverage-matrix, fail-closed validator | wp-031 | done |
 | W4 | wp-040 | E2E vertical: mock-adapter pipeline imported→triage→…→commit on fixture repo | wp-030,031,032 | todo |
 | W5 | wp-050 | Review pipeline: 4-pass merge, fingerprints, review.json, fix rounds | wp-031 | todo |
