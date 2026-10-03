@@ -56,7 +56,7 @@ export type TicketPriority = (typeof TICKET_PRIORITIES)[number];
 export const DEPTH_TIERS = ['light', 'standard', 'deep'] as const;
 export type DepthTier = (typeof DEPTH_TIERS)[number];
 
-export const BACKENDS = ['devin', 'aider'] as const;
+export const BACKENDS = ['devin', 'aider', 'mock'] as const; // 'mock' is the test backend — never user-configured
 export type Backend = (typeof BACKENDS)[number];
 
 export const PERMISSION_MODES = ['smart', 'bypass', 'accept-edits'] as const;

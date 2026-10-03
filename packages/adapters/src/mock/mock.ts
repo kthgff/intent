@@ -210,11 +210,7 @@ function lastNonEmptyLine(logPath: string): string | null {
 }
 
 export class MockAdapter implements Adapter {
-  /**
-   * 'mock' is not yet in core's `Backend` union ('devin'|'aider' — the
-   * real backends). Cast is intentional; tracked in the wp-021 ticket.
-   */
-  readonly name = 'mock' as Adapter['name'];
+  readonly name: Adapter['name'] = 'mock';
   readonly capabilities: CapabilityFlags;
 
   readonly #opts: Required<
