@@ -16,18 +16,28 @@ def resolve(path):
                             capture_output=True,text=True).stdout.strip() or 'MERGE_HEAD'
     def pick(m):
         head, theirs = m.group(1), m.group(2)
-        lines = (head + theirs).split('\n')
-        # prefer lines containing done/in-progress/todo in that order
-        for want in ('| done |', 'status: done', '| in-progress |', 'status: in-progress'):
-            for l in lines:
-                if want in l:
-                    return l + ('\n' if l.startswith('|') else '')
-        # default: union, theirs first
-        out, seen = [], set()
+        # merge line-by-line: rows keyed on content minus status — prefer
+        # the most-advanced status (done > in-progress > todo), keep both
+        # sides' distinct rows.
+        rank = {'done': 3, 'in-progress': 2, 'todo': 1}
+        def key(l):
+            return re.sub(r'\| (done|in-progress|todo|blocked|cut) \|?\s*$', '', l).strip()
+        def status(l):
+            for s in rank:
+                if s in l: return s
+            return None
+        merged = {}
+        order = []
         for l in theirs.split('\n') + head.split('\n'):
-            if l and l not in seen:
-                seen.add(l); out.append(l)
-        return '\n'.join(out) + '\n'
+            if not l.strip(): continue
+            k = key(l)
+            st = status(l)
+            if k in merged:
+                if st and rank[st] > rank.get(merged[k][1], 0):
+                    merged[k] = (l, st)
+            else:
+                merged[k] = (l, st); order.append(k)
+        return '\n'.join(merged[k][0] for k in order) + '\n'
     s = re.sub(r'<<<<<<< HEAD\n(.*?)=======\n(.*?)>>>>>>> [^\n]+\n', pick, s, flags=re.S)
     # dedupe tracker table rows
     if path.endswith('TRACKER.md'):
