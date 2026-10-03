@@ -25,6 +25,7 @@ Work packages: `docs/exec/wp-*.md` (v1 ticket schema, dogfooded).
 | D15 | Conductor (wp-030): per-ticket spend/token "cumulative counters" are computed by summing `runs` rows (DB-SCHEMA `tickets` has no cost columns); cardless/doc stages run with the tickets-repo checkout as cwd (no worktree); `stalled` uses log/artifact mtime only — `heartbeat_at` is conductor-written and would mask silence | done |
 | D15 | `'mock'` added to core `BACKENDS` — test backend, never user-configured | done |
 | D16 | Devin CLI unauthenticated on this machine → real `--export` schema unverifiable (wp-022 spike); `usageFromExport` parses multiple spellings defensively, `source: estimated` fallback. Re-verify once `devin auth` exists | open |
+| D17 | Importer (wp-061) decisions: `importers.default_repo_map` maps **issue labels** → repo names; unmapped → `repos: []` + `repo-map-unmapped` note (importer never guesses — import.md's "best guess" applies to agent-authored runs, the deterministic importer flags for triage). Label→priority heuristic: p0/p1/critical/urgent/blocker/sev1-2/priority:high → high; p3/p4/minor/trivial/nice-to-have/priority:low → low; else medium. `token_env` names the env var — its value is injected as `GH_TOKEN`/`GITHUB_TOKEN` into the `gh` child. | done |
 
 ## Waves (see EXEC-PLAN.md)
 
@@ -48,7 +49,7 @@ Work packages: `docs/exec/wp-*.md` (v1 ticket schema, dogfooded).
 | W5 | wp-051 | Shepherd: gh poll, ci-fix/comment-fix/rebase runs, DoD gate | wp-050 | todo |
 | W5 | wp-052 | Aider adapter + OpenRouter pricing table, usage stream-parse | wp-021 | todo |
 | W6 | wp-060 | API: REST + SSE per API.md, token auth | wp-031 | todo |
-| W6 | wp-061 | Importers: GitHub issues → ticket folders | wp-013 | todo |
+| W6 | wp-061 | Importers: GitHub issues → ticket folders | wp-013 | done |
 | W7 | wp-070 | KB/survey: dossiers, entities, embeddings spike → impl | wp-011 | todo |
 | W8 | wp-080 | UI: 14 screens on the API (React+Vite, served by conductor) | wp-060 | todo |
 
