@@ -2,7 +2,7 @@
 schema: 1
 id: wp-021
 title: Adapter interface impl — mock backend (scripted sentinels)
-status: todo
+status: in-progress
 priority: high
 depth: standard
 repos: []

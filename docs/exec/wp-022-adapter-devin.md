@@ -2,7 +2,7 @@
 schema: 1
 id: wp-022
 title: Devin adapter — devin -p spawn, export parse, usage extraction
-status: todo
+status: in-progress
 priority: medium
 depth: standard
 repos: []
