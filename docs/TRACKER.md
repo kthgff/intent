@@ -36,7 +36,7 @@ Work packages: `docs/exec/wp-*.md` (v1 ticket schema, dogfooded).
 | W2 | wp-021 | Adapter iface + **mock adapter** (scripted sentinels — the test backend) | wp-020 | done |
 | W3 | wp-030 | Conductor core: tick loop, reconcile, leases, heartbeats, kill/pause | wp-011,021,023 | todo |
 | W3 | wp-031 | State machine: sentinel→transition table, gate items, events.jsonl | wp-030 | todo |
-| W3 | wp-032 | Doc lints: spec-lint scorer, coverage-matrix, fail-closed validator | wp-031 | todo |
+| W3 | wp-032 | Doc lints: spec-lint scorer, coverage-matrix, fail-closed validator | wp-031 | done |
 | W4 | wp-040 | E2E vertical: mock-adapter pipeline imported→triage→…→commit on fixture repo | wp-030,031,032 | todo |
 | W5 | wp-050 | Review pipeline: 4-pass merge, fingerprints, review.json, fix rounds | wp-031 | todo |
 | W5 | wp-051 | Shepherd: gh poll, ci-fix/comment-fix/rebase runs, DoD gate | wp-050 | todo |
