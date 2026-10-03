@@ -22,6 +22,8 @@ Work packages: `docs/exec/wp-*.md` (v1 ticket schema, dogfooded).
 | D12 | Embeddings `local` via onnxruntime-node/transformers.js — spike before commit; `off` always works | open |
 | D13 | External binaries (gitleaks, gh, aider, devin) = PATH deps, detected at startup; scanner absent = fail-closed | done |
 | D14 | Ticket projection (wp-013): SCHEMAS §1 inline defaults (`depth: standard`, `depends_on: []`, `forced: false`) applied before `TicketFrontmatterSchema` — fixtures omit them; parse-error detail rides in the notifications payload (gate_items has no detail column) | done |
+| D15 | `'mock'` added to core `BACKENDS` — test backend, never user-configured | done |
+| D16 | Devin CLI unauthenticated on this machine → real `--export` schema unverifiable (wp-022 spike); `usageFromExport` parses multiple spellings defensively, `source: estimated` fallback. Re-verify once `devin auth` exists | open |
 
 ## Waves (see EXEC-PLAN.md)
 
