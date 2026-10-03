@@ -14,6 +14,7 @@
  * Then: prepare → adapter.run detached → register the run row +
  * conductor-observed heartbeat + live usage stream → cap check.
  */
+import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -251,17 +252,29 @@ export async function launch(
     for (const repo of ticket.repos) {
       const repoPath = resolveRepoPath(deps, ws, repo);
       const branch = `ticket/${ticket.ticket_id}`;
-      const dir = await createWorktree(repoPath, slug, branch);
+      // The worktree+branch are per-TICKET (ticket_repos row), not per
+      // run — a verify/fix/rebase run after `implement` must reuse the
+      // existing checkout: `git worktree add` refuses a branch that is
+      // already checked out elsewhere.
+      const existing = await store.getTicketRepo({
+        workspace: ws.name,
+        ticket_id: ticket.ticket_id,
+        repo,
+      });
+      const dir =
+        existing?.worktree && existsSync(existing.worktree)
+          ? existing.worktree
+          : await createWorktree(repoPath, slug, branch);
       await store.upsertTicketRepo({
         workspace: ws.name,
         ticket_id: ticket.ticket_id,
         repo,
         branch,
         worktree: dir,
-        pr_url: null,
-        pr_state: null,
-        ci_state: null,
-        merged_sha: null,
+        pr_url: existing?.pr_url ?? null,
+        pr_state: existing?.pr_state ?? null,
+        ci_state: existing?.ci_state ?? null,
+        merged_sha: existing?.merged_sha ?? null,
       });
       worktree = dir; // last wins for multi-repo; cwd only anchors the spawn
     }
@@ -271,16 +284,27 @@ export async function launch(
   const ticketDir = ticket
     ? join(ws.ticketsRepoPath, 'tickets', ticket.ticket_id)
     : undefined;
-  const rendered = await adapter.prepare(req.subject, req.stage, {
-    workspace: ws.name,
-    run_dir: runDir,
-    run_id: runId,
-    backend: adapter.name,
-    ...(model ? { model } : {}),
-    ...(depth ? { depth } : {}),
-    ...(ticketDir ? { ticket_dir: ticketDir } : {}),
-    tokens: await buildTokens(ctx, req, ticket, runId),
-  });
+  // `verify` is a runner task with no agent and no prompt template
+  // (CONDUCTOR "Runner tasks"; renderPrompt throws for it) — synthesize
+  // a minimal rendered prompt carrying just the ARTIFACT_TARGETS line
+  // so adapters can still place their artifact dir.
+  const rendered =
+    req.stage === 'verify'
+      ? {
+          template: 'verify',
+          text: `${runDir}/ (absolute — write all run artifacts under this directory)\n`,
+          tokens: {} as TokenValues,
+        }
+      : await adapter.prepare(req.subject, req.stage, {
+          workspace: ws.name,
+          run_dir: runDir,
+          run_id: runId,
+          backend: adapter.name,
+          ...(model ? { model } : {}),
+          ...(depth ? { depth } : {}),
+          ...(ticketDir ? { ticket_dir: ticketDir } : {}),
+          tokens: await buildTokens(ctx, req, ticket, runId),
+        });
   const handle = await adapter.run(
     worktree,
     rendered,

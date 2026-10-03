@@ -210,6 +210,11 @@ async function killRun(
     attempt: run.attempt,
   });
   report.killed.push(run.id);
+  // "status stays for retry" (CONDUCTOR "Run lifecycle") — a killed run
+  // is a transient failure; it must re-enter the retry ladder or the
+  // ticket strands on its current status forever.
+  const killed = await deps.store.getRun(run.id);
+  if (killed) await applyRetryLadder(ctx, killed);
 }
 
 /**
@@ -354,7 +359,10 @@ async function collectRun(ctx: ReconcileCtx, run: RunRow): Promise<void> {
 
   if (timedOut) {
     ctx.report.killed.push(run.id);
-    return; // killed — no transition handoff; status stays for retry
+    // killed — no transition handoff, but the retry ladder still applies
+    // (CONDUCTOR "status stays for retry").
+    await applyRetryLadder(ctx, finalRun);
+    return;
   }
 
   // Dual caps are evaluated at run end too (CONDUCTOR "Run lifecycle").

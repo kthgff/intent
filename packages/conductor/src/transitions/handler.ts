@@ -105,7 +105,11 @@ export class RealTransitionHandler implements TransitionHandler {
     const gateCleared = async (
       gate: string,
     ): Promise<'open' | 'cleared' | 'auto'> => {
-      const disp = gateForStatus(ticket.status as TicketStatus, this.gateMode);
+      // The LOOP-advanced status, not `ticket.status` — a `continue`
+      // chain (e.g. test-review auto → test-approved) changes the status
+      // inside this call, and gateForStatus must see the new one or a
+      // suppressed gate wrongly surfaces a gate_items row.
+      const disp = gateForStatus(status, this.gateMode);
       if (disp && disp.gate === gate && disp.disposition === 'auto')
         return 'auto';
       const item = await ctx.store.getGateItem({
@@ -199,10 +203,11 @@ export class RealTransitionHandler implements TransitionHandler {
         case 'test-approved': {
           const state = await gateCleared('test-approved');
           if (state === 'open') return null;
-          if (state === 'cleared') await clearedGateEvent('test-approved');
-          // Stale-spec check (CONDUCTOR special paths): the spend
-          // checkpoint passed — re-hash spec inputs before spending.
+          // Stale-spec check (CONDUCTOR special paths) runs BEFORE the
+          // gate_approved event — a stale ticket must not stamp the
+          // approval into the ledger every tick while it waits.
           if (await this.#staleSpecCheck(ticket, ctx)) return null;
+          if (state === 'cleared') await clearedGateEvent('test-approved');
           await this.#setStatus(ctx, id, 'in-progress');
           return { stage: 'implement' };
         }
@@ -1550,6 +1555,14 @@ export class RealTransitionHandler implements TransitionHandler {
   ): Promise<boolean> {
     const ticketDir = join(ctx.ticketsRepoPath, 'tickets', ticket.ticket_id);
     if (!(await specIsStale(ticketDir))) return false;
+    // Surface once — nextStage re-runs every tick; an open stale-spec
+    // gate already in place must not re-notify (no event spam).
+    const existing = await ctx.store.getGateItem({
+      workspace: ctx.workspace,
+      subject: ticket.ticket_id,
+      gate: 'stale-spec',
+    });
+    if (existing) return true;
     const tools = this.#statusTools(ctx);
     await tools.surfaceGateItem({
       subject: ticket.ticket_id,

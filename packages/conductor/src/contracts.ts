@@ -38,6 +38,7 @@ import type {
   TicketStatus,
 } from '@sprint-runner/core';
 import { commitAll } from '@sprint-runner/gitops';
+import { regenerateLog } from './events/index.js';
 
 // ---------------------------------------------------------------------------
 // Context handed to the handler
@@ -363,6 +364,10 @@ export async function applyTicketStatus(args: {
     duration_s: null,
     human_minutes: null,
   });
+
+  // Keep the ticket's git-side ledger (events.jsonl + LOG.md) in step —
+  // run_failed/status_changed paths that bypass emitEvent still land.
+  await regenerateLog(ctx, opts.ticketId).catch(() => {});
 
   return { commit };
 }
