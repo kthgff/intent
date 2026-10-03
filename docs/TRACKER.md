@@ -23,7 +23,7 @@ Work packages: `docs/exec/wp-*.md` (v1 ticket schema, dogfooded).
 | D13 | External binaries (gitleaks, gh, aider, devin) = PATH deps, detected at startup; scanner absent = fail-closed | done |
 | D14 | Ticket projection (wp-013): SCHEMAS §1 inline defaults (`depth: standard`, `depends_on: []`, `forced: false`) applied before `TicketFrontmatterSchema` — fixtures omit them; parse-error detail rides in the notifications payload (gate_items has no detail column) | done |
 | D15 | Conductor (wp-030): per-ticket spend/token "cumulative counters" are computed by summing `runs` rows (DB-SCHEMA `tickets` has no cost columns); cardless/doc stages run with the tickets-repo checkout as cwd (no worktree); `stalled` uses log/artifact mtime only — `heartbeat_at` is conductor-written and would mask silence | done |
-| D15 | `'mock'` added to core `BACKENDS` — test backend, never user-configured | done |
+| D18 | `'mock'` added to core `BACKENDS` — test backend, never user-configured | done |
 | D16 | Devin CLI unauthenticated on this machine → real `--export` schema unverifiable (wp-022 spike); `usageFromExport` parses multiple spellings defensively, `source: estimated` fallback. Re-verify once `devin auth` exists | open |
 | D17 | Importer (wp-061) decisions: `importers.default_repo_map` maps **issue labels** → repo names; unmapped → `repos: []` + `repo-map-unmapped` note (importer never guesses — import.md's "best guess" applies to agent-authored runs, the deterministic importer flags for triage). Label→priority heuristic: p0/p1/critical/urgent/blocker/sev1-2/priority:high → high; p3/p4/minor/trivial/nice-to-have/priority:low → low; else medium. `token_env` names the env var — its value is injected as `GH_TOKEN`/`GITHUB_TOKEN` into the `gh` child. | done |
 
