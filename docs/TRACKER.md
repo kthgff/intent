@@ -66,6 +66,17 @@ Work packages: `docs/exec/wp-*.md` (v1 ticket schema, dogfooded).
 5. `blocked` entries get a `## Blocker` section in the wp file — never
    silently dropped.
 
+## Follow-ups (post-MVP backlog, surfaced by work packages)
+
+| Item | Source |
+| --- | --- |
+| `GET /tickets/<ref>/review` route missing — S-08 fails soft reading findings from event payloads | wp-080 |
+| `run_output` SSE event has no producer (conductor doesn't stream log chunks) | wp-060 |
+| `import/run.ts` `surfaceFailure` writes gate rows directly, bypasses `deps.notify` | wp-060 |
+| POST `/workspaces` registers in-memory only — not persisted to config.yaml | wp-060 |
+| `devin auth` absent on this machine → real `--export` schema + aider flag set unverified (D16; verify on first real run) | wp-022/052 |
+| `packages/cli` commands still stubs (init/daemon/tick/status) — wire to conductor + api | — |
+
 ## Open risks
 
 | Risk | Mitigation |
