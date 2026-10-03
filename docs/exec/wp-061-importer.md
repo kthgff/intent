@@ -2,7 +2,7 @@
 schema: 1
 id: wp-061
 title: GitHub importer — issues → ticket folders
-status: todo
+status: in-progress
 priority: medium
 depth: standard
 repos: []

@@ -2,7 +2,7 @@
 schema: 1
 id: wp-052
 title: Aider adapter — OpenRouter BYOK, usage stream-parse, pricing table
-status: todo
+status: in-progress
 priority: medium
 depth: standard
 repos: []
