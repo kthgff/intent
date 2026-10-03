@@ -29,6 +29,24 @@ export interface ConductorWorkspace {
   ticketsRepoPath: string;
 }
 
+/**
+ * Live-channel event for the API SSE stream (API.md §stream). The
+ * conductor emits these AFTER the durable write (store row / events
+ * row) completes — the stream is a latency optimization, never the
+ * only copy. Additive hook for wp-060; `payload` is the DB-row shape
+ * (or a delta) per the API.md event table.
+ */
+export interface StreamEvent {
+  type:
+    | 'gate_surfaced'
+    | 'gate_cleared'
+    | 'run_status'
+    | 'run_output'
+    | 'usage_partial'
+    | 'notification';
+  payload: unknown;
+}
+
 /** Injectable dependencies for every conductor pass. */
 export interface ConductorDeps {
   store: Store;
@@ -63,6 +81,13 @@ export interface ConductorDeps {
   /** Sink for errors on detached async paths (the usage-stream cap
    *  check runs off an adapter callback, outside tick()). */
   onError?: (error: unknown) => void;
+  /**
+   * Live-channel hook (wp-060 / API.md SSE). Called after each durable
+   * write the UI streams — run_status on run row changes, gate_surfaced
+   * + notification on gate_items insert, usage_partial on streamed
+   * usage. Best-effort; never awaited into the critical path.
+   */
+  notify?: ((event: StreamEvent) => void) | undefined;
 }
 
 export function nowOf(deps: ConductorDeps): Date {

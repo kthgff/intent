@@ -319,6 +319,9 @@ export async function launch(
   if (req.pendingRow) await store.updateRun(runId, row);
   else await store.createRun(row);
 
+  // API.md stream: run_status after the durable row write.
+  deps.notify?.({ type: 'run_status', payload: { ...row } });
+
   await store.appendEvent({
     workspace: ws.name,
     ticket_id: row.ticket_id,
@@ -345,6 +348,11 @@ export async function launch(
     void store
       .updateRunUsage(runId, partial)
       .then(async () => {
+        // API.md stream: usage_partial mirrors the durable counters.
+        deps.notify?.({
+          type: 'usage_partial',
+          payload: { run_id: runId, ...partial },
+        });
         if (!row.ticket_id) return;
         const cap = await capExceeded(deps, ws.name, row.ticket_id as string);
         if (cap) await blockTicketForCap(ctx, row, cap);

@@ -29,6 +29,7 @@ export {
   PartialConfigSchema,
   assertNoUnknownKeys,
   formatZodIssues,
+  parsePartialConfig,
   validConfigPaths,
 } from './validate.js';
 export type { PartialConfig } from './validate.js';

@@ -48,7 +48,7 @@ Work packages: `docs/exec/wp-*.md` (v1 ticket schema, dogfooded).
 | W5 | wp-050 | Review pipeline: 4-pass merge, fingerprints, review.json, fix rounds | wp-031 | todo |
 | W5 | wp-051 | Shepherd: gh poll, ci-fix/comment-fix/rebase runs, DoD gate | wp-050 | todo |
 | W5 | wp-052 | Aider adapter + OpenRouter pricing table, usage stream-parse | wp-021 | done |
-| W6 | wp-060 | API: REST + SSE per API.md, token auth | wp-031 | todo |
+| W6 | wp-060 | API: REST + SSE per API.md, token auth | wp-031 | done |
 | W6 | wp-061 | Importers: GitHub issues → ticket folders | wp-013 | done |
 | W7 | wp-070 | KB/survey: dossiers, entities, embeddings spike → impl | wp-011 | done |
 | W8 | wp-080 | UI: 14 screens on the API (React+Vite, served by conductor) | wp-060 | todo |
