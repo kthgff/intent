@@ -26,11 +26,10 @@ switch (cmd) {
   case 'init':
   case 'daemon':
   case 'tick':
-  case 'status': {
+  case 'status':
     console.error(`${cmd}: not yet implemented (see docs/exec/ wave plan)`);
     process.exit(2);
     break;
-  }
   default:
     process.stdout.write(USAGE);
     process.exit(

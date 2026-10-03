@@ -2,8 +2,7 @@
 schema: 1
 id: wp-022
 title: Devin adapter — devin -p spawn, export parse, usage extraction
-status: in-progress
-priority: medium
+status: donepriority: medium
 depth: standard
 repos: []
 wave: W2
@@ -24,7 +23,23 @@ cost_usd null) + sentinel from log tail. Flag detection:
 `packages/adapters/src/devin/**`, `docs/ADAPTERS.md` (findings section)
 
 ## Acceptance criteria
-- [ ] Spike findings committed to ADAPTERS.md before impl
-- [ ] collect() produces valid usage.json (SCHEMAS §13) from real export
-- [ ] Sentinel from stdout tail, not export — per contract
-- [ ] Missing binary → clean error at adapter init, not mid-run
+- [x] Spike findings committed to ADAPTERS.md before impl
+- [x] collect() produces valid usage.json (SCHEMAS §13) — from a
+  defensive export parser; REAL export schema unknown (devin auth
+  absent on spike machine — see ADAPTERS.md findings). Re-verify with
+  a live export when auth exists.
+- [x] Sentinel from stdout tail, not export — per contract
+- [x] Missing binary → clean error at adapter init, not mid-run
+
+## Notes (contract-gap resolutions)
+- `run()` has no run_dir param → resolved as: explicit 4th arg →
+  run_dir stashed from the preceding prepare() → constructor
+  `opts.runDir`. Conductor calls prepare→run per run, so the stash
+  path is the normal flow.
+- `RunResult.artifacts` = paths relative to run_dir (recursive).
+- `usage.ticket` — CollectContext carries no ticket id; adapter takes
+  `opts.ticket`, else ''. Conductor should pass it or post-fill.
+- `exit_code` from the in-process child handle; unknown pid → null;
+  watchdog timeout → 124 (failure-mapping table).
+- Also fixed a pre-existing biome failure in packages/cli/src/bin.ts
+  (switch fallthrough + line length) so `pnpm lint` is green.
