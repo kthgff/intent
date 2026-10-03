@@ -51,7 +51,7 @@ Work packages: `docs/exec/wp-*.md` (v1 ticket schema, dogfooded).
 | W6 | wp-060 | API: REST + SSE per API.md, token auth | wp-031 | done |
 | W6 | wp-061 | Importers: GitHub issues → ticket folders | wp-013 | done |
 | W7 | wp-070 | KB/survey: dossiers, entities, embeddings spike → impl | wp-011 | done |
-| W8 | wp-080 | UI: 14 screens on the API (React+Vite, served by conductor) | wp-060 | todo |
+| W8 | wp-080 | UI: 14 screens on the API (React+Vite, served by conductor) | wp-060 | in-progress |
 
 ## Parallel-agent rules
 
