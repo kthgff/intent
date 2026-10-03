@@ -1,0 +1,15 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/core" },
+    { "path": "packages/store" },
+    { "path": "packages/gitops" },
+    { "path": "packages/config" },
+    { "path": "packages/prompts" },
+    { "path": "packages/adapters" },
+    { "path": "packages/conductor" },
+    { "path": "packages/lints" },
+    { "path": "packages/api" },
+    { "path": "packages/cli" }
+  ]
+}
