@@ -30,6 +30,15 @@ All four must be green before opening a PR.
 - Spec gaps: resolve, implement, AND backport the decision into the
   relevant `docs/*.md` in the same change (see TRACKER.md decision log).
 
+## External dependencies (PATH)
+
+Required at runtime: `git`, `gitleaks` (fail-closed sanitizer — absent =
+hard error), `gh` (PR/shepherd ops). Backend CLIs `devin` and `aider`
+are per-config — detect at startup, error cleanly if the configured
+backend is missing. Detected state on this machine (2026-10-03): git ✓,
+gh ✓; gitleaks ✗, aider ✗, devin via Devin.app bundle only
+(`/Applications/Devin.app/Contents/Resources/app/extensions/windsurf/devin/bin/devin`).
+
 ## Work packages
 
 `docs/exec/wp-*.md` — v1-schema tickets. `docs/TRACKER.md` is the live
