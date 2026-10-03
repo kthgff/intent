@@ -2,7 +2,7 @@
 schema: 1
 id: wp-060
 title: API surface — Fastify REST + SSE per API.md, token auth
-status: todo
+status: in-progress
 priority: medium
 depth: deep
 repos: []

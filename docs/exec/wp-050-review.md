@@ -2,7 +2,7 @@
 schema: 1
 id: wp-050
 title: Review pipeline — 4-pass merge, fingerprints, fix rounds, discuss
-status: todo
+status: in-progress
 priority: medium
 depth: deep
 repos: []
