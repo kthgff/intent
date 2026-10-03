@@ -2,7 +2,7 @@
 schema: 1
 id: wp-051
 title: Shepherd — gh poll loop, ci-fix/comment-fix/rebase, merge gate
-status: todo
+status: in-progress
 priority: medium
 depth: standard
 repos: []
