@@ -2,7 +2,7 @@
 schema: 1
 id: wp-032
 title: Doc lints — spec-lint scorer, coverage matrix, fail-closed validators
-status: todo
+status: in-progress
 priority: medium
 depth: standard
 repos: []

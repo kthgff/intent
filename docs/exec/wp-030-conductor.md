@@ -2,7 +2,7 @@
 schema: 1
 id: wp-030
 title: Conductor core — tick loop, reconcile, claim, launch, heartbeats
-status: todo
+status: in-progress
 priority: high
 depth: deep
 repos: []
