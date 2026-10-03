@@ -2,7 +2,7 @@
 schema: 1
 id: wp-020
 title: Prompt renderer — token table, ARTIFACT_TARGETS, capability shaping
-status: todo
+status: done
 priority: high
 depth: standard
 repos: []
@@ -23,7 +23,7 @@ deep parks — expose the check as a helper for the conductor).
 `packages/prompts/**`
 
 ## Acceptance criteria
-- [ ] Every prompt in packages/core renders against a full ctx fixture
-- [ ] Missing required token → error naming the token + stage
-- [ ] Capability matrix test: aider flags → scratch-dir paths in output
-- [ ] Render is pure/deterministic — same ctx, same bytes
+- [x] Every prompt in packages/core renders against a full ctx fixture
+- [x] Missing required token → error naming the token + stage
+- [x] Capability matrix test: aider flags → scratch-dir paths in output
+- [x] Render is pure/deterministic — same ctx, same bytes
