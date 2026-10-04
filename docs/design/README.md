@@ -49,13 +49,18 @@ Visual mockups: `mockups/*.png` — rendered from `packages/ui` demo mode
 implementation contract mapping each screen to its route, required
 states, shared primitives, and API gaps.
 
+The product/UX synthesis, card-to-detail mapping, visual tokens, state
+coverage, API gaps, and capture instructions for the dashboard and ticket-focus
+pair live in [DASHBOARD-FOCUS-REVIEW.md](DASHBOARD-FOCUS-REVIEW.md).
+
 | Doc | Screen | Workflows |
 | --- | --- | --- |
-| [s-01-inbox](s-01-inbox.md) | Needs-attention inbox (home) | WF-12 daily loop |
+| [s-01-board](s-01-board.md) | Home — Board tab (default; mockups `s-01-board*.png`) | WF-12 daily loop |
+| [s-01-inbox](s-01-inbox.md) | Needs-attention inbox (Home tab 2) | WF-12 daily loop |
 | [s-02-settings](s-02-settings.md) | Settings (+ onboarding) | WF-01, WF-13 |
 | [s-03-create-import](s-03-create-import.md) | Create / Import | WF-02 |
 | [s-04-qa-wizard](s-04-qa-wizard.md) | Q&A wizard (shared) | WF-03, interview |
-| [s-05-ticket-detail](s-05-ticket-detail.md) | Ticket detail | WF-03…WF-11 hub |
+| [s-05-ticket-focus](s-05-ticket-focus.md) | Ticket focus page — centerpiece, supersedes s-05-ticket-detail (D24) | WF-03…WF-11 hub |
 | [s-06-doc-review](s-06-doc-review.md) | Doc review (+ split-plan) | WF-04, WF-15 |
 | [s-07-run-monitor](s-07-run-monitor.md) | Live run monitor | WF-05, WF-11 |
 | [s-08-code-review](s-08-code-review.md) | Code review | WF-06 |
@@ -65,6 +70,12 @@ states, shared primitives, and API gaps.
 | [s-12-metrics](s-12-metrics.md) | Metrics dashboard | WF-14 |
 | [s-13-workspaces](s-13-workspaces.md) | Workspace switcher | WF-13 |
 | [s-14-knowledge-base](s-14-knowledge-base.md) | Knowledge base | WF-16, WF-17 |
+| [s-15-boards](s-15-boards.md) | Boards list (per project) | WF-18 |
+| [s-16-board-canvas](s-16-board-canvas.md) | Board canvas + delivery view | WF-18, WF-19, WF-20 |
+| [s-17-feature-detail](s-17-feature-detail.md) | Feature detail | WF-20 |
+
+(Entities per FEATURES.md: project → board → initiative → feature →
+ticket.)
 
 ## Open items tracked elsewhere
 

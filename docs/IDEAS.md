@@ -48,6 +48,41 @@ conductor (new trigger type), UI (new source + dashboard), prompts
 - Does this stay local-only (files/journald) or do we want an OTLP
   receiver for real observability stacks?
 
+## I-002 — Board templates — `parked`
+
+**Idea:** preset zone layouts for boards — "release planning", "bug
+bash", "customer complaints" — seeded zones + suggested item types.
+
+**Why it fits:** boards are FEATURES.md §2; templates are cheap JSON
+presets that teach the medium.
+
+**Touches:** board creation flow, S-15/16.
+
+## I-003 — Cluster-suggest pass — `parked`
+
+**Idea:** periodic cheap run proposing "these 6 notes look like one
+initiative" with a lasso preview before synthesis.
+
+**Why it fits:** embeddings exist (sqlite-vec); board items are
+embeddable objects. Off by default; earns trust.
+
+**Touches:** embeddings, board API, prompt template.
+
+## I-004 — Voice-first board capture — `parked`
+
+**Idea:** mic button on the canvas → record → transcribe → typed
+sticky. Thinking shouldn't require typing; wizard speech path exists.
+
+**Touches:** board UI, voice adapter (webview speech API first).
+
+## I-005 — Escalated → back-to-board — `parked`
+
+**Idea:** `escalated` tickets can bounce to a board card ("return to
+thinking space") instead of only the S-10 queue — some tickets are
+failed *ideas*, not failed runs.
+
+**Touches:** escalation flow, board API.
+
 ## Template
 
 ```markdown

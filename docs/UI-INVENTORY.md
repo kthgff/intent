@@ -1,9 +1,14 @@
 # Screen & Workflow Inventory — sprint-runner
 
 Companion to `PRD.md`. Status: draft 2026-10-03.
-Organizing principle: **the app is a needs-attention inbox.** Every gate
-in the pipeline produces a "your move" item; the home screen surfaces
-them all and every other screen exists to clear one item type.
+Organizing principle: **the app is a pipeline Kanban with a
+needs-attention inbox.** Home = two tabs: a **Board** (default) showing
+every ticket in phase columns — "where is everything, what's left to
+do" — and an **Inbox** list of every "your move" item. Card click opens
+a **full-page ticket focus** view (inline gate action + chat-to-edit +
+activity rail); heavy surfaces (monitor, code review, ledger) are
+linked routes. (Revised 2026-10-03, D21/D23 — the board replaced the
+inbox-only home; the slide-out drawer was rejected for space.)
 
 **Delivery:** one web app, served by the conductor on localhost — the
 desktop shell is a thin wrapper (Tauri preferred) for native presence;
@@ -86,10 +91,12 @@ preserved, handoff summary appended to ticket → human works locally →
 "resume pipeline" returns it (re-enters at review).
 Screens: S-05, S-07.
 
-### WF-12 — Daily inbox loop (the actual day-to-day)
-Open app → needs-attention inbox: questions pending, docs to approve,
-reviews waiting, failures, escalations — clear each. Badge counts drive
-order of work. This loop IS the product's daily surface.
+### WF-12 — Daily loop (the actual day-to-day)
+Open app → **Board**: see where every ticket sits, failed ones flagged
+in-phase → flip to Inbox tab (or click attention badges) → clear:
+questions pending, docs to approve, reviews waiting, failures,
+escalations. The focus page clears most gates. This
+loop IS the product's daily surface.
 Screens: S-01 (home), everything downstream.
 
 ### WF-13 — Settings & maintenance
@@ -124,17 +131,38 @@ gaps) → correct wrong facts inline (agent proposes, human disposes —
 edits are DB writes + ledger events) → confirm inferred personas.
 Screens: S-14.
 
+### WF-18 — Capture on an idea board
+Project boards (named, Postgres) → drop typed stickies (thought/goal/
+ambition/question/requirement/reference), text, docs, images, files,
+links, voice notes; zones/frames group; comments discuss. Agents add
+items too (survey gaps, findings — `source:` chip). Icebox parks.
+Screens: S-15, S-16.
+
+### WF-19 — Synthesize a board into an initiative
+"Synthesize" on a board → extract-all run → S-04 Q&A wizard →
+initiative `prd.md` draft + provenance.json (which items → which AC)
+→ doc review → initiative lives. Consumed items freeze+dim; ship →
+they light up `shipped`. Screens: S-16, S-04, S-06.
+
+### WF-20 — Decompose initiative → features → tickets
+Initiative decompose run → split-plan of features (AC coverage map)
+→ approve → feature test-plans reviewed (batch-able, plan-package
+default) → feature decompose → ticket split-plan → approve → tickets
+`imported` w/ `feature:` → normal pipeline. Kanban delivery view on
+the board tracks it all (full card actions). Screens: S-16, S-17,
+S-06, S-05.
+
 ---
 
 ## 2. Screen inventory
 
 | ID | Screen | Purpose | Key elements |
 | --- | --- | --- | --- |
-| **S-01** | **Needs-attention inbox** (home) | Every "your move" item across all tickets repos (unified + repo filter) | Grouped list: Questions / Approvals / Reviews / Failures / Escalations / Split-plans / Repair; ranked blocking-first→priority→age; spec-score badges (worst-specs-first grooming toggle); badge counts; snooze (`gate_items.snoozed_until` — see §5); claim (shared-queue) |
+| **S-01** | **Home: Board + Inbox tabs** | Board (default): Kanban across 5 phase columns (Backlog·Spec·Build·Review·Done), unified workspaces, attention badges on cards, validated drag-drop; card → full-page ticket focus w/ inline gate action + chat-to-edit. Inbox tab: grouped "your move" list across all tickets repos, ranked human-anxiety-first→priority→age; spec-score badges (worst-specs-first toggle); badge counts; snooze (`gate_items.snoozed_until` — see §5); claim (shared-queue) |
 | **S-02** | Settings | All configuration | Tabs: General · Tickets Repos · Code Repos (+repo cards) · Backends & Keys · Models (main/review) · Gates & Budgets · Merge · Notifications · Worktrees · Advanced |
 | **S-03** | Create / Import | Author or pull tickets | Tabs: **Interview** (seed text → wizard → ticket) · **Import** (source picker, JQL/milestone, preview+edit table) → commit |
 | **S-04** | **Q&A wizard** | needs-info + design-Q&A + any agent→human questions | One question/card; options w/ `recommended` badge; "Other…"; mic (voice); skip=accept; "Accept all"; progress; bail-outs (force-ready, wont-do) |
-| **S-05** | **Ticket detail** | Everything about one ticket | Status stepper across top (imported→…→merged); tabs: Overview (ticket.md, triage) · Documents (PRD/TDD/test + version diffs) · Activity (LOG/events) · Runs (artifacts, transcripts); right rail = current gate's action panel; **family rail** = parent/children + depends_on DAG for split families; spec-score badge in header |
+| **S-05** | **Ticket focus page** (operational hub — D25) | Know the next action, complete it, and work the ticket through docs, development, review, and release | Two columns: wide workbench + narrow **Status / What's left** rail. Inline **Next action** (human gate, active run, failure, or completion); tabs: Overview · Documentation (versioned PRD/TDD/test with MR-style diffs) · Activity (full S-11 ledger) · Runs + status-conditional spotlight (full Code review · Failure · Split plan). AI is contextual to ticket/document/code-review editing, never a permanent rail; **family rail** still applies for split families |
 | **S-06** | **Doc review page** | Approve PRD / TDD / test.md | Rendered markdown + paragraph comment threads; version diff; coverage-matrix view for test.md; approve / request-changes |
 | **S-07** | **Live run monitor** | Watch any in-flight agent run | Transcript stream; current step vs plan; commits feed; elapsed + live in/out token counter + cost (streamed where the adapter supports it); kill / pause / hand-off buttons |
 | **S-08** | **Code review page** | The centerpiece — approve code | Header brief (diffstat, AC traceability, spec compliance, **TDD addenda**, risk register, tech debt, highlights, commit story, test-report) · Changes tab (file tree, side-by-side diff, inline threads) · Issues tab (finding cards, verdicts, batch-fix) · approve→merge / send-back |
@@ -144,6 +172,9 @@ Screens: S-14.
 | **S-12** | Metrics dashboard | ROI proof | success rate, cost-per-merge, tokens-in/out per ticket + stage (in/out split + estimated flags), human-minutes, per-model stats, stage funnel |
 | **S-13** | Workspace switcher | Multi tickets-repo | Repo/team list, per-repo queue counts, add workspace |
 | **S-14** | **Knowledge base** | Product dossiers — the intelligence layer | Repo/product tabs; dossier sections (architecture, workflows, personas, UI map, docs, glossary, landmines); **gap report** panel; persona confirm/correct; survey status + last-surveyed + manual Sync; per-section edit with history |
+| **S-15** | **Boards list** | Idea boards per project | Board cards: name, item counts, unprocessed count, last synthesis, filter summary; + new board; archive |
+| **S-16** | **Board canvas** | The idea space + delivery view | Freeform canvas: typed stickies (6 colors), text, docs, images, files, links, voice, zones, connectors, comments; **work layer** = kanban-by-status view w/ saved filter + **full card actions**; synthesize button; item states open→consumed→shipped |
+| **S-17** | **Feature detail** | A delivery unit (S-05 anatomy) | Status stepper; docs tab (feature.md + test.md); AC slice; child tickets w/ status; gate panel; initiative + board links |
 
 ## 3. Shared components (build once, use everywhere)
 
@@ -152,7 +183,7 @@ Screens: S-14.
 | **Q&A wizard** (S-04) | interview mode, triage Q&A, design Q&A, test-plan Q&A, fix-triage |
 | **Doc reviewer** (S-06) | PRD, TDD, test.md — any markdown approval |
 | **Comment thread** (anchored) | doc paragraphs, diff lines, issue cards, PR comments |
-| **Status stepper** | S-05 header, queue chips, inbox items |
+| **Status + remaining-work roadmap** | S-05 rail, queue chips, inbox items |
 | **Run monitor** (S-07) | triage, design, implement, review, fix, rebase, revert, survey, interview runs |
 | **Ledger view** (S-11) | ticket Activity tab, audits, prior-art lookup |
 | **Dossier viewer/editor** (S-14) | KB browsing, human corrections, gap report |
@@ -191,12 +222,49 @@ Screens: S-14.
   implement (human "go" = the spend checkpoint). Pipeline moves
   overnight; the app is a UI on an already-running conductor. Headless
   `sprint-runner daemon` = same engine, no UI, for team 24/7.
-- **Inbox**: **both views** — unified inbox across all tickets repos as
-  home (filterable), plus per-workspace boards for focused work.
-- **Inbox ranking**: **blocking-first, then priority** — items blocking
-  an agent's progress (Q&A, escalations) rank above items blocking a
-  human step (approvals, merges); within a class, ticket priority then
-  age. Keep machines unblocked first.
+- **Inbox**: unified across all tickets repos (filterable). **Home is
+  now the Board** (D21): 5 phase columns (Backlog·Spec·Build·Review·
+  Done) collapsing the status enum; failed/blocked stay in-phase
+  flagged; attention = badges on cards (in-column sort attention-
+  first→priority→age); Done capped ~20 + "show more"; non-ticket
+  gate items live in an ops strip above the columns; board snooze
+  hides the card. Inbox survives as Home tab 2.
+- **Board** (2026-10-03, D21): unified, filterable; cards = id/title/
+  priority/sub-status + attention badges; drag-drop allowed for
+  **human-meaningful transitions only** (wont-do, retry, claim — server
+  validates via `drop_targets`, forward pipeline moves always
+  rejected); KPI strip = per-column counts + WIP only (deep metrics
+  stay on S-12); card → **full-page ticket focus** (`/tickets/<ref>/
+  focus`): phase stepper + inline gate action + chat-to-edit +
+  activity rail; monitor/review/ledger are linked routes (drawer
+  design rejected for space, 2026-10-03).
+- **Chat-to-edit** (2026-10-04, D25): contextual AI edits the current
+  object — ticket.md, a selected PRD/TDD/test document, or a selected
+  code-review finding/comment — never cross-ticket. It is absent from
+  general page chrome and non-editing tabs. Reuses the interview run
+  machinery (`POST /interview` + `ticket_ref` + `target` per SCHEMAS
+  §16). No new run kind.
+- **Focus page replaces S-05** (2026-10-04, D25): the card-click
+  destination IS the ticket page. IA: inline Next action (current move
+  only) · wide workbench tabs Overview/Documentation/Activity/Runs +
+  status-conditional spotlight tab (full S-08 embedded in review,
+  Failure detail, Split plan) · narrow Status/What's-left rail. **Doc
+  versioning**: every persisted change to PRD/TDD/test = a version
+  (agent + human/chat edits alike); version history + GitLab-MR-style
+  before/after diffs between any two versions; Activity tab = full
+  S-11 ledger embedded.
+- **Inbox ranking**: **human-anxiety-first** — failures/escalations rank
+  above routine agent Q&A/approvals; within a class, ticket priority
+  then age. (2026-10-03, D21 — supersedes blocking-first: a broken
+  thing outranks an idle agent. Applies to inbox list and card badge
+  emphasis.)
+- **Entity expansion** (2026-10-04, FEATURES.md): **project** =
+  merged workspace+product (`workspace` stays the internal key);
+  **initiative** owns prd.md+tdd.md (born of a board synthesis);
+  **feature** = parent-with-docs unifying split families; tickets may
+  be feature-scoped or project-scoped orphans. **DB-only storage**
+  (tickets repo dropped — Postgres + append-only events + immutable
+  doc versions). Screens S-15–S-17 added.
 - **Snooze** (2026-10-03, design docs): S-01 items can be snoozed
   (defer without clearing) — needs `gate_items.snoozed_until` column
   + `/inbox` field; snoozed items are excluded from badge counts.
