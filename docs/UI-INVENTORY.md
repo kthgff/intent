@@ -130,7 +130,7 @@ Screens: S-14.
 
 | ID | Screen | Purpose | Key elements |
 | --- | --- | --- | --- |
-| **S-01** | **Needs-attention inbox** (home) | Every "your move" item across all tickets repos (unified + repo filter) | Grouped list: Questions / Approvals / Reviews / Failures / Escalations / Split-plans; ranked blocking-first→priority→age; spec-score badges (worst-specs-first grooming toggle); badge counts; snooze; claim (shared-queue) |
+| **S-01** | **Needs-attention inbox** (home) | Every "your move" item across all tickets repos (unified + repo filter) | Grouped list: Questions / Approvals / Reviews / Failures / Escalations / Split-plans / Repair; ranked blocking-first→priority→age; spec-score badges (worst-specs-first grooming toggle); badge counts; snooze (`gate_items.snoozed_until` — see §5); claim (shared-queue) |
 | **S-02** | Settings | All configuration | Tabs: General · Tickets Repos · Code Repos (+repo cards) · Backends & Keys · Models (main/review) · Gates & Budgets · Merge · Notifications · Worktrees · Advanced |
 | **S-03** | Create / Import | Author or pull tickets | Tabs: **Interview** (seed text → wizard → ticket) · **Import** (source picker, JQL/milestone, preview+edit table) → commit |
 | **S-04** | **Q&A wizard** | needs-info + design-Q&A + any agent→human questions | One question/card; options w/ `recommended` badge; "Other…"; mic (voice); skip=accept; "Accept all"; progress; bail-outs (force-ready, wont-do) |
@@ -197,6 +197,9 @@ Screens: S-14.
   an agent's progress (Q&A, escalations) rank above items blocking a
   human step (approvals, merges); within a class, ticket priority then
   age. Keep machines unblocked first.
+- **Snooze** (2026-10-03, design docs): S-01 items can be snoozed
+  (defer without clearing) — needs `gate_items.snoozed_until` column
+  + `/inbox` field; snoozed items are excluded from badge counts.
 - **Wire contract** (2026-10-03): the UI talks to the conductor via
   REST + SSE (API.md) — bearer token on every request, `?token=`
   bootstrap on loopback only. Run control = SIGSTOP pause / SIGCONT

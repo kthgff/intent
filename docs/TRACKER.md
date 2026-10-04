@@ -27,6 +27,7 @@ Work packages: `docs/exec/wp-*.md` (v1 ticket schema, dogfooded).
 | D16 | Devin CLI unauthenticated on this machine → real `--export` schema unverifiable (wp-022 spike); `usageFromExport` parses multiple spellings defensively, `source: estimated` fallback. Re-verify once `devin auth` exists | open |
 | D19 | UI (wp-080): SSE auth rides the `sr_session` cookie (EventSource can't set headers); `?token=` fallback appended for shells. Gap recorded in ticket: API has no read route for review.json/diff/test-report — S-08 reads findings from event `data.review` when present, else empty state. Needs an api-package follow-up (`GET /tickets/<ref>/review`) | done |
 | D17 | Importer (wp-061) decisions: `importers.default_repo_map` maps **issue labels** → repo names; unmapped → `repos: []` + `repo-map-unmapped` note (importer never guesses — import.md's "best guess" applies to agent-authored runs, the deterministic importer flags for triage). Label→priority heuristic: p0/p1/critical/urgent/blocker/sev1-2/priority:high → high; p3/p4/minor/trivial/nice-to-have/priority:low → low; else medium. `token_env` names the env var — its value is injected as `GH_TOKEN`/`GITHUB_TOKEN` into the `gh` child. | done |
+| D20 | Design docs (`docs/design/`): snooze is a UI-level need → new `gate_items.snoozed_until` column + `/inbox` field (snoozed excluded from badge counts); `products:` config gets a dedicated S-02 tab (drives S-14 rollups); CSV import stays **v1** alongside GitHub (UI-INVENTORY WF-02), Jira alone is deferred; finding-verdict labels are `send to fix`/`dismiss`/`wontfix` — SCHEMAS §6 has no "accepted" status; `repair` kind is a first-class S-01 group + S-10 filter (DB enum, was missing from inventory) | done |
 
 ## Waves (see EXEC-PLAN.md)
 
@@ -76,6 +77,7 @@ Work packages: `docs/exec/wp-*.md` (v1 ticket schema, dogfooded).
 | POST `/workspaces` registers in-memory only — not persisted to config.yaml | wp-060 |
 | `devin auth` absent on this machine → real `--export` schema + aider flag set unverified (D16; verify on first real run) | wp-022/052 |
 | `packages/cli` commands still stubs (init/daemon/tick/status) — wire to conductor + api | — |
+| `gate_items.snoozed_until` column + `/inbox` field needed for S-01 snooze (D20) | design review |
 
 ## Open risks
 
