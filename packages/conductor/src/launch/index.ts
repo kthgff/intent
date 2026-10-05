@@ -435,7 +435,6 @@ export async function launch(
     }
   }
 
-<<<<<<< HEAD
   // --- test-environment materialization (PRD §15.10, wp-157) ---
   // A declared `test_env` spec materializes before the run executes.
   // Best-effort + fail-safe: no spec → no env step; a pending/expired
