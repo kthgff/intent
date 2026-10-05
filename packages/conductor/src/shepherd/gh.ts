@@ -9,6 +9,7 @@
  * auth, matching the importer (import/github.ts).
  */
 import { execFile } from 'node:child_process';
+import type { MergeStrategy } from '@sprint-runner/core';
 
 /** One check row from `gh pr checks --json`. `bucket` is gh's rollup
  *  (pass|fail|pending|skipping|cancel); `state` is the raw check state
@@ -21,12 +22,39 @@ export interface PrCheck {
   description?: string;
 }
 
-/** `gh pr view --json state,mergeCommit,mergedAt`. `state` is
- *  OPEN|MERGED|CLOSED (uppercase in gh's JSON). */
+/** `gh pr view --json state,mergeCommit,mergedAt,…`. `state` is
+ *  OPEN|MERGED|CLOSED (uppercase in gh's JSON). The Merge Center
+ *  (wp-133) reads the extra fields to evaluate branch protection and
+ *  the head SHA the approval must be bound to. */
 export interface PrInfo {
   state: string;
   mergeCommit?: { oid?: string } | null;
   mergedAt?: string | null;
+  /** Head commit the PR currently points at (approval binding). */
+  headRefOid?: string | null;
+  /** Base branch the PR targets (`main`) — merge-tree conflict probe. */
+  baseRefName?: string | null;
+  /** GitHub mergeability: MERGEABLE|CONFLICTING|UNKNOWN. */
+  mergeable?: string | null;
+  /** Protection/CI rollup: CLEAN|BLOCKED|BEHIND|DIRTY|DRAFT|UNSTABLE|
+   *  HAS_HOOKS|UNKNOWN. BLOCKED/DIRTY mean protection blocks the merge. */
+  mergeStateStatus?: string | null;
+  /** REVIEW_REQUIRED|APPROVED|CHANGES_REQUESTED|''. */
+  reviewDecision?: string | null;
+  /** Non-null when auto-merge is armed (`--auto` enqueue). */
+  autoMergeRequest?: { enabledAt?: string | null } | null;
+  /** Base commit of the merge queue entry, when the PR is queued. */
+  mergeQueueEntry?: { state?: string | null } | null;
+}
+
+/** Options for {@link GhClient.prMerge}. */
+export interface PrMergeOptions {
+  /** `--squash` | `--merge` | `--rebase` (SETTINGS `merge_strategy`). */
+  strategy?: MergeStrategy;
+  /** `--auto` — enqueue on a merge-queue repo instead of merging now. */
+  auto?: boolean;
+  /** `--delete-branch` (default false — the worktree owns the branch). */
+  deleteBranch?: boolean;
 }
 
 /** A review comment or issue comment on the PR. */
@@ -60,6 +88,20 @@ export interface GhClient {
   prCreate(opts: PrCreateOptions): Promise<string>;
   /** `gh pr list --head` → url of an already-open PR for the branch. */
   prUrlForHead(cwd: string, head: string): Promise<string | null>;
+  /**
+   * `gh pr merge` (wp-133 Merge Center — Veto executes the merge).
+   * `auto: true` adds `--auto` (merge-queue repos: enqueue counts as
+   *  execution). Never passes a bypass flag — branch protection is
+   *  GitHub-authoritative (D38).
+   */
+  prMerge(prUrl: string, opts?: PrMergeOptions): Promise<void>;
+  /**
+   * Whether the PR's target branch runs a merge queue (wp-133) — a
+   * `true` result makes the Merge Center use `gh pr merge --auto`.
+   * Fail-closed: an undetectable/absent queue returns `false` (a plain
+   * `gh pr merge` still respects protection).
+   */
+  mergeQueue(prUrl: string): Promise<boolean>;
 }
 
 export class GhError extends Error {}
@@ -116,9 +158,69 @@ export class ShellGhClient implements GhClient {
       'view',
       prUrl,
       '--json',
-      'state,mergeCommit,mergedAt',
+      [
+        'state',
+        'mergeCommit',
+        'mergedAt',
+        'headRefOid',
+        'baseRefName',
+        'mergeable',
+        'mergeStateStatus',
+        'reviewDecision',
+        'autoMergeRequest',
+        'mergeQueueEntry',
+      ].join(','),
     ]);
     return JSON.parse(stdout) as PrInfo;
+  }
+
+  /**
+   * `gh pr merge` (wp-133). Deliberately NEVER adds `--admin`/bypass —
+   * a protection-blocked merge fails and the Merge Center surfaces a
+   * gate item instead (D38: never bypass branch protection).
+   */
+  async prMerge(prUrl: string, opts: PrMergeOptions = {}): Promise<void> {
+    const args = ['pr', 'merge', prUrl, `--${opts.strategy ?? 'squash'}`];
+    if (opts.auto) args.push('--auto');
+    if (opts.deleteBranch) args.push('--delete-branch');
+    await this.#run(args);
+  }
+
+  /**
+   * Merge-queue detection (wp-133) via the branch-protection rule set —
+   * `gh api repos/<owner>/<repo>/branches/<base>` reports the effective
+   * branch protection; a merge queue is enabled by the repo's ruleset.
+   * Fail-closed: any error (older gh, no permission, no network) →
+   * `false`, so the caller does a plain `gh pr merge` (still protected).
+   */
+  async mergeQueue(prUrl: string): Promise<boolean> {
+    const parsed = parsePrUrl(prUrl);
+    if (!parsed) return false;
+    const hostArgs =
+      parsed.host === 'github.com' ? [] : ['--hostname', parsed.host];
+    try {
+      const info = await this.prView(prUrl);
+      const base = info.baseRefName;
+      if (!base) return false;
+      const protection = (await this.#api(
+        `repos/${parsed.owner}/${parsed.repo}/branches/${base}/protection`,
+        hostArgs,
+      )) as {
+        required_pull_request_reviews?: unknown;
+        merge_queue?: unknown;
+      } | null;
+      if (protection && protection.merge_queue != null) return true;
+      // Rulesets (newer API) carry `merge_queue` as a rule type.
+      const rulesets = (await this.#api(
+        `repos/${parsed.owner}/${parsed.repo}/rulesets?targets=branch`,
+        hostArgs,
+      )) as { rules?: { type?: string }[] }[];
+      return rulesets.some((r) =>
+        (r.rules ?? []).some((rule) => rule.type === 'merge_queue'),
+      );
+    } catch {
+      return false;
+    }
   }
 
   async reviewComments(prUrl: string): Promise<PrComment[]> {

@@ -1,0 +1,36 @@
+{
+  "family": "review",
+  "cases": [
+    {
+      "case_id": "rev-01-single-finding",
+      "tags": [],
+      "input": { "diff": "src/retry.ts", "expected_findings": 1 },
+      "expected": {
+        "findings": [
+          {
+            "file": "src/retry.ts",
+            "severity": "blocker",
+            "rule": "unbounded-retry"
+          }
+        ]
+      },
+      "recorded": {
+        "findings": [
+          {
+            "file": "src/retry.ts",
+            "line": 42,
+            "severity": "blocker",
+            "rule": "unbounded-retry"
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "rev-02-no-false-positives",
+      "tags": [],
+      "input": { "diff": "src/clean.ts", "expected_findings": 0 },
+      "expected": { "findings": [] },
+      "recorded": { "findings": [] }
+    }
+  ]
+}

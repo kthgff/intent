@@ -2,7 +2,7 @@
 schema: 1
 id: wp-151
 title: Ticket taxonomy — work types, origins, per-type intake + Ticket Workbench fields
-status: todo
+status: done
 priority: high
 depth: standard
 repos: []

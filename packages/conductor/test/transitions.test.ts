@@ -480,6 +480,46 @@ describe('auto-advance chain', () => {
     expect(await ticketMd('SR-0001')).toMatch(/^status: prd-draft$/m);
   });
 
+  it('imported tickets carrying source_ref wait on the import-reconcile gate (wp-139)', async () => {
+    const row = await seedTicket('SR-0009', 'imported');
+    // Mark it as tracker-imported (source_ref present) — reconcile ran.
+    await store.upsertTicket({
+      ...row,
+      source_ref: {
+        system: 'github',
+        kind: 'issue',
+        url: 'https://github.com/acme/app/issues/9',
+        imported_at: NOW,
+        original_status: 'OPEN',
+      },
+    });
+    await store.upsertGateItem({
+      workspace: WS,
+      subject: 'SR-0009',
+      gate: 'import-reconcile',
+      kind: 'review',
+      surfaced_at: NOW,
+      cleared_at: null,
+      blocked_agent: true,
+      priority: null,
+    });
+
+    // Open reconcile gate → the ticket is parked on the import board.
+    const t = await store.getTicket({ workspace: WS, ticket_id: 'SR-0009' });
+    expect(await handler.nextStage(t as TicketRow, ctx())).toBeNull();
+    expect(await ticketMd('SR-0009')).toMatch(/^status: imported$/m);
+
+    // A human clears the reconciled flag → auto-advance to triage.
+    await store.clearGateItem(
+      { workspace: WS, subject: 'SR-0009', gate: 'import-reconcile' },
+      NOW,
+    );
+    const t2 = await store.getTicket({ workspace: WS, ticket_id: 'SR-0009' });
+    const next = await handler.nextStage(t2 as TicketRow, ctx());
+    expect(next?.stage).toBe('triage');
+    expect(await ticketMd('SR-0009')).toMatch(/^status: triage$/m);
+  });
+
   it('READY applies suggestions but human-set fields win', async () => {
     await seedTicket('SR-0001', 'triage', {
       backend: 'devin',
@@ -722,7 +762,6 @@ describe('events table (D29 ledger — no events.jsonl, no LOG.md)', () => {
       'release_note_approved',
       'retro_completed',
       'correction_filed',
-      'baseline_reconciled',
     ]);
     const missing = EVENT_NAMES.filter(
       (n: EventName) =>

@@ -71,6 +71,17 @@ export const PROMPT_TOKENS = [
    *  discovery wps — wp-144/145). */
   'RELEASE_MD',
   'BRIEF_INPUTS',
+  /** Design-artifact stage inputs (wp-149): `MOCKUP_JSON` is the
+   *  current component tree handed to the `mockup` stage for editing
+   *  (empty on first draft); `MOCKUP_MODE` selects the generator mode
+   *  (compose|screenshot|sketch|states); `DESIGN_SYSTEM_JSON` is the
+   *  mined component-token bundle the generator must consume so screens
+   *  look native; `DESIGN_SYSTEM_SOURCE` names the repo the
+   *  `design-ingest` stage mines. */
+  'MOCKUP_JSON',
+  'MOCKUP_MODE',
+  'DESIGN_SYSTEM_JSON',
+  'DESIGN_SYSTEM_SOURCE',
 ] as const;
 
 export type PromptToken = (typeof PROMPT_TOKENS)[number];

@@ -1,6 +1,9 @@
 /**
- * Statement Ledger (wp-143, PRD §15.3/§15.9) — the extraction engine +
- * statement lifecycle on top of the wp-131 store tables.
+ * semantics/ — the shared semantic engines (PRD §15.3/§15.9).
+ *
+ * wp-139: import-item clustering (`cluster.js`).
+ * wp-143: Statement Ledger — the extraction engine + statement
+ * lifecycle on top of the wp-131 store tables.
  *
  *   sources (evidence) ──► ingestExtraction ──► statements (proposed,
  *     verbatim spans) + extraction_runs (model/prompt provenance) +
@@ -10,6 +13,7 @@
  *   authority: resolveAuthority decides conflicts — fail-closed ties
  *   become decision items via openConflictDecisions.
  */
+export * from './cluster.js';
 export {
   AUTHORITY_PREDICATES,
   INTENT_AUTHORITY,
