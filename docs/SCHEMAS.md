@@ -607,6 +607,49 @@ The artifact contains no raw secret/credential/request-body values. Counts and
 time windows come from the structured observability query, not vector search.
 Root cause remains unverified until a human or authoritative outcome records it.
 
+## 20. runs.request — the queue-row request payload (D40 + wp-141)
+
+`runs.request` is jsonb; producers write it, consumers parse with
+`RunRequestSchema` (`.passthrough()` — forward-compatible). Shape:
+
+```json
+{
+  "tokens": {"system": "…", "task": "…"},
+  "model": "anthropic/claude-sonnet-4",
+  "task": {"…": "runner-task spec for agent-less stages"},
+  "baseline": {
+    "rs_version": 3, "ticket_rev": 2, "design_rev": 1,
+    "ac_ids": ["AC-1", "AC-3"], "base_sha": "abc123",
+    "contract_ver": 1
+  }
+}
+```
+
+`baseline` (`RunBaselineSchema`) pins the doc_versions the run works
+against — spec changes mid-run do not retro-edit the pinned set
+(PR-5/wp-141: drift surfaces as a gate item, not silent re-baseline).
+
+## 21. ModelRoute — routing-registry entry (PRD §15.12, wp-155)
+
+`models:` config section; every AI interaction kind resolves to one
+entry — never a hardcoded model in a stage:
+
+```json
+{
+  "primary": "anthropic/claude-sonnet-4",
+  "fallback": ["openai/gpt-4.1"],
+  "max_output_tokens": 8192,
+  "schema_required": true,
+  "providers": ["openrouter", "anthropic"],
+  "eval_threshold": 0.8,
+  "latency_class": "interactive"
+}
+```
+
+`latency_class`: `instant` (no LLM on path) | `interactive` (streamed
+~1s TTFT) | `background` (quality-adjusted cost). Registry entries are
+versioned config — eval results (wp-156) feed route changes.
+
 ---
 
 **Lint rule (all docs):** structured tables must parse cleanly or the

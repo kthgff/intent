@@ -10,28 +10,69 @@
  */
 import type { ContainerState } from './enums.js';
 import type {
+  AssumptionRow,
   BoardItem,
   BoardRow,
+  ChangesetItemRow,
+  ChangesetRow,
   Claim,
   ContainerRow,
+  DeliveryCommitmentRow,
+  DeploymentRow,
+  DesignApprovalRow,
   DocVersion,
   DossierEntry,
   Embedding,
   Entity,
+  EvalCaseRow,
+  EvalResultRow,
+  EvalRunRow,
   EventRow,
+  ExternalReviewMappingRow,
+  ExtractionRunRow,
+  FeatureExposureRow,
   FeatureRow,
+  FindingResolutionRow,
   GateItem,
   InitiativeRow,
+  InterviewBranchRow,
+  InterviewMessageRow,
+  InterviewSessionRow,
+  KnowledgeSlotRow,
   Lease,
   Notification,
   Presence,
   ProjectRow,
+  QualityDebtRow,
+  QuestionCandidateRow,
   Relation,
+  ReleaseApprovalRow,
+  ReleaseGateResultRow,
+  ReleaseItemRow,
+  ReleaseManifestRow,
+  ReleaseNoteRow,
+  ReleaseOutcomeRow,
+  ReleaseRow,
+  ReviewCommentRow,
+  ReviewDecisionRow,
+  ReviewEvidenceLinkRow,
+  ReviewFindingRow,
+  ReviewRevisionRow,
+  ReviewSessionRow,
   RunArtifact,
   RunRow,
+  SessionSnapshotRow,
+  StatementArtifactLinkRow,
+  StatementClarificationRow,
+  StatementDecisionRow,
+  StatementRelationRow,
+  StatementRow,
+  StatementVersionRow,
   TicketRepoRow,
   TicketRow,
   UsageCallRow,
+  WizardDefinitionRow,
+  WizardVersionRow,
 } from './schemas.js';
 
 /** Lease identity (DB-SCHEMA leases PK). */
@@ -403,4 +444,489 @@ export interface Store {
   putArtifact(a: RunArtifact): Promise<void>;
   getArtifact(run_id: string, name: string): Promise<RunArtifact | null>;
   listArtifacts(run_id: string): Promise<RunArtifact[]>;
+
+  // =====================================================================
+  // Addendum entities (wp-131 freeze — PRD §15 / DELIVERY §3 families).
+  // Every query is workspace-qualified; append-only tables expose
+  // `append…`/`list…` only — no mutating methods.
+  // =====================================================================
+
+  // ---- releases / delivery (DELIVERY §3) ----
+
+  /** REL-NNNN allocator — same transactional seq-bump as tickets. */
+  allocReleaseId(workspace: string): Promise<string>;
+
+  upsertRelease(row: ReleaseRow): Promise<void>;
+  getRelease(key: {
+    workspace: string;
+    release_id: string;
+  }): Promise<ReleaseRow | null>;
+  listReleases(filter?: {
+    workspace?: string;
+    status?: string;
+  }): Promise<ReleaseRow[]>;
+
+  /** Release scope membership. Soft-remove via `removed_at` — a removed
+   *  item stays in the row set for audit. */
+  upsertReleaseItem(row: ReleaseItemRow): Promise<void>;
+  listReleaseItems(key: {
+    workspace: string;
+    release_id: string;
+  }): Promise<ReleaseItemRow[]>;
+  removeReleaseItem(
+    key: {
+      workspace: string;
+      release_id: string;
+      item_kind: string;
+      item_id: string;
+    },
+    removed_at: string,
+  ): Promise<void>;
+
+  /** Immutable manifest cut (DELIVERY invariant 3) — insert-only; a
+   *  scope change appends a new `version`. */
+  appendReleaseManifest(row: ReleaseManifestRow): Promise<void>;
+  getReleaseManifest(
+    key: { workspace: string; release_id: string },
+    version?: number,
+  ): Promise<ReleaseManifestRow | null>;
+  listReleaseManifests(key: {
+    workspace: string;
+    release_id: string;
+  }): Promise<ReleaseManifestRow[]>;
+
+  /** Append-only approval bound to a manifest digest. */
+  appendReleaseApproval(row: ReleaseApprovalRow): Promise<void>;
+  listReleaseApprovals(key: {
+    workspace: string;
+    release_id: string;
+    manifest_version?: number;
+  }): Promise<ReleaseApprovalRow[]>;
+
+  /** Publication metadata — note content lives in doc_versions
+   *  (`notes-<audience>.md`, DELIVERY §3). */
+  upsertReleaseNote(row: ReleaseNoteRow): Promise<void>;
+  getReleaseNote(key: {
+    workspace: string;
+    release_id: string;
+    audience: string;
+  }): Promise<ReleaseNoteRow | null>;
+  listReleaseNotes(key: {
+    workspace: string;
+    release_id: string;
+  }): Promise<ReleaseNoteRow[]>;
+
+  /** Append-only gate-check audit; `id` is store-assigned. */
+  appendReleaseGateResult(
+    row: Omit<ReleaseGateResultRow, 'id'>,
+  ): Promise<number>;
+  listReleaseGateResults(key: {
+    workspace: string;
+    release_id: string;
+    gate?: string;
+  }): Promise<ReleaseGateResultRow[]>;
+
+  /** Insert a deployment (MVP evidence is manual; DELIVERY §3
+   *  invariant 4 requires non-empty `evidence`). */
+  insertDeployment(row: DeploymentRow): Promise<void>;
+  /** Record the manual confirmation on an existing deployment row. */
+  confirmDeployment(
+    key: { workspace: string; deployment_id: string },
+    confirmed_by: string,
+    at: string,
+  ): Promise<void>;
+  listDeployments(filter: {
+    workspace: string;
+    release_id?: string;
+    environment?: string;
+  }): Promise<DeploymentRow[]>;
+
+  /** Feature availability per environment — `available` requires a
+   *  linked `deployment_id` (DELIVERY invariant 4). */
+  upsertFeatureExposure(row: FeatureExposureRow): Promise<void>;
+  getFeatureExposure(key: {
+    workspace: string;
+    feature_id: string;
+    environment: string;
+  }): Promise<FeatureExposureRow | null>;
+  listFeatureExposure(filter: {
+    workspace: string;
+    feature_id?: string;
+    environment?: string;
+  }): Promise<FeatureExposureRow[]>;
+
+  /** KPI outcomes per release (DELIVERY §3). */
+  upsertReleaseOutcome(row: ReleaseOutcomeRow): Promise<void>;
+  listReleaseOutcomes(key: {
+    workspace: string;
+    release_id: string;
+  }): Promise<ReleaseOutcomeRow[]>;
+
+  // ---- changesets (PRD §15.5, wp-140) ----
+
+  upsertChangeset(row: ChangesetRow): Promise<void>;
+  getChangeset(key: {
+    workspace: string;
+    changeset_id: string;
+  }): Promise<ChangesetRow | null>;
+  listChangesets(filter?: {
+    workspace?: string;
+    status?: string;
+  }): Promise<ChangesetRow[]>;
+
+  /** Ordered apply list — `seq` is the caller-assigned ordinal;
+   *  partial application stays visible via per-item status. */
+  upsertChangesetItem(row: ChangesetItemRow): Promise<void>;
+  listChangesetItems(key: {
+    workspace: string;
+    changeset_id: string;
+  }): Promise<ChangesetItemRow[]>;
+
+  // ---- statement ledger (PRD §15.3/§15.9, wp-143) ----
+
+  /**
+   * Write a statement — appends `statement_versions` at max(version)+1
+   * and updates the `semantic_statements` head in one transaction
+   * (doc_versions discipline). Returns the head row with the allocated
+   * `version`.
+   */
+  upsertStatement(row: Omit<StatementRow, 'version'>): Promise<StatementRow>;
+  getStatement(key: {
+    workspace: string;
+    statement_id: string;
+  }): Promise<StatementRow | null>;
+  listStatements(filter?: {
+    workspace?: string;
+    status?: string;
+    scope?: string;
+    scope_ref?: string;
+    intent?: string;
+  }): Promise<StatementRow[]>;
+  /** Append-only version history, ascending. */
+  listStatementVersions(key: {
+    workspace: string;
+    statement_id: string;
+  }): Promise<StatementVersionRow[]>;
+
+  /** Typed statement edges — the authority rule resolves on these
+   *  (§15.3), not vector similarity. */
+  upsertStatementRelation(row: StatementRelationRow): Promise<void>;
+  listStatementRelations(filter: {
+    workspace: string;
+    src?: string;
+    dst?: string;
+    predicate?: string;
+  }): Promise<StatementRelationRow[]>;
+  deleteStatementRelation(key: {
+    workspace: string;
+    src: string;
+    predicate: string;
+    dst: string;
+  }): Promise<void>;
+
+  /** Clarification Q&A bound to a statement — `answer` lands via
+   *  re-upsert with `answered_at` set. */
+  upsertStatementClarification(row: StatementClarificationRow): Promise<void>;
+  listStatementClarifications(filter: {
+    workspace: string;
+    statement_id?: string;
+  }): Promise<StatementClarificationRow[]>;
+
+  /** Disagreement decision items — never a silent merge (§15.9). */
+  upsertStatementDecision(row: StatementDecisionRow): Promise<void>;
+  getStatementDecision(key: {
+    workspace: string;
+    decision_id: string;
+  }): Promise<StatementDecisionRow | null>;
+  listStatementDecisions(filter: {
+    workspace: string;
+    statement_id?: string;
+    status?: string;
+  }): Promise<StatementDecisionRow[]>;
+
+  /** Statement → generated-artifact back-links (wp-146 lint). */
+  upsertStatementArtifactLink(row: StatementArtifactLinkRow): Promise<void>;
+  listStatementArtifactLinks(filter: {
+    workspace: string;
+    statement_id?: string;
+    artifact?: string;
+  }): Promise<StatementArtifactLinkRow[]>;
+  deleteStatementArtifactLink(key: {
+    workspace: string;
+    statement_id: string;
+    artifact: string;
+    element: string;
+  }): Promise<void>;
+
+  /** Extraction provenance (model + prompt version per batch). */
+  insertExtractionRun(row: ExtractionRunRow): Promise<void>;
+  getExtractionRun(key: {
+    workspace: string;
+    extraction_run_id: string;
+  }): Promise<ExtractionRunRow | null>;
+  listExtractionRuns(filter?: {
+    workspace?: string;
+    subject?: string;
+  }): Promise<ExtractionRunRow[]>;
+
+  // ---- interview orchestrator (PRD §15.9, wp-145) ----
+
+  upsertWizardDefinition(row: WizardDefinitionRow): Promise<void>;
+  getWizardDefinition(key: {
+    workspace: string;
+    wizard_id: string;
+  }): Promise<WizardDefinitionRow | null>;
+  /** Immutable wizard config versions — insert-only. */
+  appendWizardVersion(row: WizardVersionRow): Promise<void>;
+  getWizardVersion(
+    key: { workspace: string; wizard_id: string },
+    version?: number,
+  ): Promise<WizardVersionRow | null>;
+  listWizardVersions(key: {
+    workspace: string;
+    wizard_id: string;
+  }): Promise<WizardVersionRow[]>;
+
+  upsertInterviewSession(row: InterviewSessionRow): Promise<void>;
+  getInterviewSession(key: {
+    workspace: string;
+    session_id: string;
+  }): Promise<InterviewSessionRow | null>;
+  listInterviewSessions(filter?: {
+    workspace?: string;
+    subject?: string;
+    status?: string;
+  }): Promise<InterviewSessionRow[]>;
+
+  /** Multi-stakeholder specialist branches (§15.9). */
+  upsertInterviewBranch(row: InterviewBranchRow): Promise<void>;
+  listInterviewBranches(key: {
+    workspace: string;
+    session_id: string;
+  }): Promise<InterviewBranchRow[]>;
+
+  /**
+   * Durable transcript (§15.9) — append-only; `seq` is store-assigned
+   * (max+1 per session) and returned.
+   */
+  appendInterviewMessage(
+    row: Omit<InterviewMessageRow, 'seq'>,
+  ): Promise<number>;
+  listInterviewMessages(key: {
+    workspace: string;
+    session_id: string;
+    /** Only rows with seq > after (resume/incremental reads). */
+    after?: number;
+  }): Promise<InterviewMessageRow[]>;
+
+  upsertKnowledgeSlot(row: KnowledgeSlotRow): Promise<void>;
+  getKnowledgeSlot(key: {
+    workspace: string;
+    session_id: string;
+    slot: string;
+  }): Promise<KnowledgeSlotRow | null>;
+  listKnowledgeSlots(key: {
+    workspace: string;
+    session_id: string;
+    state?: string;
+  }): Promise<KnowledgeSlotRow[]>;
+
+  /** Planner output — scored next-question candidates. */
+  upsertQuestionCandidate(row: QuestionCandidateRow): Promise<void>;
+  listQuestionCandidates(filter: {
+    workspace: string;
+    session_id: string;
+    status?: string;
+  }): Promise<QuestionCandidateRow[]>;
+
+  /** Append-only resume snapshots (§15.9). */
+  appendSessionSnapshot(row: SessionSnapshotRow): Promise<void>;
+  /** Latest snapshot for a session when `version` is omitted. */
+  getSessionSnapshot(
+    key: { workspace: string; session_id: string },
+    version?: number,
+  ): Promise<SessionSnapshotRow | null>;
+  listSessionSnapshots(key: {
+    workspace: string;
+    session_id: string;
+  }): Promise<SessionSnapshotRow[]>;
+
+  // ---- review studio (PRD §15.8, wp-148/149/150) ----
+
+  upsertReviewSession(row: ReviewSessionRow): Promise<void>;
+  getReviewSession(key: {
+    workspace: string;
+    review_id: string;
+  }): Promise<ReviewSessionRow | null>;
+  listReviewSessions(filter?: {
+    workspace?: string;
+    subject?: string;
+    status?: string;
+  }): Promise<ReviewSessionRow[]>;
+
+  /** Append-only reviewable heads — approvals bind to `head_sha` +
+   *  the pinned spec baseline (stale-approval, §15.8). */
+  appendReviewRevision(row: ReviewRevisionRow): Promise<void>;
+  /** Latest revision when `revision` is omitted. */
+  getReviewRevision(
+    key: { workspace: string; review_id: string },
+    revision?: number,
+  ): Promise<ReviewRevisionRow | null>;
+  listReviewRevisions(key: {
+    workspace: string;
+    review_id: string;
+  }): Promise<ReviewRevisionRow[]>;
+
+  upsertReviewFinding(row: ReviewFindingRow): Promise<void>;
+  getReviewFinding(key: {
+    workspace: string;
+    finding_id: string;
+  }): Promise<ReviewFindingRow | null>;
+  listReviewFindings(filter: {
+    workspace: string;
+    review_id?: string;
+    status?: string;
+    severity?: string;
+  }): Promise<ReviewFindingRow[]>;
+
+  /** Semantic comments — `out-of-scope` routes to a ChangeSet
+   *  (`changeset_id`); a comment is an instruction, not authorization. */
+  upsertReviewComment(row: ReviewCommentRow): Promise<void>;
+  listReviewComments(filter: {
+    workspace: string;
+    review_id?: string;
+    subject?: string;
+  }): Promise<ReviewCommentRow[]>;
+
+  /** Append-only reviewer verdicts bound to head SHA + spec baseline —
+   *  never posed as GitHub approvals (§15.8). */
+  appendReviewDecision(row: ReviewDecisionRow): Promise<void>;
+  listReviewDecisions(key: {
+    workspace: string;
+    review_id: string;
+  }): Promise<ReviewDecisionRow[]>;
+
+  /** Append-only finding lifecycle audit — terminal dispositions
+   *  require `rationale` + a permissioned `actor`. */
+  appendFindingResolution(row: FindingResolutionRow): Promise<void>;
+  listFindingResolutions(key: {
+    workspace: string;
+    finding_id: string;
+  }): Promise<FindingResolutionRow[]>;
+
+  /** Requirement-first review evidence edges — insert is idempotent
+   *  (duplicate links collapse on the PK). */
+  insertReviewEvidenceLink(row: ReviewEvidenceLinkRow): Promise<void>;
+  listReviewEvidenceLinks(filter: {
+    workspace: string;
+    review_id?: string;
+    finding_id?: string;
+  }): Promise<ReviewEvidenceLinkRow[]>;
+  deleteReviewEvidenceLink(key: {
+    workspace: string;
+    review_id: string;
+    finding_id: string;
+    evidence_ref: string;
+  }): Promise<void>;
+
+  /** Explicit finding↔external-thread mapping — idempotent on the
+   *  (external_kind, external_id) PK; GitHub stays authoritative. */
+  upsertExternalReviewMapping(row: ExternalReviewMappingRow): Promise<void>;
+  listExternalReviewMappings(filter: {
+    workspace: string;
+    review_id?: string;
+    finding_id?: string;
+  }): Promise<ExternalReviewMappingRow[]>;
+
+  /** Visual-AC / design approvals bound to a mockup revision (§15.4). */
+  upsertDesignApproval(row: DesignApprovalRow): Promise<void>;
+  getDesignApproval(key: {
+    workspace: string;
+    approval_id: string;
+  }): Promise<DesignApprovalRow | null>;
+  listDesignApprovals(filter: {
+    workspace: string;
+    subject?: string;
+    status?: string;
+  }): Promise<DesignApprovalRow[]>;
+
+  // ---- process machinery (PRD §15.10, wp-153) ----
+
+  /** Assumption Register — auto-captured when a stage depends on
+   *  unverified info; high-impact unverified rows gate or get human
+   *  risk-acceptance. */
+  upsertAssumption(row: AssumptionRow): Promise<void>;
+  getAssumption(key: {
+    workspace: string;
+    assumption_id: string;
+  }): Promise<AssumptionRow | null>;
+  listAssumptions(filter?: {
+    workspace?: string;
+    subject?: string;
+    status?: string;
+  }): Promise<AssumptionRow[]>;
+
+  /** Quality Debt Register — owned, expiring, consolidatable (§15.10). */
+  upsertQualityDebt(row: QualityDebtRow): Promise<void>;
+  getQualityDebt(key: {
+    workspace: string;
+    debt_id: string;
+  }): Promise<QualityDebtRow | null>;
+  listQualityDebt(filter?: {
+    workspace?: string;
+    status?: string;
+    kind?: string;
+  }): Promise<QualityDebtRow[]>;
+
+  /**
+   * Versioned committed scope (§15.6): appends `delivery_commitments`
+   * at max(version)+1 for the commitment and returns the row with the
+   * allocated `version`. planned ≠ committed ≠ implemented ≠ verified
+   * ≠ delivered.
+   */
+  commitDeliveryCommitment(
+    row: Omit<DeliveryCommitmentRow, 'version'>,
+  ): Promise<DeliveryCommitmentRow>;
+  /** Head (max version) of a commitment when `version` is omitted. */
+  getDeliveryCommitment(
+    key: { workspace: string; commitment_id: string },
+    version?: number,
+  ): Promise<DeliveryCommitmentRow | null>;
+  /** Latest version of every commitment — status filter applies to
+   *  the head rows. */
+  listDeliveryCommitments(filter?: {
+    workspace?: string;
+    status?: string;
+  }): Promise<DeliveryCommitmentRow[]>;
+  listDeliveryCommitmentVersions(key: {
+    workspace: string;
+    commitment_id: string;
+  }): Promise<DeliveryCommitmentRow[]>;
+
+  // ---- eval lab (PRD §15.12, wp-156) ----
+
+  upsertEvalRun(row: EvalRunRow): Promise<void>;
+  getEvalRun(key: {
+    workspace: string;
+    eval_run_id: string;
+  }): Promise<EvalRunRow | null>;
+  listEvalRuns(filter?: {
+    workspace?: string;
+    family?: string;
+    status?: string;
+  }): Promise<EvalRunRow[]>;
+
+  /** Golden-set cases — upsert keeps the corpus curatable. */
+  upsertEvalCase(row: EvalCaseRow): Promise<void>;
+  listEvalCases(filter: {
+    workspace: string;
+    family?: string;
+  }): Promise<EvalCaseRow[]>;
+
+  /** Append-only — a re-run is a new eval_run. */
+  appendEvalResult(row: EvalResultRow): Promise<void>;
+  listEvalResults(key: {
+    workspace: string;
+    eval_run_id: string;
+  }): Promise<EvalResultRow[]>;
 }

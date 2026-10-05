@@ -303,6 +303,240 @@ incidents(
   resolution_verified INT DEFAULT 0,
   deployment_refs TEXT, ticket_refs TEXT, pr_refs TEXT,
   opened_at TEXT, resolved_at TEXT);
+
+-- --- delivery / releases (DELIVERY §3, wp-131/133-135) ---
+releases(workspace, org, release_id,      -- REL-NNNN (next_release_seq)
+  title, status,                          -- draft|ready|approved|released|closed|abandoned
+  target, created_by, created_at, updated_at,
+  PRIMARY KEY(workspace, release_id));
+release_items(workspace, org, release_id, item_kind,    -- feature|ticket
+  item_id, partial_ac,                    -- json ac_ids; non-null ⇒ approved_by (inv.5)
+  delivery_state,                         -- planned|released|deployed|exposed
+  approved_by, added_by, added_at, removed_at,
+  PRIMARY KEY(workspace, release_id, item_kind, item_id));
+release_manifests(                        -- append-only (0002 trigger)
+  workspace, org, release_id, version,    -- PK (ws, rel, version)
+  digest,                                 -- sha256 of item→repo→sha map
+  items,                                  -- json [{item_kind,item_id,repos:[{repo,merged_sha}]}]
+  created_at);
+release_approvals(                        -- append-only
+  workspace, org, release_id, manifest_version,
+  approver, decision,                     -- approved|rejected
+  rationale, created_at,
+  PRIMARY KEY(workspace, release_id, manifest_version, approver));
+release_notes(workspace, org, release_id,
+  audience,                               -- customer|stakeholder|technical
+  doc_version,                            -- notes-<audience>.md revision
+  approved_by, approved_at, published_at,
+  PRIMARY KEY(workspace, release_id, audience));
+release_gate_results(                     -- append-only audit
+  id IDENTITY, workspace, org, release_id,
+  gate, result,                           -- pass|fail|waived
+  evidence, checked_at);                  -- json
+deployments(
+  workspace, org, deployment_id, release_id,
+  environment,                            -- free-form (staging/prod/…)
+  sha, evidence,                          -- json {type:manual|webhook|probe, by, note, url}
+  confirmed_by, confirmed_at, created_at,
+  PRIMARY KEY(workspace, deployment_id));
+feature_exposure(
+  workspace, org, feature_id, environment,
+  state,                                  -- hidden|limited|available
+  audience, evidence, deployment_id,      -- available ⇒ deployment_id (inv.4)
+  updated_at,
+  PRIMARY KEY(workspace, feature_id, environment));
+release_outcomes(
+  workspace, org, release_id, kpi,
+  data,                                   -- json {baseline,target,observed,unit}
+  measured_at,
+  PRIMARY KEY(workspace, release_id, kpi));
+
+-- --- changesets (PRD §15.5, wp-140) ---
+changesets(workspace, org, changeset_id,
+  title, request,                         -- verbatim request text
+  baseline,                               -- json {subject,doc,version}
+  classification,                         -- clarification|correction|addition|modification|removal
+  status,                                 -- draft→…→verified (CHANGESET_STATUSES)
+  analysis, decision,                     -- add-now|swap-scope|next-release|decline
+  decision_rationale, decided_by, decided_at, expires_on,
+  emergency, retro_ref, reconciliation,
+  created_by, created_at, updated_at,
+  PRIMARY KEY(workspace, changeset_id));
+changeset_items(
+  workspace, org, changeset_id, seq,      -- ordered apply list
+  subject, doc, base_version, proposed_version,
+  change,                                 -- json payload
+  status, applied_at,                     -- pending|applied|skipped|failed
+  PRIMARY KEY(workspace, changeset_id, seq));
+
+-- --- statement ledger (PRD §15.3/§15.9, wp-143) ---
+semantic_statements(                      -- head rows; history in statement_versions
+  workspace, org, statement_id, version,
+  text, source_text, source_ref,          -- verbatim source preserved (§15.3)
+  intent, polarity, subject, strength, scope, scope_ref,
+  status,                                 -- proposed|confirmed|disputed|superseded|rejected
+  confidence, provenance,                 -- inferred|source-backed|stakeholder-verified
+  extraction_run, created_by, created_at, updated_at,
+  PRIMARY KEY(workspace, statement_id));
+statement_versions(                       -- append-only (0002 trigger)
+  workspace, org, statement_id, version, text, source_text,
+  source_ref, intent, polarity, subject, strength, scope, scope_ref,
+  status, confidence, provenance, extraction_run, edited_by, created_at,
+  PRIMARY KEY(workspace, statement_id, version));
+statement_relations(
+  workspace, org, src, predicate,         -- supports|contradicts|clarifies|duplicates|depends-on|supersedes|derived-from
+  dst, created_by, created_at,
+  PRIMARY KEY(workspace, src, predicate, dst));
+statement_clarifications(
+  workspace, org, clarification_id, statement_id,
+  question, answer, asked_by, answered_by, created_at, answered_at,
+  PRIMARY KEY(workspace, clarification_id));
+statement_decisions(
+  workspace, org, decision_id, statement_id,
+  decision, status,                       -- open|decided|dismissed
+  rationale, decided_by, decided_at, created_by, created_at,
+  PRIMARY KEY(workspace, decision_id));
+statement_artifact_links(
+  workspace, org, statement_id, artifact, -- 'subject:doc' or 'doc:<subj>:<doc>:v<N>'
+  element,                                -- e.g. 'ac:AC-3'; '' = whole doc
+  created_by, created_at,
+  PRIMARY KEY(workspace, statement_id, artifact, element));
+semantic_extraction_runs(
+  workspace, org, extraction_run_id, run, subject,
+  model, prompt_version, stats, created_at,
+  PRIMARY KEY(workspace, extraction_run_id));
+
+-- --- interview orchestrator (PRD §15.9, wp-145) ---
+wizard_definitions(
+  workspace, org, wizard_id, name, description,
+  current_version, created_at, updated_at,
+  PRIMARY KEY(workspace, wizard_id));
+wizard_versions(                          -- append-only
+  workspace, org, wizard_id, version,
+  definition,                             -- json {slots,thresholds,prompts}
+  created_at,
+  PRIMARY KEY(workspace, wizard_id, version));
+interview_sessions(
+  workspace, org, session_id, wizard_id, wizard_version,
+  subject, mode,                          -- conversation|guided|bulk
+  status,                                 -- active|paused|completed|abandoned
+  draft_ready, approval_ready,            -- two thresholds (§15.9)
+  knowledge_version, created_by, created_at, updated_at,
+  PRIMARY KEY(workspace, session_id));
+interview_branches(
+  workspace, org, session_id, branch, role,
+  status, created_at, merged_at,          -- active|merged|abandoned
+  PRIMARY KEY(workspace, session_id, branch));
+interview_messages(                       -- append-only transcript
+  workspace, org, session_id, seq,        -- per-session monotonic
+  branch, role, content, created_at,      -- user|assistant|system
+  PRIMARY KEY(workspace, session_id, seq));
+knowledge_slots(
+  workspace, org, session_id, slot,
+  state,                                  -- known|inferred|missing|conflicted|not-applicable|deferred
+  value, statement_refs,                  -- json statement_ids
+  confidence, updated_at,
+  PRIMARY KEY(workspace, session_id, slot));
+question_candidates(
+  workspace, org, session_id, question_id,
+  slot, question, scores,                 -- json {impact,uncertainty,…}
+  status,                                 -- proposed|asked|answered|skipped|unanswerable
+  created_at, resolved_at,
+  PRIMARY KEY(workspace, session_id, question_id));
+session_snapshots(                        -- append-only resume points
+  workspace, org, session_id, version,
+  snapshot, reason, created_at,           -- json knowledge state
+  PRIMARY KEY(workspace, session_id, version));
+
+-- --- review studio (PRD §15.8, wp-148/149/150) ---
+review_sessions(
+  workspace, org, review_id, subject,
+  status,                                 -- open|approved|changes-requested|closed
+  created_by, created_at, closed_at,
+  PRIMARY KEY(workspace, review_id));
+review_revisions(                         -- append-only pinned heads
+  workspace, org, review_id, revision,
+  head_sha, base_sha, baseline,           -- json RunBaseline
+  created_at,
+  PRIMARY KEY(workspace, review_id, revision));
+review_findings(
+  workspace, org, finding_id, review_id, revision, subject,
+  status,                                 -- open→…→resolved + terminal dispositions
+  severity, category, kind,               -- spec-bug|code-bug
+  thread_id, file, line, symbol, repo,
+  body, evidence, suggested_fix, confidence, blocking,
+  security_category, affected_asset, exposure, policy_violated,
+  author, created_at, updated_at,
+  PRIMARY KEY(workspace, finding_id));
+review_comments(
+  workspace, org, comment_id, review_id, revision, subject,
+  file, line, type, disposition, ai_classification,
+  body, author, changeset_id,             -- out-of-scope → ChangeSet
+  created_at,
+  PRIMARY KEY(workspace, comment_id));
+review_decisions(                         -- append-only; binds head_sha+baseline
+  workspace, org, decision_id, review_id, revision,
+  reviewer, action,                       -- approve|comment|request-fix|request-changes|send-to-board
+  head_sha, baseline, rationale, created_at,
+  PRIMARY KEY(workspace, decision_id));
+finding_resolutions(                      -- append-only lifecycle audit
+  workspace, org, finding_id, seq,
+  status, rationale, actor, created_at,
+  PRIMARY KEY(workspace, finding_id, seq));
+review_evidence_links(
+  workspace, org, review_id, finding_id, evidence_ref, kind, created_at,
+  PRIMARY KEY(workspace, review_id, finding_id, evidence_ref));
+external_review_mappings(
+  workspace, org, review_id, finding_id,
+  external_kind, external_id, created_at,
+  PRIMARY KEY(workspace, external_kind, external_id));
+design_approvals(
+  workspace, org, approval_id, subject,
+  doc, doc_version,                       -- binds a mockup revision
+  checklist, covers,                      -- json: gate results / AC ids
+  reviewer, rationale, status,            -- approved|invalidated|superseded
+  created_at, invalidated_at,
+  PRIMARY KEY(workspace, approval_id));
+
+-- --- process machinery (PRD §15.10, wp-153) ---
+assumptions(
+  workspace, org, assumption_id, subject,
+  statement, impact, impact_if_false, evidence_needed, affected,
+  status,                                 -- unverified|verified|invalidated|risk-accepted
+  owner, source, created_at, updated_at, resolved_at,
+  PRIMARY KEY(workspace, assumption_id));
+quality_debt(
+  workspace, org, debt_id, subject,
+  kind,                                   -- accepted-risk|deferred-refactor|security-exception|weak-tests|doc-gap|other
+  title, body, owner, revisit, expires_at,
+  approved_by, approved_at, consolidated_into,
+  status,                                 -- open|acknowledged|resolved|expired|consolidated
+  created_at, updated_at,
+  PRIMARY KEY(workspace, debt_id));
+delivery_commitments(                     -- append-only versions
+  workspace, org, commitment_id, version,
+  scope,                                  -- json {features, requirement_versions}
+  target, success_criteria, exclusions, assumptions,
+  owner, status,                          -- planned|committed|implemented|verified|delivered|missed|cancelled
+  created_by, created_at,
+  PRIMARY KEY(workspace, commitment_id, version));
+
+-- --- eval lab (PRD §15.12, wp-156) ---
+eval_runs(
+  workspace, org, eval_run_id, family,
+  model, prompt_version, policy_version,
+  status,                                 -- running|completed|failed
+  metrics, created_by, created_at, completed_at,
+  PRIMARY KEY(workspace, eval_run_id));
+eval_cases(
+  workspace, org, family, case_id,
+  input, expected, tags, created_at,      -- json golden set
+  PRIMARY KEY(workspace, family, case_id));
+eval_results(                             -- append-only; re-run = new eval_run
+  workspace, org, eval_run_id, family, case_id,
+  verdict,                                -- pass|fail|skip
+  scores, detail, created_at,
+  PRIMARY KEY(workspace, eval_run_id, family, case_id));
 ```
 
 ## Rules
@@ -361,3 +595,12 @@ incidents(
   transcripts are filesystem data and age out on disk.
 - **Actor identity**: every write carries the install/user id
   (SETTINGS `actor:`) — shared-queue attribution.
+- **Design-for-both tenancy** (D43): every wp-131+ table carries
+  `workspace` plus nullable `org`. Local-first leaves `org` NULL;
+  a future SaaS pivot adds org scoping without a schema rewrite.
+- **Append-only families are trigger-enforced** (0002): releases
+  manifests/approvals/gate-results, statement_versions, wizard
+  versions, interview transcript/snapshots, review
+  revisions/decisions/resolutions, delivery_commitments versions,
+  eval_results — UPDATE/DELETE raises at the DB layer, not just by
+  interface discipline.
