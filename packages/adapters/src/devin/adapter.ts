@@ -30,6 +30,7 @@ import {
   type PrepareContext,
   type RenderedPrompt,
   type RunHandle,
+  type RunOpts,
   type RunResult,
   SentinelSchema,
   type Stage,
@@ -147,15 +148,18 @@ export class DevinAdapter implements Adapter {
   }
 
   /**
-   * Spawn the detached run. `runDir` resolves: explicit param → the
-   * run_dir of the most recent prepare() → constructor option.
+   * Spawn the detached run. `opts` is a run_dir string (legacy) or
+   * RunOpts — resolves: explicit param → the run_dir of the most
+   * recent prepare() → constructor option. `container_id` is ignored:
+   * devin stays `runtime: process` (D30).
    */
   run(
     worktree: string,
     rendered: RenderedPrompt,
     timeout: number,
-    runDir?: string,
+    opts?: RunOpts | string,
   ): RunHandle {
+    const runDir = typeof opts === 'string' ? opts : opts?.run_dir;
     const dir = runDir ?? this.lastRunDir ?? this.defaultRunDir;
     if (dir === undefined) {
       throw new DevinAdapterError(

@@ -43,6 +43,13 @@ export const STAGE_TEMPLATES = {
   escalate: 'escalate',
   survey: 'survey',
   verify: null,
+  // Addendum stages (wp-131 freeze) — templates land with their owning
+  // wps; mapped to null until then per the STAGES enum contract.
+  'release-notes': null,
+  retro: null,
+  extract: null,
+  mockup: null,
+  'design-ingest': null,
 } as const satisfies Record<Stage, string | null>;
 
 /** Context handed to {@link renderPrompt} / {@link renderTemplate}. */

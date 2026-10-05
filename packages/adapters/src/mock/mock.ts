@@ -36,6 +36,7 @@ import {
   type PrepareContext,
   type RenderedPrompt,
   type RunHandle,
+  type RunOpts,
   type RunResult,
   SENTINELS,
   type Stage,
@@ -247,16 +248,19 @@ export class MockAdapter implements Adapter {
     worktree: string,
     rendered: RenderedPrompt,
     timeout: number,
-    opts?: MockRunOptions,
+    opts?: MockRunOptions | RunOpts,
   ): RunHandle {
+    // D30 RunOpts fields (run_dir/container_id) don't apply to the
+    // mock backend — only the MockRunOptions fields are read.
+    const mopts = opts as MockRunOptions | undefined;
     const artifactDir =
-      opts?.artifactDir ??
+      mopts?.artifactDir ??
       parseArtifactDir(rendered.text, worktree) ??
       join(tmpdir(), `sr-mock-${Date.now()}`);
     mkdirSync(artifactDir, { recursive: true });
 
     const logPath =
-      opts?.logPath ?? join(dirname(artifactDir), `mock-run-${Date.now()}.log`);
+      mopts?.logPath ?? join(dirname(artifactDir), `mock-run-${Date.now()}.log`);
     mkdirSync(dirname(logPath), { recursive: true });
     const logFd = openSync(logPath, 'a');
 
@@ -267,17 +271,17 @@ export class MockAdapter implements Adapter {
       env: {
         ...process.env,
         MOCK_SCENARIO:
-          opts?.scenario ??
+          mopts?.scenario ??
           this.#opts.scenario ??
           process.env.MOCK_SCENARIO ??
           'done',
         MOCK_ARTIFACT_DIR: artifactDir,
-        MOCK_DELAY_MS: String(opts?.delayMs ?? this.#opts.delayMs ?? 50),
+        MOCK_DELAY_MS: String(mopts?.delayMs ?? this.#opts.delayMs ?? 50),
         MOCK_HEARTBEAT_MS: String(
-          opts?.heartbeatMs ?? this.#opts.heartbeatMs ?? 100,
+          mopts?.heartbeatMs ?? this.#opts.heartbeatMs ?? 100,
         ),
         MOCK_TIMEOUT_S: String(timeout > 0 ? timeout : 0),
-        ...(opts?.ignoreTerm ? { MOCK_IGNORE_TERM: '1' } : {}),
+        ...(mopts?.ignoreTerm ? { MOCK_IGNORE_TERM: '1' } : {}),
       },
     });
     closeSync(logFd);

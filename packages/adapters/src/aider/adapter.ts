@@ -1,17 +1,33 @@
 /**
  * AiderAdapter — aider + OpenRouter BYOK backend per ADAPTERS.md /
- * wp-052.
+ * wp-052 (process runtime) + wp-096 (container runtime, D30).
  *
- * `aider --message-file <runDir>/prompt.md --yes-always --auto-commits
- * --model openrouter/<model>` spawned detached in the worktree;
- * stdout/stderr → `<runDir>/aider.log`. Capability flags
- * {can_exec: true, can_write_outside_tree: false, has_gh: false} →
- * ARTIFACT_TARGETS renders as the worktree-relative `.sprint-runner/
- * <run-id>/` scratch dir; collect() moves scratch artifacts into
- * ctx.run_dir and purges (the diff never sees them — conductor's
- * envops.collectArtifacts is the same seam and runs as a belt-and-
- * suspenders pass; adapters↔conductor dependency direction forbids
- * importing it, so the move is mirrored here).
+ * `aider --message-file <prompt.md> --yes-always --auto-commits
+ * --model openrouter/<model>` runs DETACHED in the worktree;
+ * stdout/stderr → `<runDir>/aider.log`. Two launch runtimes:
+ *
+ *   - `process` — spawned on the host (`--message-file` points at
+ *     `<runDir>/prompt.md`); binary resolved via findAiderBinary()
+ *     (PATH → AIDER_BIN → pipx/uvx shims — missing = clean init error).
+ *   - `container` (D30 default) — `docker exec -w <worktree> -e <names>`
+ *     inside the subject's ensured container (run opts `container_id`).
+ *     The aider binary lives in the agent image — NO host probe. The
+ *     prompt file is delivered through the mounted worktree
+ *     (`.sprint-runner/prompts/<run-id>.md` — run_dir isn't a mount),
+ *     still identical-path per D30. Secrets ride the exec env as bare
+ *     `-e NAME` passthrough — values never in argv/logs. control()
+ *     maps to docker verbs: kill = `docker kill -s TERM` → grace →
+ *     `docker kill`; pause = `docker pause`; resume = `docker unpause`.
+ *
+ * Capability flags {can_exec: true, can_write_outside_tree: false,
+ * has_gh: false} → ARTIFACT_TARGETS renders as the worktree-relative
+ * `.sprint-runner/<run-id>/` scratch dir; collect() moves scratch
+ * artifacts into ctx.run_dir and purges (the diff never sees them —
+ * conductor's envops.collectArtifacts is the same seam and runs as a
+ * belt-and-suspenders pass; adapters↔conductor dependency direction
+ * forbids importing it, so the move is mirrored here). Sentinel parse,
+ * usage stream-parse, and artifact collect are runtime-agnostic — the
+ * SAME code path serves both runtimes.
  *
  * Usage: per-message `Tokens: …` lines stream-parsed from the log →
  * on_usage callbacks (`streams_usage: true`) and a `per-call`
@@ -45,7 +61,9 @@ import type {
   PrepareContext,
   RenderedPrompt,
   RunHandle,
+  RunOpts,
   RunResult,
+  Runtime,
   Stage,
   Usage,
   UsageCallback,
@@ -54,15 +72,25 @@ import type {
 import { STAGE_TEMPLATES, renderPrompt } from '@sprint-runner/prompts';
 import { parseSentinel } from '../devin/adapter.js';
 import { type AiderInvocation, findAiderBinary } from './binary.js';
+import { CliDockerExec, type ContainerDockerClient } from './container.js';
 import { costUsd, normalizeModelId } from './pricing.js';
 import { parseAiderUsageLine } from './usage.js';
 
-/** Grace between SIGTERM and SIGKILL on `kill` (ADAPTERS control contract). */
+/** Grace between SIGTERM and SIGKILL on `kill` (ADAPTERS control
+ *  contract — `docker kill -s TERM` → `docker kill` on container runs). */
 const KILL_GRACE_MS = 5000;
 /** on_usage log-tail poll interval. */
 const USAGE_POLL_MS = 250;
 /** Rough chars-per-token for the estimation fallback (no tokenizer dep). */
 const CHARS_PER_TOKEN = 4;
+
+/** In-container aider invocation (D30): the agent image carries aider
+ *  on its PATH — container runs never probe the host for a binary. */
+const CONTAINER_INVOCATION: AiderInvocation = {
+  bin: 'aider',
+  prefixArgs: [],
+  source: 'container image PATH',
+};
 
 export class AiderAdapterError extends Error {
   constructor(message: string) {
@@ -92,6 +120,17 @@ export interface AiderAdapterOptions {
   killGraceMs?: number;
   /** on_usage poll interval override (ms) — tests. */
   usagePollMs?: number;
+  /** Resolved runtime for this adapter (D30): `container` = run()
+   *  requires `opts.container_id` and `docker exec`s inside it;
+   *  `process` (default) = detached host spawn. The conductor-side
+   *  wiring resolves this via `resolveRuntime` (capabilities.<backend>
+   *  .runtime override → declared `container` → containers.runtime);
+   *  without that wiring the adapter stays a process backend. */
+  runtime?: Runtime;
+  /** Docker client for container runs — default {@link CliDockerExec}
+   *  shells `docker`; the conductor's CliDockerClient satisfies this
+   *  surface structurally; tests inject a fake. */
+  docker?: ContainerDockerClient;
 }
 
 interface TrackedRun {
@@ -101,6 +140,11 @@ interface TrackedRun {
   /** Worktree the run executes in — needed for scratch-dir collect. */
   worktree: string;
   runId: string;
+  /** D30 exec target — set on container runs. */
+  containerId?: string;
+  /** Container-runtime prompt file inside the mounted worktree
+   *  (`.sprint-runner/prompts/<run-id>.md`) — purged at collect. */
+  containerPrompt?: string;
   usageTimer: NodeJS.Timeout | null;
   usageOffset: number;
 }
@@ -108,13 +152,16 @@ interface TrackedRun {
 export class AiderAdapter implements Adapter {
   readonly name = 'aider' as const;
   /** ADAPTERS aider flags: exec ✓, outside-tree ✗ (scratch-dir
-   *  artifacts), gh ✗ (runner-owned push/PR). */
+   *  artifacts), gh ✗ (runner-owned push/PR), container-capable (D30 —
+   *  `runtime: container` declared; the resolved runtime still comes
+   *  from containers.runtime / capabilities.aider.runtime). */
   readonly capabilities: CapabilityFlags = {
     can_exec: true,
     can_write_outside_tree: false,
     has_gh: false,
     can_signal: true,
     streams_usage: true,
+    runtime: 'container',
   };
 
   private readonly invocation: AiderInvocation;
@@ -125,12 +172,22 @@ export class AiderAdapter implements Adapter {
   private readonly usagePollMs: number;
   private readonly ticket?: string;
   private readonly defaultRunDir?: string;
+  private readonly runtime: Runtime;
+  private readonly docker: ContainerDockerClient;
   private lastRunDir?: string;
   private lastRunId?: string;
   private readonly runs = new Map<number, TrackedRun>();
 
   constructor(opts: AiderAdapterOptions = {}) {
-    const bin = opts.binary ?? findAiderBinary();
+    this.runtime = opts.runtime ?? 'process';
+    // Container runtime execs aider from the agent image's PATH — the
+    // host binary probe would fail closed on machines without a host
+    // aider (AGENTS.md: container runs must not depend on one).
+    const bin =
+      opts.binary ??
+      (this.runtime === 'container'
+        ? CONTAINER_INVOCATION
+        : findAiderBinary());
     this.invocation =
       typeof bin === 'string'
         ? { bin, prefixArgs: [], source: 'explicit' }
@@ -144,6 +201,7 @@ export class AiderAdapter implements Adapter {
     this.usagePollMs = opts.usagePollMs ?? USAGE_POLL_MS;
     if (opts.ticket !== undefined) this.ticket = opts.ticket;
     if (opts.runDir !== undefined) this.defaultRunDir = opts.runDir;
+    this.docker = opts.docker ?? new CliDockerExec();
   }
 
   prepare(
@@ -167,53 +225,74 @@ export class AiderAdapter implements Adapter {
     });
   }
 
-  /** Spawn the detached run. `runDir` resolves: explicit param → the
-   *  run_dir of the most recent prepare() → constructor option. */
+  /** Spawn the detached run — a host process, or `docker exec` inside
+   *  the subject's container when `opts.container_id` is set (D30).
+   *  `opts.run_dir` resolves: explicit param → the run_dir of the most
+   *  recent prepare() → constructor option. */
   run(
     worktree: string,
     rendered: RenderedPrompt,
     timeout: number,
-    runDir?: string,
+    opts?: RunOpts,
   ): RunHandle {
-    const dir = runDir ?? this.lastRunDir ?? this.defaultRunDir;
+    const dir = opts?.run_dir ?? this.lastRunDir ?? this.defaultRunDir;
     if (dir === undefined) {
       throw new AiderAdapterError(
-        'no run_dir — call prepare() first, pass runDir, or set opts.runDir',
+        'no run_dir — call prepare() first, pass opts.run_dir, or set opts.runDir',
+      );
+    }
+    const containerId = opts?.container_id;
+    if (containerId === undefined && this.runtime === 'container') {
+      // Fail closed: a container-runtime aider can only run inside the
+      // subject's container — silently host-spawning would die on the
+      // missing host binary AND break D30 isolation.
+      throw new AiderAdapterError(
+        "runtime 'container' but run() got no container_id — the " +
+          "conductor must ensure the subject's container and pass its id",
       );
     }
     mkdirSync(dir, { recursive: true });
 
+    const runId = this.lastRunId ?? dir.split('/').pop() ?? '';
     const promptPath = join(dir, 'prompt.md');
     writeFileSync(promptPath, rendered.text, 'utf8');
 
     const logPath = join(dir, 'aider.log');
     const logFd = openSync(logPath, 'a');
 
-    const args = [
-      ...this.invocation.prefixArgs,
-      '--message-file',
-      promptPath,
-      '--yes-always',
-      '--auto-commits',
-    ];
-    if (this.model !== undefined) {
-      const id = normalizeModelId(this.model);
-      args.push('--model', `openrouter/${id}`);
+    let child: ChildProcess;
+    let containerPrompt: string | undefined;
+    try {
+      if (containerId === undefined) {
+        child = this.spawnProcess(worktree, promptPath, logFd);
+      } else {
+        // D30: the prompt must reach aider through a path the container
+        // sees — run_dir isn't mounted, the worktree is (identical
+        // path inside and out).
+        containerPrompt = join(
+          worktree,
+          '.sprint-runner',
+          'prompts',
+          `${runId.replaceAll('/', '-')}.md`,
+        );
+        mkdirSync(dirname(containerPrompt), { recursive: true });
+        writeFileSync(containerPrompt, rendered.text, 'utf8');
+        child = this.docker.exec(
+          containerId,
+          {
+            workdir: worktree,
+            envKeys: this.secretEnvKeys(),
+            argv: [this.invocation.bin, ...this.aiderArgs(containerPrompt)],
+          },
+          {
+            stdio: ['ignore', logFd, logFd],
+            env: this.childEnv(),
+          },
+        );
+      }
+    } finally {
+      closeSync(logFd);
     }
-
-    const childEnv: NodeJS.ProcessEnv = { ...process.env, ...this.extraEnv };
-    if (this.openrouterApiKey !== undefined) {
-      childEnv.OPENROUTER_API_KEY = this.openrouterApiKey;
-    }
-
-    const spawnOpts: SpawnOptions = {
-      cwd: worktree,
-      detached: true,
-      stdio: ['ignore', logFd, logFd],
-      env: childEnv,
-    };
-    const child = spawn(this.invocation.bin, args, spawnOpts);
-    closeSync(logFd);
     if (child.pid === undefined) {
       throw new AiderAdapterError('aider spawn failed — no pid');
     }
@@ -223,7 +302,9 @@ export class AiderAdapter implements Adapter {
       child,
       timedOut: false,
       worktree,
-      runId: this.lastRunId ?? dir.split('/').pop() ?? '',
+      runId,
+      ...(containerId !== undefined ? { containerId } : {}),
+      ...(containerPrompt !== undefined ? { containerPrompt } : {}),
       usageTimer: null,
       usageOffset: 0,
       exit: new Promise((res) => {
@@ -236,18 +317,95 @@ export class AiderAdapter implements Adapter {
     if (timeout > 0) {
       const t = setTimeout(() => {
         tracked.timedOut = true;
-        this.terminate(child, this.killGraceMs);
+        this.terminate(tracked);
       }, timeout * 1000);
       t.unref();
     }
 
-    return { pid: child.pid, log_path: logPath };
+    return {
+      pid: child.pid,
+      log_path: logPath,
+      ...(containerId !== undefined ? { container_id: containerId } : {}),
+    };
   }
 
-  /** ADAPTERS control: kill = SIGTERM → SIGKILL after grace; pause =
-   *  SIGSTOP; resume = SIGCONT. */
+  /** Host-process spawn (`runtime: process`). */
+  private spawnProcess(
+    worktree: string,
+    promptPath: string,
+    logFd: number,
+  ): ChildProcess {
+    const spawnOpts: SpawnOptions = {
+      cwd: worktree,
+      detached: true,
+      stdio: ['ignore', logFd, logFd],
+      env: this.childEnv(),
+    };
+    return spawn(this.invocation.bin, this.aiderArgs(promptPath), spawnOpts);
+  }
+
+  /** The aider argv (minus the binary) — `--message-file` takes the
+   *  path aider will actually open: run_dir prompt on the host, the
+   *  mounted-worktree copy inside a container. */
+  private aiderArgs(messageFile: string): string[] {
+    const args = [
+      ...this.invocation.prefixArgs,
+      '--message-file',
+      messageFile,
+      '--yes-always',
+      '--auto-commits',
+    ];
+    if (this.model !== undefined) {
+      const id = normalizeModelId(this.model);
+      args.push('--model', `openrouter/${id}`);
+    }
+    return args;
+  }
+
+  /** Child env — process env + injected secrets. The same env rides
+   *  the `docker exec` child so bare `-e NAME` passthrough resolves. */
+  private childEnv(): NodeJS.ProcessEnv {
+    const env: NodeJS.ProcessEnv = { ...process.env, ...this.extraEnv };
+    if (this.openrouterApiKey !== undefined) {
+      env.OPENROUTER_API_KEY = this.openrouterApiKey;
+    }
+    return env;
+  }
+
+  /** Env NAMES forwarded into the container as bare `-e NAME` —
+   *  secrets only; docker resolves the values from the exec child's
+   *  env, keeping them out of argv and logs (D30 secrets rule). */
+  private secretEnvKeys(): string[] {
+    const keys = new Set(Object.keys(this.extraEnv));
+    if (this.openrouterApiKey !== undefined) keys.add('OPENROUTER_API_KEY');
+    return [...keys].sort();
+  }
+
+  /** ADAPTERS control, per-runtime: process = SIGTERM→SIGKILL grace /
+   *  SIGSTOP / SIGCONT; container = `docker kill -s TERM` → grace →
+   *  `docker kill` / `docker pause` / `docker unpause` (D30 — the verbs
+   *  signal the container, taking the exec'd run with it). */
   async control(handle: RunHandle, op: ControlOp): Promise<void> {
     const tracked = this.runs.get(handle.pid);
+    const containerId = tracked?.containerId ?? handle.container_id;
+    if (containerId !== undefined) {
+      switch (op) {
+        case 'pause':
+          await this.docker.pause(containerId).catch(() => {});
+          return;
+        case 'resume':
+          await this.docker.unpause(containerId).catch(() => {});
+          return;
+        case 'kill': {
+          await this.dockerKill(containerId, tracked);
+          // Belt: the host-side `docker exec` client must not linger
+          // after its container died.
+          killPid(handle.pid, 'SIGKILL');
+          return;
+        }
+      }
+      return;
+    }
     switch (op) {
       case 'pause':
         killPid(handle.pid, 'SIGSTOP');
@@ -266,6 +424,25 @@ export class AiderAdapter implements Adapter {
         return;
       }
     }
+  }
+
+  /** Container kill sequence (D30): unpause (a paused container can't
+   *  be signaled) → `docker kill -s TERM` → grace → `docker kill`
+   *  (SIGKILL). Every docker call is best-effort — a dead/gone
+   *  container errors the CLI the same way a dead pid errors
+   *  process.kill; control() stays post-mortem safe. */
+  private async dockerKill(
+    containerId: string,
+    tracked: TrackedRun | undefined,
+  ): Promise<void> {
+    await this.docker.unpause(containerId).catch(() => {});
+    await this.docker.kill(containerId, 'TERM').catch(() => {});
+    if (tracked !== undefined) {
+      await Promise.race([tracked.exit, sleep(this.killGraceMs)]);
+    } else {
+      await sleep(this.killGraceMs);
+    }
+    await this.docker.kill(containerId, 'KILL').catch(() => {});
   }
 
   /** Stream per-message usage: tail the log, parse `Tokens: …` lines,
@@ -333,8 +510,27 @@ export class AiderAdapter implements Adapter {
         copyFileSync(file, dest);
       }
       rmSync(scratch, { recursive: true, force: true });
+    }
+    // Container-runtime prompt copy — `.sprint-runner/prompts/` sits
+    // outside the artifact scratch so collect never ingests it; purge
+    // best-effort (untracked post-restart runs leave gitignored
+    // residue, same convention as the scratch parent).
+    if (tracked?.containerPrompt !== undefined) {
+      rmSync(tracked.containerPrompt, { force: true });
+      try {
+        if (readdirSync(dirname(tracked.containerPrompt)).length === 0) {
+          rmSync(dirname(tracked.containerPrompt), {
+            recursive: true,
+            force: true,
+          });
+        }
+      } catch {
+        /* prompts dir absent/non-readable — residue is gitignored */
+      }
+    }
+    if (tracked !== undefined) {
       // Remove the scratch parent if now empty.
-      const parent = join(tracked?.worktree ?? '', '.sprint-runner');
+      const parent = join(tracked.worktree, '.sprint-runner');
       try {
         if (readdirSync(parent).length === 0) {
           rmSync(parent, { recursive: true, force: true });
@@ -440,7 +636,20 @@ export class AiderAdapter implements Adapter {
     }
   }
 
-  private terminate(child: ChildProcess, graceMs: number): void {
+  /** Stage-timeout termination — routed per-runtime: container runs
+   *  get the docker kill sequence (a client-side kill would orphan the
+   *  exec'd process inside the container); process runs get
+   *  SIGTERM→SIGKILL. */
+  private terminate(tracked: TrackedRun): void {
+    if (tracked.containerId !== undefined) {
+      void this.dockerKill(tracked.containerId, tracked).then(() => {
+        if (tracked.child.pid !== undefined) {
+          killPid(tracked.child.pid, 'SIGKILL');
+        }
+      });
+      return;
+    }
+    const child = tracked.child;
     if (child.pid === undefined) return;
     try {
       child.kill('SIGTERM');
@@ -450,7 +659,7 @@ export class AiderAdapter implements Adapter {
     const pid = child.pid;
     const t = setTimeout(() => {
       if (this.alive(pid)) killPid(pid, 'SIGKILL');
-    }, graceMs);
+    }, this.killGraceMs);
     t.unref();
   }
 
