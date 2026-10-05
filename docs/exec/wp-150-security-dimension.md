@@ -2,7 +2,7 @@
 schema: 1
 id: wp-150
 title: Security review dimension — categories, per-finding fields, risk-tiered enforcement
-status: todo
+status: done
 priority: medium
 depth: standard
 repos: []

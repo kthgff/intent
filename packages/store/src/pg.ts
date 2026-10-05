@@ -94,6 +94,7 @@ import type {
   StatementRow,
   StatementVersionRow,
   Store,
+  TestEnvRequestRow,
   TicketKey,
   TicketRepoKey,
   TicketRepoRow,
@@ -1256,9 +1257,9 @@ export class PostgresStore implements Store {
     await this.db.query(
       `INSERT INTO projects (workspace, org, name, next_ticket_seq,
          next_feature_seq, next_initiative_seq, next_release_seq,
-         next_changeset_seq, settings, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-       ON CONFLICT (workspace) DO UPDATE SET org=$2, name=$3, settings=$9`,
+         next_changeset_seq, next_test_env_seq, settings, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       ON CONFLICT (workspace) DO UPDATE SET org=$2, name=$3, settings=$10`,
       [
         row.workspace,
         row.org ?? null,
@@ -1268,6 +1269,7 @@ export class PostgresStore implements Store {
         row.next_initiative_seq ?? 1,
         row.next_release_seq ?? 1,
         row.next_changeset_seq ?? 1,
+        row.next_test_env_seq ?? 1,
         j(row.settings ?? {}),
         row.created_at ?? null,
       ],
@@ -1296,7 +1298,8 @@ export class PostgresStore implements Store {
       | 'next_feature_seq'
       | 'next_initiative_seq'
       | 'next_release_seq'
-      | 'next_changeset_seq',
+      | 'next_changeset_seq'
+      | 'next_test_env_seq',
     prefix: string,
   ): Promise<string> {
     const bump = () =>
@@ -1321,20 +1324,21 @@ export class PostgresStore implements Store {
         );
         return r[0]?.n ?? 1;
       };
-      const [t, f, i, rel, cs] = await Promise.all([
+      const [t, f, i, rel, cs, te] = await Promise.all([
         seqStart('tickets', 'ticket_id', 'SR'),
         seqStart('features', 'feature', 'F'),
         seqStart('initiatives', 'initiative', 'I'),
         seqStart('releases', 'release_id', 'REL'),
         seqStart('changesets', 'changeset_id', 'CS'),
+        seqStart('test_env_requests', 'request_id', 'TE'),
       ]);
       await this.db.query(
         `INSERT INTO projects (workspace, name, next_ticket_seq,
            next_feature_seq, next_initiative_seq, next_release_seq,
-           next_changeset_seq, settings, created_at)
-         VALUES ($1, $1, $2, $3, $4, $5, $6, '{}', $7)
+           next_changeset_seq, next_test_env_seq, settings, created_at)
+         VALUES ($1, $1, $2, $3, $4, $5, $6, $7, '{}', $8)
          ON CONFLICT (workspace) DO NOTHING`,
-        [workspace, t, f, i, rel, cs, new Date().toISOString()],
+        [workspace, t, f, i, rel, cs, te, new Date().toISOString()],
       );
       rows = await bump();
     }
@@ -1365,6 +1369,80 @@ export class PostgresStore implements Store {
 
   allocChangesetId(workspace: string): Promise<string> {
     return this.allocSeq(workspace, 'next_changeset_seq', 'CS');
+  }
+
+  allocTestEnvRequestId(workspace: string): Promise<string> {
+    return this.allocSeq(workspace, 'next_test_env_seq', 'TE');
+  }
+
+  // ---- test-environment requests (PRD §15.10, wp-157) ----
+
+  async upsertTestEnvRequest(row: TestEnvRequestRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO test_env_requests (workspace, org, request_id, subject,
+         ticket_id, feature, stage, run_id, spec, status, requested_by,
+         requested_at, provisioner, expires_at, fulfilled_by, fulfilled_at,
+         evidence, waived_by, waived_at, waiver_rationale, expired_at,
+         updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+       ON CONFLICT (workspace, request_id) DO UPDATE SET
+         ticket_id=$5, feature=$6, stage=$7, run_id=$8, spec=$9, status=$10,
+         provisioner=$13, expires_at=$14, fulfilled_by=$15, fulfilled_at=$16,
+         evidence=$17, waived_by=$18, waived_at=$19, waiver_rationale=$20,
+         expired_at=$21, updated_at=$22`,
+      [
+        row.workspace,
+        row.org ?? null,
+        row.request_id,
+        row.subject,
+        row.ticket_id ?? null,
+        row.feature ?? null,
+        row.stage,
+        row.run_id ?? null,
+        j(row.spec),
+        row.status,
+        row.requested_by ?? null,
+        row.requested_at,
+        row.provisioner ?? null,
+        row.expires_at ?? null,
+        row.fulfilled_by ?? null,
+        row.fulfilled_at ?? null,
+        row.evidence ?? null,
+        row.waived_by ?? null,
+        row.waived_at ?? null,
+        row.waiver_rationale ?? null,
+        row.expired_at ?? null,
+        row.updated_at,
+      ],
+    );
+  }
+
+  async getTestEnvRequest(key: {
+    workspace: string;
+    request_id: string;
+  }): Promise<TestEnvRequestRow | null> {
+    const rows = await this.db.query(
+      'SELECT * FROM test_env_requests WHERE workspace=$1 AND request_id=$2',
+      [key.workspace, key.request_id],
+    );
+    return rows[0] ? rowToTestEnvRequest(rows[0]) : null;
+  }
+
+  async listTestEnvRequests(filter?: {
+    workspace?: string;
+    subject?: string;
+    status?: string;
+  }): Promise<TestEnvRequestRow[]> {
+    const { where, args } = pgWhere({
+      workspace: filter?.workspace,
+      subject: filter?.subject,
+      status: filter?.status,
+    });
+    const rows = await this.db.query(
+      `SELECT * FROM test_env_requests ${where} ORDER BY request_id`,
+      args,
+    );
+    return rows.map(rowToTestEnvRequest);
   }
 
   // ---- boards / canvas ----
@@ -4347,6 +4425,7 @@ function rowToProject(row: Row): ProjectRow {
     next_initiative_seq: (row.next_initiative_seq as number) ?? 1,
     next_release_seq: (row.next_release_seq as number) ?? 1,
     next_changeset_seq: (row.next_changeset_seq as number) ?? 1,
+    next_test_env_seq: (row.next_test_env_seq as number) ?? 1,
     settings: unj(row.settings, {}),
     created_at: (row.created_at as string | null) ?? null,
   };
@@ -5158,6 +5237,36 @@ function rowToRetrievalEvaluation(row: Row): RetrievalEvaluationRow {
     ),
     metrics: unj<RetrievalEvaluationRow['metrics']>(row.metrics, null),
     created_at: (row.created_at as string | null) ?? null,
+
+function rowToTestEnvRequest(row: Row): TestEnvRequestRow {
+  return {
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    request_id: row.request_id as string,
+    subject: row.subject as string,
+    ticket_id: (row.ticket_id as string | null) ?? null,
+    feature: (row.feature as string | null) ?? null,
+    stage: row.stage as string,
+    run_id: (row.run_id as string | null) ?? null,
+    spec: unj<TestEnvRequestRow['spec']>(row.spec, {
+      services: [],
+      seed: [],
+      fixtures: [],
+      mocks: [],
+    }),
+    status: row.status as TestEnvRequestRow['status'],
+    requested_by: (row.requested_by as string | null) ?? null,
+    requested_at: row.requested_at as string,
+    provisioner: (row.provisioner as string | null) ?? null,
+    expires_at: (row.expires_at as string | null) ?? null,
+    fulfilled_by: (row.fulfilled_by as string | null) ?? null,
+    fulfilled_at: (row.fulfilled_at as string | null) ?? null,
+    evidence: (row.evidence as string | null) ?? null,
+    waived_by: (row.waived_by as string | null) ?? null,
+    waived_at: (row.waived_at as string | null) ?? null,
+    waiver_rationale: (row.waiver_rationale as string | null) ?? null,
+    expired_at: (row.expired_at as string | null) ?? null,
+    updated_at: row.updated_at as string,
   };
 }
 

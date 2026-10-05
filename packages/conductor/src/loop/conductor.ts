@@ -23,6 +23,11 @@ import {
 } from '../changes/index.js';
 import { type ClaimReport, claim } from '../claim/index.js';
 import { controlRun } from '../control/index.js';
+import {
+  type ContainerRuntimeReport,
+  prepareContainerRuntime,
+} from '../envops/containers.js';
+import { expireTestEnvRequests } from '../envops/testenv.js';
 import { type ReconcileReport, reconcile } from '../reconcile/index.js';
 import {
   ShellGhClient,
@@ -33,6 +38,7 @@ import {
   type ConductorDeps,
   type ConductorWorkspace,
   actorOf,
+  containerRuntimeDeps,
   nowOf,
 } from './deps.js';
 import { LeaseManager } from './lease.js';
@@ -58,14 +64,51 @@ export class Conductor {
    *  default is 60s). */
   readonly #lastShepherdPoll = new Map<string, number>();
   #gh: import('../shepherd/index.js').GhClient | null = null;
+  /** Memoized container-runtime bootstrap (success only — a failed
+   *  start is retried on the next tick, still fail-closed). */
+  #containerReport: ContainerRuntimeReport | null = null;
+  #containerStarting: Promise<ContainerRuntimeReport> | null = null;
 
   constructor(deps: ConductorDeps) {
     this.deps = deps;
     this.leases = new LeaseManager(deps);
   }
 
+  /**
+   * Container-runtime bootstrap (D30, CONDUCTOR "Container lifecycle",
+   * wp-097): resolve which registered backends need `runtime: container`
+   * (none → no-op, the daemon is never contacted), `docker info`
+   * (unreachable daemon → hard error naming the backends that need it),
+   * build/pull the base image, then sweep orphaned managed containers.
+   *
+   * Called lazily by `tick()`; callers that want a clean startup error
+   * (the `veto daemon` entrypoint) may await it directly before the
+   * loop. Memoized on success; a failed start throws on every tick
+   * until the daemon/image is available (no container run launches).
+   */
+  async start(): Promise<ContainerRuntimeReport> {
+    if (this.#containerReport !== null) return this.#containerReport;
+    if (this.#containerStarting === null) {
+      this.#containerStarting = prepareContainerRuntime(
+        containerRuntimeDeps(this.deps),
+        { adapters: this.deps.adapters },
+      )
+        .then((report) => {
+          this.#containerReport = report;
+          return report;
+        })
+        .finally(() => {
+          this.#containerStarting = null;
+        });
+    }
+    return this.#containerStarting;
+  }
+
   /** One RECONCILE → CLAIM (+ shepherd poll when due) per workspace. */
   async tick(): Promise<TickReport> {
+    // Container bootstrap runs once (first tick) before any launch — a
+    // container backend with an absent daemon fails closed here.
+    await this.start();
     const report: TickReport = {
       reconcile: [],
       claim: [],
@@ -99,6 +142,19 @@ export class Conductor {
       } catch (e) {
         report.changes.push({ expired: [] });
         rr.warnings.push(`changeset-sweep: ${(e as Error).message}`);
+      }
+      // wp-157: expire pending test-environment requests past their
+      // `expires_at` (the next stage check re-raises a fresh request).
+      try {
+        await expireTestEnvRequests({
+          workspace: ws.name,
+          store: this.deps.store,
+          actor: actorOf(this.deps),
+          now: () => nowOf(this.deps),
+          notify: this.deps.notify,
+        });
+      } catch (e) {
+        rr.warnings.push(`test-env-sweep: ${(e as Error).message}`);
       }
     }
     return report;
