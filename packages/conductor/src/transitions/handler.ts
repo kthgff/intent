@@ -30,6 +30,7 @@ import {
 } from '@sprint-runner/core';
 import { coverageLint, structuredDocLint } from '@sprint-runner/lints';
 import { specLint } from '@sprint-runner/lints';
+import { escalationModelFor } from '@sprint-runner/prompts';
 import {
   type ApplyStatusOptions,
   type NextTransition,
@@ -1112,7 +1113,7 @@ export class RealTransitionHandler implements TransitionHandler {
         stage: 'review',
         transient: false,
         failures: Math.max(failures, 1),
-        escalationModel: this.#config.escalation_model ?? null,
+        escalationModel: escalationModelFor(this.#config),
       });
       if (verdict.kind === 'retry') {
         await tools.requestRun({

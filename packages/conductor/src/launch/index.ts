@@ -20,12 +20,14 @@ import { join } from 'node:path';
 import {
   PROMPT_TOKENS,
   REPO_EXECUTING_STAGES,
+  type RouteDecision,
   type RunRow,
   type Stage,
   type TicketRow,
   type TokenValues,
 } from '@sprint-runner/core';
 import { createWorktree } from '@sprint-runner/gitops';
+import { resolveRunRoute } from '@sprint-runner/prompts';
 import type { RunRequest } from '../contracts.js';
 import { capExceeded } from '../loop/caps.js';
 import {
@@ -227,7 +229,9 @@ async function buildTokens(
 
 /**
  * Merge a pending row's saved `runs.request` with what this launch
- * computed — tokens (NEW_ID, FEEDBACK, …), the runner-task spec, model.
+ * computed — tokens (NEW_ID, FEEDBACK, …), the runner-task spec, model,
+ * and the resolved route decision (wp-155 pinning — a re-launched
+ * pending row carries the same audit trail).
  * Returns null when there is nothing to persist.
  */
 function persistedRequest(
@@ -235,6 +239,7 @@ function persistedRequest(
   tokens: Record<string, string>,
   task: RunRequest['task'],
   model: string | undefined,
+  route?: RouteDecision,
 ): RunRow['request'] {
   const prev = (pendingRow?.request ?? {}) as Record<string, unknown>;
   const { tokens: prevTokensRaw, ...prevRest } = prev;
@@ -247,6 +252,7 @@ function persistedRequest(
     ...(Object.keys(merged).length ? { tokens: merged } : {}),
     ...(task ? { task } : {}),
     ...(model ? { model } : {}),
+    ...(route ? { route } : {}),
   };
   return Object.keys(out).length ? out : null;
 }
@@ -296,7 +302,16 @@ export async function launch(
   const task = req.task ?? taskForStage(req.stage);
 
   const backend = (ticket?.backend ?? deps.config.backend) as string;
-  const model = req.model ?? ticket?.model ?? deps.config.main_model ?? null;
+  // wp-155: model resolution goes through the routing registry —
+  // runs.request pin > ticket pin > models.<stage> > models.default >
+  // legacy knobs > backend default. No stage hardcodes a model.
+  const route = resolveRunRoute({
+    config: deps.config,
+    kind: req.stage,
+    requestModel: req.model ?? null,
+    ticketModel: ticket?.model ?? null,
+  });
+  const model = route.model;
   const depth = (ticket?.depth ?? deps.config.spec_depth) as RunRow['depth'];
   const ts = nowIso(deps);
   const runDir = join(deps.runsDir, ...runId.split('/'));
@@ -421,6 +436,7 @@ export async function launch(
     run_id: runId,
     backend: adapter.name,
     ...(model ? { model } : {}),
+    route,
     ...(depth ? { depth } : {}),
     ...(ticketDir ? { ticket_dir: ticketDir } : {}),
     tokens: await buildTokens(
@@ -453,7 +469,13 @@ export async function launch(
     pid: handle.pid,
     worktree,
     container_id: null,
-    request: persistedRequest(req.pendingRow, reqTokens, undefined, req.model),
+    request: persistedRequest(
+      req.pendingRow,
+      reqTokens,
+      undefined,
+      req.model,
+      route,
+    ),
     status: 'running',
     started_at: ts,
     heartbeat_at: ts,

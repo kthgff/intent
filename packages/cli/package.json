@@ -19,6 +19,7 @@
     "@sprint-runner/config": "workspace:*",
     "@sprint-runner/conductor": "workspace:*",
     "@sprint-runner/core": "workspace:*",
+    "@sprint-runner/prompts": "workspace:*",
     "@sprint-runner/store": "workspace:*",
     "yaml": "^2.5.0"
   },

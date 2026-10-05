@@ -16,6 +16,7 @@
     "@sprint-runner/core": "workspace:*",
     "@sprint-runner/gitops": "workspace:*",
     "@sprint-runner/lints": "workspace:*",
+    "@sprint-runner/prompts": "workspace:*",
     "@sprint-runner/store": "workspace:*",
     "yaml": "^2.5.0",
     "zod": "^3.23.8"

@@ -47,9 +47,9 @@ export const ROUTE_KIND_ESCALATION = 'escalation';
  *  satisfies it structurally; tests pass partial literals. */
 export interface RouteConfig {
   models?: Record<string, ModelRouteEntry | undefined>;
-  main_model?: string | null;
-  review_model?: string | null;
-  escalation_model?: string | null;
+  main_model?: string | null | undefined;
+  review_model?: string | null | undefined;
+  escalation_model?: string | null | undefined;
 }
 
 /** Raised when a resolved route can't be honored — fail-closed
@@ -105,11 +105,7 @@ export function resolveModelRoute(
     : null;
 
   const primary =
-    entry?.primary ??
-    dflt?.primary ??
-    legacyModel ??
-    config.main_model ??
-    null;
+    entry?.primary ?? dflt?.primary ?? legacyModel ?? config.main_model ?? null;
   const source: RouteDecision['source'] =
     entry?.primary !== undefined
       ? 'registry'
@@ -133,8 +129,7 @@ export function resolveModelRoute(
     fallback: firstNonEmpty(entry?.fallback, dflt?.fallback),
     max_output_tokens:
       entry?.max_output_tokens ?? dflt?.max_output_tokens ?? null,
-    schema_required:
-      entry?.schema_required ?? dflt?.schema_required ?? false,
+    schema_required: entry?.schema_required ?? dflt?.schema_required ?? false,
     providers: firstNonEmpty(entry?.providers, dflt?.providers),
     eval_threshold: entry?.eval_threshold ?? dflt?.eval_threshold ?? null,
     latency_class:
