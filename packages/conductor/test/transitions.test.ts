@@ -707,6 +707,27 @@ describe('events table (D29 ledger — no events.jsonl, no LOG.md)', () => {
       'reparented',
       'verify_failed',
       'discarded',
+      // wp-131 addendum events — emitters land with their wps
+      // (wp-140…wp-155 per the EVENT_NAMES enum note).
+      'merge_ready',
+      'merge_attempted',
+      'merge_conflict',
+      'release_created',
+      'release_items_changed',
+      'manifest_cut',
+      'release_approved',
+      'release_released',
+      'deployment_confirmed',
+      'feature_exposed',
+      'release_note_approved',
+      'retro_completed',
+      'correction_filed',
+      'changeset_created',
+      'changeset_decided',
+      'changeset_applied',
+      'changeset_verified',
+      'baseline_reconciled',
+      'model_transition',
     ]);
     const missing = EVENT_NAMES.filter(
       (n: EventName) =>

@@ -260,7 +260,8 @@ export class MockAdapter implements Adapter {
     mkdirSync(artifactDir, { recursive: true });
 
     const logPath =
-      mopts?.logPath ?? join(dirname(artifactDir), `mock-run-${Date.now()}.log`);
+      mopts?.logPath ??
+      join(dirname(artifactDir), `mock-run-${Date.now()}.log`);
     mkdirSync(dirname(logPath), { recursive: true });
     const logFd = openSync(logPath, 'a');
 

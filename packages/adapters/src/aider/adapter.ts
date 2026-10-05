@@ -185,9 +185,7 @@ export class AiderAdapter implements Adapter {
     // aider (AGENTS.md: container runs must not depend on one).
     const bin =
       opts.binary ??
-      (this.runtime === 'container'
-        ? CONTAINER_INVOCATION
-        : findAiderBinary());
+      (this.runtime === 'container' ? CONTAINER_INVOCATION : findAiderBinary());
     this.invocation =
       typeof bin === 'string'
         ? { bin, prefixArgs: [], source: 'explicit' }
