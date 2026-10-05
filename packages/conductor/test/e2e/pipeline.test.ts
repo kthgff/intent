@@ -28,9 +28,9 @@ import {
   makeFixtureWorld,
   rsDoc,
   tddDoc,
-  vsDoc,
   testReport,
   ticketMd,
+  vsDoc,
 } from '../helpers/fixtures.js';
 
 let world: FixtureWorld | null = null;
