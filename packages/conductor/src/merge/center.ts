@@ -28,6 +28,7 @@ import type {
 import type { TransitionTools } from '../contracts.js';
 import { nowIso } from '../loop/deps.js';
 import { makeTransitionTools } from '../loop/tools.js';
+import type { PrCheck, PrInfo } from '../shepherd/gh.js';
 import { loadShepherdFile } from '../shepherd/state.js';
 import { evaluateReadiness } from './checklist.js';
 import { type GitRunner, executeMerge } from './exec.js';
@@ -54,28 +55,44 @@ export interface MergeCenterOptions {
   gitRun?: GitRunner;
   /** Pre-fetched readiness (tests) — skips re-evaluation. */
   readiness?: Map<string, MergeReadiness>;
+  /** Rows the shepherd poll actually fetched this pass (ticket_id →
+   *  repo-keyed `gh` results). When present the evaluator reuses them
+   *  — no second `gh pr view`/`gh pr checks` per row — and skips
+   *  tickets the poll never touched (an escalated PR is human-owned
+   *  until its gate clears). */
+  polled?: Map<
+    string,
+    { prInfos: Map<string, PrInfo>; checks: Map<string, PrCheck[]> }
+  >;
 }
 
-/** Readiness evaluation for every `ci-watch` ticket (no writes). */
+/** Readiness evaluation for `ci-watch` tickets (no writes). When
+ *  `opts.polled` is given only tickets the shepherd poll fetched are
+ *  evaluated, reusing its `gh` results. */
 export async function evaluateMergeCenter(
   ctx: MergeCtx,
-  opts: { gitRun?: GitRunner } = {},
+  opts: Pick<MergeCenterOptions, 'gitRun' | 'polled'> = {},
 ): Promise<Map<string, MergeReadiness>> {
   const out = new Map<string, MergeReadiness>();
-  const tickets = (
+  let tickets = (
     await ctx.deps.store.listTickets({
       workspace: ctx.ws.name,
     })
   ).filter((t) => t.status === 'ci-watch');
+  if (opts.polled) {
+    tickets = tickets.filter((t) => opts.polled?.has(t.ticket_id));
+  }
   for (const ticket of tickets) {
     const rows = await ctx.deps.store.listTicketRepos({
       workspace: ctx.ws.name,
       ticket_id: ticket.ticket_id,
     });
+    const pd = opts.polled?.get(ticket.ticket_id);
     out.set(
       ticket.ticket_id,
       await evaluateReadiness(ctx, ticket, rows, {
         ...(opts.gitRun ? { gitRun: opts.gitRun } : {}),
+        ...(pd ? { prInfos: pd.prInfos, checksByRepo: pd.checks } : {}),
       }),
     );
   }

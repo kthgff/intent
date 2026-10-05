@@ -32,7 +32,7 @@ import type {
 } from '@sprint-runner/core';
 import { checksGreen } from '../shepherd/checks.js';
 import { parseDodRows } from '../shepherd/dod.js';
-import type { PrInfo } from '../shepherd/gh.js';
+import type { PrCheck, PrInfo } from '../shepherd/gh.js';
 import { type GitRunner, probeConflict } from './exec.js';
 import type { ChecklistItem, MergeCtx, MergeReadiness } from './types.js';
 
@@ -148,6 +148,8 @@ function findingsItem(
 export interface ReadinessOptions {
   /** repo → `gh pr view` result (already fetched by the poll). */
   prInfos?: Map<string, PrInfo>;
+  /** repo → `gh pr checks` result (already fetched by the poll). */
+  checksByRepo?: Map<string, PrCheck[]>;
   /** Injectable git runner (tests) — defaults to the real `git`. */
   gitRun?: GitRunner;
 }
@@ -261,10 +263,13 @@ export async function evaluateReadiness(
   let checksOk = openRows.length > 0;
   const checkDetails: string[] = [];
   let protectionOk = protectionDetails.length === 0;
+  const prefetchedChecks = opts.checksByRepo ?? new Map<string, PrCheck[]>();
   for (const row of openRows) {
     const info = prInfos.get(row.repo);
     try {
-      const checks = await ctx.gh.prChecks(row.pr_url as string);
+      const checks =
+        prefetchedChecks.get(row.repo) ??
+        (await ctx.gh.prChecks(row.pr_url as string));
       if (!checksGreen(checks)) {
         checksOk = false;
         checkDetails.push(
