@@ -57,6 +57,7 @@ import {
   type Store,
 } from '@sprint-runner/core';
 import type { StreamEvent } from '../loop/deps.js';
+import { reconcileAffectedRuns } from '../reconcile/baseline.js';
 import { specInputsHash } from '../transitions/actions.js';
 import {
   type ChangesetAnalysis,
@@ -1000,6 +1001,30 @@ export async function applyChangeset(
     // baseline/docs (revalidate only what's invalidated).
     if (outcome.applied.length > 0) {
       await invalidateConflictingApprovals(ctx, next, ts);
+      // wp-141: ChangeSet → affected-run fan-out. Live runs pinned to a
+      // subject this set changed are reconciled (continue / pause /
+      // stop-replan) — the running agent never silently adopts the
+      // newer spec. Best-effort: a reconcile hiccup must not fail apply.
+      try {
+        await reconcileAffectedRuns(
+          {
+            store: ctx.store,
+            workspace: ctx.workspace,
+            actor: ctx.actor,
+            now: ctx.now,
+            notify: ctx.notify,
+          },
+          outcome.applied.map((a) => a.subject),
+        );
+      } catch (e) {
+        ctx.notify?.({
+          type: 'changeset',
+          payload: {
+            changeset_id: next.changeset_id,
+            reconcile_error: (e as Error).message,
+          },
+        });
+      }
     }
     await notifyOwners(
       ctx,

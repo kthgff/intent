@@ -1,8 +1,13 @@
 /**
  * Run control (CONDUCTOR "Run lifecycle — Run control"; ADAPTERS
  * control contract): kill = SIGTERM → SIGKILL after grace, pause =
- * SIGSTOP, resume = SIGCONT. A paused run's lease and timeout keep
- * ticking — pause freezes work, not the clock.
+ * SIGSTOP, resume = SIGCONT. Container runs (D30) route through the
+ * adapter's docker verbs (kill = `docker kill -s TERM` → grace →
+ * `docker kill`; pause/resume = `docker pause`/`unpause`) — the handle
+ * carries `container_id` (persisted in handle.json, or synthesized from
+ * `runs.container_id` by loadHandle). Same `run_paused`/`run_resumed`/
+ * `run_killed` events + run status either way. A paused run's lease and
+ * timeout keep ticking — pause freezes work, not the clock.
  */
 import type { ControlOp, EventName, RunRow } from '@sprint-runner/core';
 import {

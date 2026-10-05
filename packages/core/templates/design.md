@@ -40,6 +40,14 @@ Write `{{TICKET_DIR}}/tdd.md` per SCHEMAS.md §3 EXACTLY:
   stage may not touch files outside it without logging a deviation.
 - Risks/open items: be honest; a risk written here is a risk that
   doesn't surprise the reviewer.
+- Threat model (security dimension): when this change touches a
+  sensitive surface — authentication/authorization, secrets/credentials,
+  cryptography, untrusted input parsing, command/query execution,
+  network boundaries, payments, or personal data — add a
+  `## Threat model` section: the assets at risk, the trust boundaries
+  crossed, the threats considered (STRIDE), and the mitigation for
+  each. The design-time security gate fails closed when a
+  sensitive-scope change has no threat model.
 
 The LAST non-empty line of your output must be exactly:
 `TDD-WRITTEN` or `DESIGN-QA: <n questions>`

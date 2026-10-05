@@ -333,6 +333,9 @@ export const FINDING_CATEGORIES = [
   'style',
   'test-gap',
   'spec-deviation',
+  /** Post-merge implementation-vs-approved-design comparison (§15.4,
+   *  wp-149) — advisory, human-verdicted. */
+  'design-drift',
 ] as const;
 export type FindingCategory = (typeof FINDING_CATEGORIES)[number];
 
@@ -527,9 +530,11 @@ export const RUN_ARTIFACT_KINDS = [
   /** Addendum run output (wp-131): `contract.json` is the decompose
    *  run's interface-contract output (promoted to doc_versions on
    *  approval, wp-154); `design-system.json` is the ingestion run's
-   *  extracted component-token bundle (wp-149). */
+   *  extracted component-token bundle (wp-149); `statements.json` is
+   *  the `extract` stage's statement batch (wp-143, SCHEMAS §22). */
   'contract.json',
   'design-system.json',
+  'statements.json',
 ] as const;
 export type RunArtifactKind = (typeof RUN_ARTIFACT_KINDS)[number];
 
@@ -870,6 +875,18 @@ export const PROVENANCE_STATES = [
 ] as const;
 export type ProvenanceState = (typeof PROVENANCE_STATES)[number];
 
+/** semantic_statements.source_ref.kind — the evidence kind a statement
+ *  was extracted from (wp-143). `manual` = directly authored (no
+ *  extraction run). */
+export const STATEMENT_SOURCE_KINDS = [
+  'board-item',
+  'interview-message',
+  'import',
+  'doc',
+  'manual',
+] as const;
+export type StatementSourceKind = (typeof STATEMENT_SOURCE_KINDS)[number];
+
 // ---------- interview orchestrator (PRD §15.9, wp-145) ----------
 
 /** knowledge_slots.state — versioned wizard defs declare required
@@ -1173,6 +1190,59 @@ export const DESIGN_APPROVAL_STATUSES = [
   'superseded',
 ] as const;
 export type DesignApprovalStatus = (typeof DESIGN_APPROVAL_STATUSES)[number];
+
+// ---------- design artifacts / mockups (PRD §15.4, wp-149) ----------
+
+/** mockup.json fidelity tiers — cheapest that answers the current
+ *  question (§15.4): `wireframe` → `hi-fi` → `prototype`. */
+export const MOCKUP_FIDELITIES = ['wireframe', 'hi-fi', 'prototype'] as const;
+export type MockupFidelity = (typeof MOCKUP_FIDELITIES)[number];
+
+/** Screen states a mockup covers. `default` is the resting screen; the
+ *  rest are the state-generator variants (§15.4) — `loading`, `empty`,
+ *  `success`, `error`, `permission`. */
+export const MOCKUP_STATES = [
+  'default',
+  'loading',
+  'empty',
+  'success',
+  'error',
+  'permission',
+] as const;
+export type MockupState = (typeof MOCKUP_STATES)[number];
+
+/** Responsive variants a component tree can carry (§15.4). */
+export const MOCKUP_BREAKPOINTS = ['mobile', 'tablet', 'desktop'] as const;
+export type MockupBreakpoint = (typeof MOCKUP_BREAKPOINTS)[number];
+
+/** Design-approval checklist items (§15.4): desktop, mobile, flows,
+ *  error/empty states, accessibility, linked ACs. */
+export const DESIGN_CHECKLIST_ITEMS = [
+  'desktop',
+  'mobile',
+  'flows',
+  'error-empty',
+  'a11y',
+  'linked-acs',
+] as const;
+export type DesignChecklistItem = (typeof DESIGN_CHECKLIST_ITEMS)[number];
+
+/** Generator modes for the `mockup` stage (§15.4): author a tree from
+ *  scratch, ingest a screenshot, ingest a sketch, or expand a screen
+ *  into state variants. */
+export const MOCKUP_GENERATOR_MODES = [
+  'compose',
+  'screenshot',
+  'sketch',
+  'states',
+] as const;
+export type MockupGeneratorMode = (typeof MOCKUP_GENERATOR_MODES)[number];
+
+/** Design-drift finding category (§15.4) — post-merge implementation
+ *  vs approved-mockup comparison. Advisory only: a machine never
+ *  resolves it; a human verdict (the normal finding lifecycle) is
+ *  required. */
+export const DESIGN_DRIFT_CATEGORY = 'design-drift' as const;
 
 // ---------- model routing (PRD §15.12, wp-155) ----------
 
