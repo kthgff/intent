@@ -52,7 +52,7 @@ import {
   parseDodRows,
   readDodAttestations,
 } from './dod.js';
-import type { GhClient, PrCheck } from './gh.js';
+import type { GhClient, PrCheck, PrInfo } from './gh.js';
 import { loadShepherdFile, prState, saveShepherdFile } from './state.js';
 
 export interface ShepherdReport {
@@ -121,6 +121,14 @@ export async function pollOpenPrs(ctx: ShepherdCtx): Promise<ShepherdReport> {
   };
   const tools = makeTransitionTools(ctx);
   const maxCycles = deps.config.budgets.shepherd_max_cycles;
+
+  // wp-133: rows the poll actually fetched this pass — the Merge
+  // Center reuses these `gh` results and skips tickets the poll never
+  // touched (escalated PRs are human-owned until the gate clears).
+  const polledData = new Map<
+    string,
+    { prInfos: Map<string, PrInfo>; checks: Map<string, PrCheck[]> }
+  >();
 
   const tickets = (await store.listTickets({ workspace: ws.name })).filter(
     (t) => SHEPHERD_STATUSES.includes(t.status),
@@ -191,7 +199,7 @@ export async function pollOpenPrs(ctx: ShepherdCtx): Promise<ShepherdReport> {
       const st = prState(shep, row.repo);
       if (st.escalated) continue;
 
-      let info: { state: string; mergeCommit?: { oid?: string } | null };
+      let info: PrInfo;
       let checks: PrCheck[];
       try {
         info = await gh.prView(row.pr_url);
@@ -201,6 +209,13 @@ export async function pollOpenPrs(ctx: ShepherdCtx): Promise<ShepherdReport> {
         continue;
       }
       report.polled.push(row.pr_url);
+      const pd = polledData.get(id) ?? {
+        prInfos: new Map<string, PrInfo>(),
+        checks: new Map<string, PrCheck[]>(),
+      };
+      polledData.set(id, pd);
+      pd.prInfos.set(row.repo, info);
+      pd.checks.set(row.repo, checks);
 
       // -- merge / close detection --
       const ghState = info.state.toUpperCase();
@@ -400,7 +415,10 @@ export async function pollOpenPrs(ctx: ShepherdCtx): Promise<ShepherdReport> {
   // protection). Runs after the per-ticket poll so freshly-merged rows
   // are visible to the next pass's rollup.
   try {
-    const mergeReport = await runMergeCenter({ ...ctx, gh });
+    const mergeReport = await runMergeCenter(
+      { ...ctx, gh },
+      { polled: polledData },
+    );
     report.actions.push(...mergeReport.actions);
     report.warnings.push(...mergeReport.warnings);
   } catch (e) {
