@@ -21,6 +21,17 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { ApiError } from './server.js';
 
+const SourceQuery = z.object({
+  workspace: z.string().min(1),
+  /** `code:<repo>:<sha>:<path>:<symbol|L<start>-<end>>` citation
+   *  (SCHEMAS §17 object_ref) — or an `ev_<id>` handled by the caller
+   *  resolving through the run's retrieval-evidence.json first. */
+  ref: z.string().min(1),
+});
+
+const CODE_REF =
+  /^code:([A-Za-z0-9_.\-/]+):([0-9a-f]{7,40}):([^:]+):(.+)$/;
+
 const SearchBody = z
   .object({
     workspace: z.string().min(1),
@@ -125,6 +136,80 @@ export function registerEvidenceRoutes(
       return reply.status(201).send(result);
     },
   );
+
+  // ---- citation navigation (wp-111) --------------------------------------
+  //
+  // GET /evidence/source — resolve a `code:` citation to the pinned
+  // unit's content + freshness. Fail-closed: unparsable ref → 400,
+  // unconfigured repo → 403, missing units → 404. `freshness` compares
+  // the pin to the current index head — a stale citation renders as
+  // such in the UI, never as current evidence (INTELLIGENCE §4.1).
+  app.get('/api/v1/evidence/source', async (req) => {
+    const q = SourceQuery.parse(req.query ?? {});
+    const m = CODE_REF.exec(q.ref);
+    if (!m?.[1] || !m[2] || !m[3] || !m[4]) {
+      throw new ApiError(
+        400,
+        'bad_request',
+        `unparseable citation ref '${q.ref}' — expected ` +
+          'code:<repo>:<sha>:<path>:<symbol|L<start>-<end>>',
+      );
+    }
+    const [, repo, sha, path, tail] = m;
+    if (!deps.config.repos[repo]) {
+      throw new ApiError(
+        403,
+        'forbidden',
+        `citation repo '${repo}' is not configured`,
+      );
+    }
+    const units = await deps.store.listCodeUnits({
+      workspace: q.workspace,
+      repo,
+      commit_sha: sha,
+      path,
+    });
+    if (units.length === 0) {
+      throw new ApiError(
+        404,
+        'not_found',
+        `no indexed unit for ${repo}@${sha.slice(0, 12)}:${path}`,
+      );
+    }
+    const lineTail = /^L(\d+)-(\d+)$/.exec(tail);
+    const unit =
+      units.find((u) => u.symbol === tail) ??
+      (lineTail
+        ? units.find(
+            (u) =>
+              u.start_line === Number(lineTail[1]) &&
+              u.end_line === Number(lineTail[2]),
+          )
+        : undefined) ??
+      units[0];
+    const head = await deps.store.getCurrentRepoIndex(q.workspace, repo);
+    return {
+      ref: q.ref,
+      repo,
+      commit_sha: sha,
+      path,
+      freshness:
+        head && head.commit_sha === sha
+          ? ('current' as const)
+          : ('stale' as const),
+      current_head: head?.commit_sha ?? null,
+      unit: unit
+        ? {
+            symbol: unit.symbol ?? null,
+            symbol_kind: unit.symbol_kind ?? null,
+            start_line: unit.start_line,
+            end_line: unit.end_line,
+            content_hash: unit.content_hash,
+            content: unit.content,
+          }
+        : null,
+    };
+  });
 
   // ---- hybrid evidence search -------------------------------------------
 
