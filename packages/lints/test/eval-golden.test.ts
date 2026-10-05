@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  evaluatePromotionGate,
   GoldenSetError,
+  evaluatePromotionGate,
   goldenSetFromCases,
   goldenSetToCases,
   loadGoldenCorpus,
@@ -73,8 +73,11 @@ describe('offline bake-off (acceptance: golden sets run offline)', () => {
       expect(outcome.run.status).toBe('completed');
       expect(outcome.summary.pass_rate).toBe(1);
       expect(
-        evaluatePromotionGate({ family: set.family, route: r, run: outcome.run })
-          .allowed,
+        evaluatePromotionGate({
+          family: set.family,
+          route: r,
+          run: outcome.run,
+        }).allowed,
       ).toBe(true);
     }
   });
@@ -94,7 +97,10 @@ describe('offline bake-off (acceptance: golden sets run offline)', () => {
           typeof output === 'object' &&
           'polarity' in (output as Record<string, unknown>)
         ) {
-          return { ...(output as Record<string, unknown>), polarity: 'affirmed' };
+          return {
+            ...(output as Record<string, unknown>),
+            polarity: 'affirmed',
+          };
         }
         return undefined;
       },

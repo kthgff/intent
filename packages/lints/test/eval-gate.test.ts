@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
 import type { EvalRunRow } from '@sprint-runner/core';
+import { describe, expect, it } from 'vitest';
 import {
   evaluatePromotionGate,
   evaluateRegistryChange,
@@ -138,8 +138,10 @@ describe('needsRegressionRerun', () => {
       needsRegressionRerun({ primary: 'a' }, { primary: 'b' }).reasons,
     ).toContain('model-changed');
     expect(
-      needsRegressionRerun({ primary: 'a', providers: ['x'] }, { primary: 'a', providers: ['y'] })
-        .reasons,
+      needsRegressionRerun(
+        { primary: 'a', providers: ['x'] },
+        { primary: 'a', providers: ['y'] },
+      ).reasons,
     ).toContain('provider-changed');
     expect(
       needsRegressionRerun(

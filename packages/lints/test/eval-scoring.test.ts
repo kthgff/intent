@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  type GoldenCase,
   defaultScorer,
   extractionScorer,
-  type GoldenCase,
   matchRatio,
   matchSubset,
   questionsScorer,
@@ -26,7 +26,10 @@ function golden(
 
 describe('matchSubset', () => {
   it('matches nested subsets and ignores extra candidate fields', () => {
-    const m = matchSubset({ a: 1, b: { c: 2 } }, { a: 1, b: { c: 2, d: 3 }, e: 4 });
+    const m = matchSubset(
+      { a: 1, b: { c: 2 } },
+      { a: 1, b: { c: 2, d: 3 }, e: 4 },
+    );
     expect(m.mismatches).toEqual([]);
     expect(matchRatio(m)).toBe(1);
   });
@@ -67,7 +70,7 @@ describe('family scorers', () => {
     ).toBe('pass');
     const s = extractionScorer(g, { kind: 'constraint', polarity: 'affirmed' });
     expect(s.verdict).toBe('fail');
-    expect(s.scores['negation_preserved']).toBe(0);
+    expect(s.scores.negation_preserved).toBe(0);
   });
 
   it('review computes precision and recall', () => {
@@ -78,7 +81,7 @@ describe('family scorers', () => {
     expect(perfect.verdict).toBe('pass');
 
     const falseNegative = reviewScorer(g, { findings: [] });
-    expect(falseNegative.scores['recall']).toBe(0);
+    expect(falseNegative.scores.recall).toBe(0);
     expect(falseNegative.verdict).toBe('fail');
 
     const falsePositive = reviewScorer(g, {
@@ -87,7 +90,7 @@ describe('family scorers', () => {
         { file: 'b.ts', severity: 'minor' },
       ],
     });
-    expect(falsePositive.scores['precision']).toBe(0.5);
+    expect(falsePositive.scores.precision).toBe(0.5);
     expect(falsePositive.verdict).toBe('fail');
   });
 
@@ -104,13 +107,13 @@ describe('family scorers', () => {
         ],
       },
     );
-    expect(s.scores['repeat_question_rate']).toBeCloseTo(0.5);
+    expect(s.scores.repeat_question_rate).toBeCloseTo(0.5);
   });
 
   it('scorerFor falls back to the default scorer', () => {
     expect(scorerFor('coverage')).toBe(defaultScorer);
-    expect(scoreCase('unknown-family', golden({ a: 1 }), { a: 1 }).verdict).toBe(
-      'pass',
-    );
+    expect(
+      scoreCase('unknown-family', golden({ a: 1 }), { a: 1 }).verdict,
+    ).toBe('pass');
   });
 });

@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_EVAL_THRESHOLD,
+  STRICT_EVAL_FLOOR,
   effectiveEvalThreshold,
   evalThresholdsFromRegistry,
   isStrictEvalFamily,
-  STRICT_EVAL_FLOOR,
 } from '../src/index.js';
 
 describe('effectiveEvalThreshold', () => {

@@ -6,7 +6,11 @@
  * mock or a recorded fixture with no network. Everything else — run
  * rows, scoring, the promotion gate — is pure and deterministic.
  */
-import type { EvalRunRow, RouteDecision, TestResult } from '@sprint-runner/core';
+import type {
+  EvalRunRow,
+  RouteDecision,
+  TestResult,
+} from '@sprint-runner/core';
 
 /** A value that may or may not be wrapped in a promise. */
 export type Awaitable<T> = T | Promise<T>;

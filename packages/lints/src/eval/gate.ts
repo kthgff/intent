@@ -1,3 +1,4 @@
+import { effectiveEvalThreshold } from '@sprint-runner/config';
 /**
  * AI Evaluation Lab — promotion gate (PRD §15.12, wp-156).
  *
@@ -13,7 +14,6 @@
  * passed — the passing evidence is for the *previous* candidate.
  */
 import type { EvalRunRow, ModelRoute } from '@sprint-runner/core';
-import { effectiveEvalThreshold } from '@sprint-runner/config';
 import { passRateOf } from './engine.js';
 import type { EvalSummary } from './types.js';
 
@@ -80,7 +80,9 @@ export function evaluatePromotionGate(
 
   const reasons: string[] = [];
   if (run.status !== 'completed') {
-    reasons.push(`eval run ${run.eval_run_id} is '${run.status}', not completed`);
+    reasons.push(
+      `eval run ${run.eval_run_id} is '${run.status}', not completed`,
+    );
   }
   if (run.family !== input.family) {
     reasons.push(
@@ -94,13 +96,19 @@ export function evaluatePromotionGate(
         `'${candidateModel ?? '(default)'}'`,
     );
   }
-  if (input.promptVersion != null && run.prompt_version !== input.promptVersion) {
+  if (
+    input.promptVersion != null &&
+    run.prompt_version !== input.promptVersion
+  ) {
     reasons.push(
       `eval run prompt_version '${run.prompt_version ?? '(none)'}' ≠ ` +
         `candidate '${input.promptVersion}'`,
     );
   }
-  if (input.policyVersion != null && run.policy_version !== input.policyVersion) {
+  if (
+    input.policyVersion != null &&
+    run.policy_version !== input.policyVersion
+  ) {
     reasons.push(
       `eval run policy_version '${run.policy_version ?? '(none)'}' ≠ ` +
         `candidate '${input.policyVersion}'`,
@@ -169,14 +177,10 @@ export function needsRegressionRerun(
   if (!sameList(previous.providers, next.providers)) {
     reasons.push('provider-changed');
   }
-  if (
-    (previous.prompt_version ?? null) !== (next.prompt_version ?? null)
-  ) {
+  if ((previous.prompt_version ?? null) !== (next.prompt_version ?? null)) {
     reasons.push('prompt-version-changed');
   }
-  if (
-    (previous.policy_version ?? null) !== (next.policy_version ?? null)
-  ) {
+  if ((previous.policy_version ?? null) !== (next.policy_version ?? null)) {
     reasons.push('policy-version-changed');
   }
   return { rerun: reasons.length > 0, reasons };
@@ -206,7 +210,9 @@ export interface RegistryGateDecision extends PromotionDecision {
   rerun_reasons: string[];
 }
 
-function revisionOf(route: ModelRoute | null | undefined): RouteRevision | null {
+function revisionOf(
+  route: ModelRoute | null | undefined,
+): RouteRevision | null {
   if (!route) return null;
   return {
     primary: route.primary ?? null,

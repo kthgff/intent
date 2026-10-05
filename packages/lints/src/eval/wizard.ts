@@ -52,9 +52,7 @@ function safeRatio(numerator: number, denominator: number): number {
 /** Compute the four wizard metrics for one session. */
 export function wizardSessionMetrics(session: WizardSession): WizardMetrics {
   const questions = session.questions;
-  const repeat = repeatQuestionRate(
-    questions.map((q) => q.id ?? q.text),
-  );
+  const repeat = repeatQuestionRate(questions.map((q) => q.id ?? q.text));
   const unnecessary = questions.filter((q) => q.unnecessary === true).length;
   const unnecessaryRate = safeRatio(unnecessary, questions.length);
   const correctionRate = safeRatio(

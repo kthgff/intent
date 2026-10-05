@@ -88,8 +88,7 @@ export function createEvalRun(opts: EvalRunOptions): EvalRunRow {
   return {
     workspace: opts.workspace,
     org: opts.org ?? null,
-    eval_run_id:
-      opts.evalRunId ?? deriveEvalRunId(opts.family, model),
+    eval_run_id: opts.evalRunId ?? deriveEvalRunId(opts.family, model),
     family: opts.family,
     model,
     prompt_version: opts.promptVersion ?? null,
@@ -113,7 +112,7 @@ export function summarizeResults(results: EvalResultRow[]): EvalSummary {
     if (r.verdict === 'pass') passed++;
     else if (r.verdict === 'fail') failed++;
     else skipped++;
-    const s = r.scores?.['score'];
+    const s = r.scores?.score;
     if (typeof s === 'number') scoreSum += s;
   }
   const scored = passed + failed;
@@ -128,7 +127,9 @@ export function summarizeResults(results: EvalResultRow[]): EvalSummary {
 }
 
 /** Summary → the `metrics` JSON stored on the run row. */
-export function summaryToMetrics(summary: EvalSummary): Record<string, unknown> {
+export function summaryToMetrics(
+  summary: EvalSummary,
+): Record<string, unknown> {
   return {
     total: summary.total,
     passed: summary.passed,
@@ -145,7 +146,7 @@ export function passRateOf(
   summary?: EvalSummary | null,
 ): number | null {
   if (summary) return summary.pass_rate;
-  const value = run?.metrics?.['pass_rate'];
+  const value = run?.metrics?.pass_rate;
   return typeof value === 'number' ? value : null;
 }
 
@@ -244,7 +245,9 @@ export async function persistEvalOutcome(
 }
 
 /** Count of cases by verdict — a small helper for reports/tests. */
-export function verdictCounts(results: EvalResultRow[]): Record<TestResult, number> {
+export function verdictCounts(
+  results: EvalResultRow[],
+): Record<TestResult, number> {
   const counts: Record<TestResult, number> = { pass: 0, fail: 0, skip: 0 };
   for (const r of results) counts[r.verdict as TestResult]++;
   return counts;

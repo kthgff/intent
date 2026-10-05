@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  aggregateWizardMetrics,
-  wizardSessionMetrics,
-} from '../src/index.js';
+import { aggregateWizardMetrics, wizardSessionMetrics } from '../src/index.js';
 
 describe('wizardSessionMetrics', () => {
   it('computes the four per-session rates', () => {

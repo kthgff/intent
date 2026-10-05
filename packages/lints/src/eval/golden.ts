@@ -28,23 +28,25 @@ function parseCase(raw: unknown, source: string, index: number): GoldenCase {
   if (!isPlainObject(raw)) {
     throw new GoldenSetError(`${source}: case[${index}] must be an object`);
   }
-  const case_id = raw['case_id'];
+  const case_id = raw.case_id;
   if (typeof case_id !== 'string' || case_id.length === 0) {
     throw new GoldenSetError(
       `${source}: case[${index}] needs a non-empty string case_id`,
     );
   }
-  const input = raw['input'];
+  const input = raw.input;
   if (!isPlainObject(input)) {
-    throw new GoldenSetError(`${source}: case ${case_id} needs an object input`);
+    throw new GoldenSetError(
+      `${source}: case ${case_id} needs an object input`,
+    );
   }
-  const expected = raw['expected'];
+  const expected = raw.expected;
   if (!isPlainObject(expected)) {
     throw new GoldenSetError(
       `${source}: case ${case_id} needs an object expected`,
     );
   }
-  const tags = raw['tags'];
+  const tags = raw.tags;
   if (
     tags !== undefined &&
     (!Array.isArray(tags) || tags.some((t) => typeof t !== 'string'))
@@ -59,7 +61,7 @@ function parseCase(raw: unknown, source: string, index: number): GoldenCase {
     expected,
     ...(tags !== undefined ? { tags: tags as string[] } : {}),
   };
-  if ('recorded' in raw) golden.recorded = raw['recorded'];
+  if ('recorded' in raw) golden.recorded = raw.recorded;
   return golden;
 }
 
@@ -68,11 +70,11 @@ export function parseGoldenSet(raw: unknown, source = '<golden>'): GoldenSet {
   if (!isPlainObject(raw)) {
     throw new GoldenSetError(`${source}: golden set must be an object`);
   }
-  const family = raw['family'];
+  const family = raw.family;
   if (typeof family !== 'string' || family.length === 0) {
     throw new GoldenSetError(`${source}: golden set needs a family`);
   }
-  const cases = raw['cases'];
+  const cases = raw.cases;
   if (!Array.isArray(cases)) {
     throw new GoldenSetError(`${source}: golden set needs a cases array`);
   }

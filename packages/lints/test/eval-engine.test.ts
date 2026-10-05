@@ -1,5 +1,9 @@
+import type {
+  EvalCaseRow,
+  EvalResultRow,
+  EvalRunRow,
+} from '@sprint-runner/core';
 import { describe, expect, it } from 'vitest';
-import type { EvalCaseRow, EvalResultRow, EvalRunRow } from '@sprint-runner/core';
 import {
   createEvalRun,
   deriveEvalRunId,
@@ -78,9 +82,13 @@ describe('runEval', () => {
     });
     expect(outcome.run.status).toBe('completed');
     expect(outcome.results).toHaveLength(2);
-    expect(verdictCounts(outcome.results)).toEqual({ pass: 1, fail: 1, skip: 0 });
+    expect(verdictCounts(outcome.results)).toEqual({
+      pass: 1,
+      fail: 1,
+      skip: 0,
+    });
     expect(outcome.summary.pass_rate).toBe(0.5);
-    expect(outcome.run.metrics?.['pass_rate']).toBe(0.5);
+    expect(outcome.run.metrics?.pass_rate).toBe(0.5);
     expect(outcome.run.completed_at).toBe('2026-10-05T00:00:00Z');
   });
 
@@ -89,7 +97,10 @@ describe('runEval', () => {
       workspace: 'ws',
       family: 'extraction',
       route: route({ model: 'm1' }),
-      golden: { family: 'extraction', cases: [{ case_id: 'c1', input: {}, expected: {} }] },
+      golden: {
+        family: 'extraction',
+        cases: [{ case_id: 'c1', input: {}, expected: {} }],
+      },
       executor: recordedExecutor('m1'),
       evalRunId: 'er-skip',
     });
@@ -102,7 +113,10 @@ describe('runEval', () => {
       workspace: 'ws',
       family: 'extraction',
       route: route({ model: 'm1' }),
-      golden: { family: 'extraction', cases: [{ case_id: 'c1', input: {}, expected: {} }] },
+      golden: {
+        family: 'extraction',
+        cases: [{ case_id: 'c1', input: {}, expected: {} }],
+      },
       executor: {
         execute() {
           throw new Error('boom');
@@ -115,11 +129,7 @@ describe('runEval', () => {
   });
 
   it('excludes skips from the pass-rate denominator', () => {
-    const rows = [
-      resultRow('pass'),
-      resultRow('pass'),
-      resultRow('skip'),
-    ];
+    const rows = [resultRow('pass'), resultRow('pass'), resultRow('skip')];
     const summary = summarizeResults(rows);
     expect(summary.pass_rate).toBe(1);
     expect(summary.skipped).toBe(1);
@@ -135,7 +145,7 @@ describe('helpers', () => {
       { case_id: 'c1', input: {}, expected: { a: 1 } },
     );
     expect(scored.verdict).toBe('pass');
-    expect(scored.scores['score']).toBe(1);
+    expect(scored.scores.score).toBe(1);
   });
 
   it('passRateOf prefers the summary then the stored metrics', () => {
@@ -163,7 +173,14 @@ describe('helpers', () => {
         pass_rate: 0.5,
         score: 0.5,
       }),
-    ).toEqual({ total: 2, passed: 1, failed: 1, skipped: 0, pass_rate: 0.5, score: 0.5 });
+    ).toEqual({
+      total: 2,
+      passed: 1,
+      failed: 1,
+      skipped: 0,
+      pass_rate: 0.5,
+      score: 0.5,
+    });
   });
 
   it('persistEvalOutcome writes cases, the run, then results', async () => {

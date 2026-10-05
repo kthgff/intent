@@ -96,7 +96,9 @@ export function defaultScorer(golden: GoldenCase, output: unknown): CaseScore {
       score: ratio,
       scores: { match: ratio, matched: m.matched, total: m.total },
     },
-    m.mismatches.length > 0 ? `mismatch: ${m.mismatches.join(', ')}` : undefined,
+    m.mismatches.length > 0
+      ? `mismatch: ${m.mismatches.join(', ')}`
+      : undefined,
   );
 }
 
@@ -110,8 +112,8 @@ export function extractionScorer(
   output: unknown,
 ): CaseScore {
   const base = defaultScorer(golden, output);
-  const expectedPolarity = golden.expected['polarity'];
-  const actualPolarity = isPlainObject(output) ? output['polarity'] : undefined;
+  const expectedPolarity = golden.expected.polarity;
+  const actualPolarity = isPlainObject(output) ? output.polarity : undefined;
   const negationExpected = expectedPolarity === 'negated';
   const negationPreserved =
     !negationExpected || actualPolarity === 'negated' ? 1 : 0;
@@ -155,7 +157,10 @@ export function reviewScorer(golden: GoldenCase, output: unknown): CaseScore {
   ).length;
   const recall = expected.length === 0 ? 1 : matchedExpected / expected.length;
   const precision = actual.length === 0 ? 1 : matchedActual / actual.length;
-  const f1 = precision + recall === 0 ? 0 : (2 * precision * recall) / (precision + recall);
+  const f1 =
+    precision + recall === 0
+      ? 0
+      : (2 * precision * recall) / (precision + recall);
   const verdict = precision === 1 && recall === 1 ? 'pass' : 'fail';
   const detail =
     verdict === 'pass'
@@ -198,7 +203,7 @@ export function questionsScorer(
   output: unknown,
 ): CaseScore {
   const base = defaultScorer(golden, output);
-  const questions = isPlainObject(output) ? output['questions'] : undefined;
+  const questions = isPlainObject(output) ? output.questions : undefined;
   const repeat_rate = repeatQuestionRate(questions);
   return {
     ...base,
