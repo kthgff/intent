@@ -61,6 +61,8 @@ import {
   QUESTION_CANDIDATE_STATUSES,
   QUESTION_FORMATS,
   QUESTION_STATUSES,
+  RECONCILIATION_DECISIONS,
+  RECONCILIATION_KINDS,
   RELATION_PREDICATES,
   RELATION_SOURCES,
   RELATION_VERIFICATIONS,
@@ -588,6 +590,18 @@ export const ContainerRowSchema = z.object({
 });
 export type ContainerRow = z.infer<typeof ContainerRowSchema>;
 
+/** Import provenance (wp-139): preserves the original tracker identity
+ *  of an imported artifact. `kind` distinguishes a GitHub issue from a
+ *  pull request (§15.3 "GitHub issues ≠ PRs distinguished"). */
+export const SourceRefSchema = z.object({
+  system: z.string(),
+  kind: z.enum(['issue', 'pull-request']).nullish(),
+  url: z.string().nullish(),
+  imported_at: z.string().nullish(),
+  original_status: z.string().nullish(),
+});
+export type SourceRef = z.infer<typeof SourceRefSchema>;
+
 export const TicketRowSchema = z.object({
   workspace: z.string().min(1),
   /** Nullable tenancy partition — reserved for the SaaS pivot
@@ -617,16 +631,9 @@ export const TicketRowSchema = z.object({
   /** DoR/decomposition verdicts (wp-153/154). */
   execution_readiness: enumOf(EXECUTION_READINESSES).nullish(),
   parallel_safety: enumOf(PARALLEL_SAFETIES).nullish(),
-  /** Import provenance (wp-139): {system, url, imported_at,
+  /** Import provenance (wp-139): {system, kind, url, imported_at,
    *  original_status} — preserves the original tracker identity. */
-  source_ref: z
-    .object({
-      system: z.string(),
-      url: z.string().nullish(),
-      imported_at: z.string().nullish(),
-      original_status: z.string().nullish(),
-    })
-    .nullish(),
+  source_ref: SourceRefSchema.nullish(),
   /** Declarative test-environment spec (wp-157); materialized
    *  in-container before verify/implement. */
   test_env: z.record(z.unknown()).nullish(),
@@ -638,6 +645,30 @@ export const TicketRowSchema = z.object({
   updated_at: z.string(),
 });
 export type TicketRow = z.infer<typeof TicketRowSchema>;
+
+/** A reviewable import-reconciliation finding (wp-139). Detected drift
+ *  / duplicates / conflicts / completed-work / clarification needs are
+ *  surfaced here — never silently overwritten. Persisted as an
+ *  `import`-board `board_item` + an `import-reconcile` gate item; the
+ *  `provenance` gate (`inferred` never auto-approves) decides whether a
+ *  finding may be resolved without a human. */
+export const ReconciliationFindingSchema = z.object({
+  /** Deterministic id (`recon-<kind>-<key>`) — idempotent upserts. */
+  id: z.string().min(1),
+  workspace: z.string().min(1),
+  kind: enumOf(RECONCILIATION_KINDS),
+  decision: enumOf(RECONCILIATION_DECISIONS).default('open'),
+  provenance: enumOf(PROVENANCE_STATES),
+  /** Imported ticket the finding is anchored to (null = board-level). */
+  subject: z.string().nullish(),
+  /** Other imported tickets the finding relates (dupes/conflicts). */
+  related: z.array(z.string()).default([]),
+  detail: z.string(),
+  source_ref: SourceRefSchema.nullish(),
+  created_at: z.string(),
+  resolved_at: z.string().nullish(),
+});
+export type ReconciliationFinding = z.infer<typeof ReconciliationFindingSchema>;
 
 // ---------- hierarchy + boards (D26/D27, DB-SCHEMA) ----------
 

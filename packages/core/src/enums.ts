@@ -300,6 +300,11 @@ export const EVENT_NAMES = [
   'changeset_verified',
   'baseline_reconciled',
   'model_transition',
+  /** Import reconciliation (wp-139) — `import_reconciled` records the
+   *  provenance trail for a resolved finding; `import_drift_detected`
+   *  flags drift between an imported artifact and its source. */
+  'import_reconciled',
+  'import_drift_detected',
 ] as const;
 export type EventName = (typeof EVENT_NAMES)[number];
 
@@ -869,6 +874,52 @@ export const PROVENANCE_STATES = [
   'stakeholder-verified',
 ] as const;
 export type ProvenanceState = (typeof PROVENANCE_STATES)[number];
+
+/** Provenance states that may auto-approve (wp-139): only evidence the
+ *  system can trace (`source-backed`) or a human vouched for
+ *  (`stakeholder-verified`). `inferred` ALWAYS needs a human. */
+export const PROVENANCE_AUTO_APPROVABLE = [
+  'source-backed',
+  'stakeholder-verified',
+] as const satisfies readonly ProvenanceState[];
+
+/** True iff `provenance` may clear a gate without a human (§15.3,
+ *  wp-139 — "inferred never auto-approves"). */
+export function provenanceAllowsAutoApproval(
+  provenance: ProvenanceState | null | undefined,
+): boolean {
+  return (
+    provenance != null &&
+    (PROVENANCE_AUTO_APPROVABLE as readonly string[]).includes(provenance)
+  );
+}
+
+/** Import reconciliation review-item kinds (wp-139, PRD §15.3). Drift
+ *  between an imported artifact and its source of record is never
+ *  silently overwritten — it surfaces as one of these reviewable
+ *  findings on the import board. */
+export const RECONCILIATION_KINDS = [
+  'duplicate',
+  'conflict',
+  'drift',
+  'completed',
+  'clarification',
+] as const;
+export type ReconciliationKind = (typeof RECONCILIATION_KINDS)[number];
+
+/** Human decision recorded against a reconciliation finding (wp-139).
+ *  `open` = awaiting review; the rest close it. */
+export const RECONCILIATION_DECISIONS = [
+  'open',
+  'merged',
+  'kept-both',
+  'superseded',
+  'source-accepted',
+  'imported-kept',
+  'dismissed',
+] as const;
+export type ReconciliationDecision =
+  (typeof RECONCILIATION_DECISIONS)[number];
 
 // ---------- interview orchestrator (PRD §15.9, wp-145) ----------
 
