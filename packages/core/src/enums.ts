@@ -1184,3 +1184,16 @@ export const LATENCY_CLASSES = [
   'background',
 ] as const;
 export type LatencyClass = (typeof LATENCY_CLASSES)[number];
+
+/** Which precedence layer supplied a run's pinned model (SCHEMAS §21
+ *  RouteDecision.source) — audit field persisted on `runs.request`
+ *  and surfaced in `model_transition` events (wp-155). */
+export const ROUTE_DECISION_SOURCES = [
+  'request',
+  'ticket',
+  'registry',
+  'legacy',
+  'default',
+  'backend',
+] as const;
+export type RouteDecisionSource = (typeof ROUTE_DECISION_SOURCES)[number];

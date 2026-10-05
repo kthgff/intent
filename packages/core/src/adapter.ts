@@ -4,7 +4,7 @@
  * `capabilities:` tell the conductor how to render and collect.
  */
 import type { Backend, Runtime } from './enums.js';
-import type { Usage } from './schemas.js';
+import type { RouteDecision, Usage } from './schemas.js';
 import type { TokenValues } from './tokens.js';
 
 /** SETTINGS `capabilities:` per-backend flags (ADAPTERS flag table).
@@ -73,7 +73,15 @@ export interface PrepareContext {
   run_dir: string;
   run_id: string;
   backend: Backend;
+  /** Effective model pinned for THIS run (wp-155 — the registry
+   *  resolution folded with request/ticket overrides). Adapters spawn
+   *  with this model; absent → the adapter's configured default. */
   model?: string;
+  /** The full registry decision behind `model` — latency_class drives
+   *  streaming/interactivity; providers is an allowlist enforced by
+   *  provider-bound backends (fail-closed); schema_required marks
+   *  strict-JSON stages (SCHEMAS §21, PRD §15.12). */
+  route?: RouteDecision;
   depth?: string;
   tokens?: TokenValues;
 }
