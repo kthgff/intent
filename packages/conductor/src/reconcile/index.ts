@@ -48,6 +48,9 @@ import {
 import type { LeaseManager } from '../loop/lease.js';
 import { retryDecision } from '../loop/retry.js';
 import { makeTransitionTools } from '../loop/tools.js';
+import { reconcileRunBaseline } from './baseline.js';
+
+export * from './baseline.js';
 
 export interface ReconcileReport {
   stalled: string[];
@@ -103,6 +106,22 @@ async function sweepRun(ctx: ReconcileCtx, run: RunRow): Promise<void> {
     default:
       break; // running | paused | stalled
   }
+
+  // wp-141: mid-run baseline reconciliation. A doc version moving past
+  // the pinned baseline (or the contract version changing) surfaces a
+  // `baseline-drift` gate + `baseline_reconciled` event — the running
+  // agent never silently adopts the newer spec. Idempotent per open
+  // gate, so a persisting drift is reported once.
+  await reconcileRunBaseline(
+    {
+      store: deps.store,
+      workspace: ctx.ws.name,
+      actor: actorOf(deps),
+      now: () => deps.now?.() ?? new Date(),
+      notify: deps.notify,
+    },
+    run,
+  );
 
   if (run.backend === 'runner') {
     await sweepRunnerRun(ctx, run);

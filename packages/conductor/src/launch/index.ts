@@ -21,6 +21,7 @@ import {
   PROMPT_TOKENS,
   REPO_EXECUTING_STAGES,
   type RouteDecision,
+  type RunBaseline,
   type RunRow,
   type Stage,
   type TicketRow,
@@ -29,6 +30,12 @@ import {
 import { createWorktree } from '@sprint-runner/gitops';
 import { assertRouteProvider, resolveRunRoute } from '@sprint-runner/prompts';
 import type { RunRequest } from '../contracts.js';
+import {
+  gitHead,
+  pinnedBaselineOf,
+  resolveRunBaseline,
+  withBaseSha,
+} from './baseline.js';
 import { capExceeded } from '../loop/caps.js';
 import {
   type ConductorDeps,
@@ -113,6 +120,15 @@ export async function queuePendingRun(
   const attempt = await nextAttempt(ctx, req.subject, req.stage);
   const id = formatRunId(ctx.ws.name, req.subject, attempt, req.stage);
   const ts = nowIso(ctx.deps);
+  // wp-141: pin the baseline at QUEUE time — the spec versions the run
+  // will implement are resolved to concrete doc_versions now. The
+  // pending row carries the pin across queue→claim; launch reuses it
+  // (no retro-edit) and only adds the branch point (base_sha).
+  const baseline = await resolveRunBaseline({
+    store: ctx.deps.store,
+    workspace: ctx.ws.name,
+    subject: req.ticketId ?? req.subject,
+  });
   await ctx.deps.store.createRun({
     id,
     workspace: ctx.ws.name,
@@ -126,14 +142,12 @@ export async function queuePendingRun(
     pid: null,
     worktree: null,
     container_id: null,
-    request:
-      req.tokens || req.model || req.task
-        ? {
-            ...(req.tokens ? { tokens: req.tokens } : {}),
-            ...(req.model ? { model: req.model } : {}),
-            ...(req.task ? { task: req.task } : {}),
-          }
-        : null,
+    request: {
+      ...(req.tokens ? { tokens: req.tokens } : {}),
+      ...(req.model ? { model: req.model } : {}),
+      ...(req.task ? { task: req.task } : {}),
+      baseline,
+    },
     status: 'pending',
     started_at: null,
     heartbeat_at: null,
@@ -230,19 +244,24 @@ async function buildTokens(
 /**
  * Merge a pending row's saved `runs.request` with what this launch
  * computed — tokens (NEW_ID, FEEDBACK, …), the runner-task spec, model,
- * and the resolved route decision (wp-155 pinning — a re-launched
- * pending row carries the same audit trail).
- * Returns null when there is nothing to persist.
+ * the resolved route decision (wp-155 pinning — a re-launched pending
+ * row carries the same audit trail), and the pinned baseline (wp-141 —
+ * the doc pins are immutable; only `base_sha` is (re)set at launch).
+ * The pinned baseline from the pending row always wins over a fresh
+ * resolve, so a relaunch never adopts a newer spec.
  */
 function persistedRequest(
   pendingRow: RunRow | undefined,
   tokens: Record<string, string>,
   task: RunRequest['task'],
   model: string | undefined,
+  baseline: RunBaseline,
   route?: RouteDecision,
 ): RunRow['request'] {
   const prev = (pendingRow?.request ?? {}) as Record<string, unknown>;
-  const { tokens: prevTokensRaw, ...prevRest } = prev;
+  // Drop the previously stored tokens/baseline — both are re-merged
+  // explicitly below (tokens merge; baseline is the chosen pin).
+  const { tokens: prevTokensRaw, baseline: _prevBaseline, ...prevRest } = prev;
   const merged = {
     ...((prevTokensRaw ?? {}) as Record<string, string>),
     ...tokens,
@@ -253,6 +272,7 @@ function persistedRequest(
     ...(task ? { task } : {}),
     ...(model ? { model } : {}),
     ...(route ? { route } : {}),
+    baseline,
   };
   return Object.keys(out).length ? out : null;
 }
@@ -362,6 +382,21 @@ export async function launch(
     }
   }
 
+  // --- wp-141: pin the run baseline (never "latest") ---
+  // A pending row already carries its pin from queue time — reuse it
+  // verbatim (no retro-edit) and only stamp the branch point. A
+  // ticket-driven claim (no pending row) resolves the doc heads NOW.
+  const pinnedBaseline = pinnedBaselineOf(req.pendingRow);
+  const baseline =
+    pinnedBaseline !== null
+      ? withBaseSha(pinnedBaseline, await gitHead(worktree))
+      : await resolveRunBaseline({
+          store,
+          workspace: ws.name,
+          subject: req.ticketId ?? req.subject,
+          worktree,
+        });
+
   // --- runner-task lane (CONDUCTOR "Runner tasks") ---
   // `verify`/`import` carry a stage but no agent: register a
   // `backend: 'runner'` row, run the conductor-side task, settle it
@@ -380,7 +415,13 @@ export async function launch(
       pid: null,
       worktree,
       container_id: null,
-      request: persistedRequest(req.pendingRow, reqTokens, task, req.model),
+      request: persistedRequest(
+        req.pendingRow,
+        reqTokens,
+        task,
+        req.model,
+        baseline,
+      ),
       status: 'running',
       started_at: ts,
       heartbeat_at: ts,
@@ -481,6 +522,7 @@ export async function launch(
       reqTokens,
       undefined,
       req.model,
+      baseline,
       route,
     ),
     status: 'running',
@@ -543,3 +585,6 @@ export async function launch(
 
   return runId;
 }
+
+// wp-141 baseline pinning helpers (resolve + pinnedBaselineOf + gitHead).
+export * from './baseline.js';
