@@ -5237,6 +5237,8 @@ function rowToRetrievalEvaluation(row: Row): RetrievalEvaluationRow {
     ),
     metrics: unj<RetrievalEvaluationRow['metrics']>(row.metrics, null),
     created_at: (row.created_at as string | null) ?? null,
+  };
+}
 
 function rowToTestEnvRequest(row: Row): TestEnvRequestRow {
   return {

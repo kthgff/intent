@@ -126,7 +126,7 @@ describe('migrations + meta', () => {
     }
     // re-running migrations is idempotent
     await s().migrate();
-    expect(await s().getSchemaVersion()).toBe(4);
+    expect(await s().getSchemaVersion()).toBe(5);
   });
 });
 

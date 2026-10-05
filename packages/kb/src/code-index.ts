@@ -787,24 +787,15 @@ export async function indexRepo(
 
       const ext = file.path.slice(file.path.lastIndexOf('.'));
       const language = LANGUAGES[ext.toLowerCase()] ?? null;
-      const drafts = extractUnits(file.path, language, file.content).map(toRow);
-      for (const d of drafts) {
+      const unitDrafts = extractUnits(file.path, language, file.content);
+      const drafts = unitDrafts.map(toRow);
+      for (const d of unitDrafts) {
         if (d.parse_status === 'fallback') stats.fallbacks += 1;
-        allUnits.push(d);
-        pendingDrafts.push({
-          path: d.path,
-          language: d.language ?? 'text',
-          symbol: d.symbol,
-          symbol_kind: d.symbol_kind,
-          start_line: d.start_line,
-          end_line: d.end_line,
-          content: d.content,
-          content_hash: d.content_hash,
-          parse_status: d.parse_status,
-        });
+        pendingDrafts.push(d);
       }
+      allUnits.push(...drafts);
       stats.units += drafts.length;
-      for (const e of structuralEdges(file.path, drafts, file.content)) {
+      for (const e of structuralEdges(file.path, unitDrafts, file.content)) {
         allEdges.push({
           workspace: opts.workspace,
           repo: opts.repo,
