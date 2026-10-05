@@ -24,6 +24,10 @@ export const RepoCardSchema = z.object({
   test: z.string().optional(),
   lint: z.string().optional(),
   build: z.string().optional(),
+  /** Seed/setup command run to materialize a declared test environment
+   *  before a verify/implement run (PRD §15.10, wp-157) — repo-card
+   *  script; a `test_env.seed` spec list overrides it. */
+  seed: z.string().optional(),
   forbidden_paths: z.array(z.string()).default([]),
   probed_at: z.string().nullish(),
   verified: z.boolean().default(false),

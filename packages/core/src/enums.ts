@@ -300,6 +300,11 @@ export const EVENT_NAMES = [
   'changeset_verified',
   'baseline_reconciled',
   'model_transition',
+  /** Test-environment request lifecycle (PRD §15.10, wp-157). */
+  'test_env_requested',
+  'test_env_fulfilled',
+  'test_env_waived',
+  'test_env_expired',
 ] as const;
 export type EventName = (typeof EVENT_NAMES)[number];
 
@@ -425,6 +430,9 @@ export const GATE_NAMES = [
    *  + a `rebase` run, never a silent force-push). Verbatim spec
    *  spelling: underscore, matching the `merge_conflict` event. */
   'merge_conflict',
+  /** Test-environment provisioning gate (PRD §15.10, wp-157): the
+   *  stage blocks until the human fulfils or waives the request. */
+  'test-env',
 ] as const;
 export type GateName = (typeof GATE_NAMES)[number];
 
@@ -1212,3 +1220,26 @@ export const ROUTE_DECISION_SOURCES = [
   'backend',
 ] as const;
 export type RouteDecisionSource = (typeof ROUTE_DECISION_SOURCES)[number];
+
+// ---------- test-environment requests (PRD §15.10, wp-157) ----------
+
+/**
+ * `test_env_requests.status` lifecycle (wp-157):
+ *
+ *   pending → fulfilled | waived | expired
+ *
+ * A stage that needs a declared test environment raises a `pending`
+ * request; the run blocks (never fabricates an environment) until a
+ * human either fulfils it (provisioning evidence recorded) or
+ * explicitly waives it (rationale recorded). `expired` = the request's
+ * `expires_at` passed while still pending — the next tick re-raises it.
+ * All four states are durable: the request row is the audit trail and
+ * provisioning evidence links back to the requesting run.
+ */
+export const TEST_ENV_REQUEST_STATUSES = [
+  'pending',
+  'fulfilled',
+  'waived',
+  'expired',
+] as const;
+export type TestEnvRequestStatus = (typeof TEST_ENV_REQUEST_STATUSES)[number];

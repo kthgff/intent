@@ -87,6 +87,7 @@ import {
   STATEMENT_STATUSES,
   STATEMENT_STRENGTHS,
   TEST_CASE_TYPES,
+  TEST_ENV_REQUEST_STATUSES,
   TEST_RESULTS,
   TICKET_ORIGINS,
   TICKET_PRIORITIES,
@@ -109,6 +110,57 @@ export type Timestamp = z.infer<typeof TimestampSchema>;
 
 /** `schema: 1` pinned on every structured doc (SCHEMAS conventions). */
 export const SchemaVersionSchema = z.literal(1);
+
+// ---------- declarative test environment (PRD §15.10, wp-157) ----------
+
+/** A service a declared test environment stands up (managed
+ *  multi-service envs stay deferred — §15.10 follow-up). */
+export const TestEnvServiceSchema = z.object({
+  name: z.string().min(1),
+  image: z.string().nullish(),
+  port: z.number().int().nullish(),
+});
+export type TestEnvService = z.infer<typeof TestEnvServiceSchema>;
+
+/**
+ * Declarative test-environment spec (PRD §15.10, wp-157) — carried on
+ * a ticket (`tickets.test_env`, overriding) or a feature
+ * (`features.test_env`, inherited by member tickets). The conductor
+ * materializes a *fulfilled* request's spec before a verify/implement
+ * run executes; a missing spec means no env step (existing behavior).
+ *
+ * NEVER production data: fixture refs are workspace-relative and MUST
+ * resolve under `fixtures/`; seed commands come from the repo card.
+ */
+export const TestEnvSpecSchema = z.object({
+  /** Free-form env flavour — `temp-db` | `seed` | `mock-externals` |
+   *  `fixtures` (richer taxonomy deferred). */
+  kind: z.string().nullish(),
+  /** Services the environment provides. */
+  services: z.array(TestEnvServiceSchema).default([]),
+  /** Temp DB to stand up — engine + optional schema/seed ref. */
+  db: z
+    .object({
+      engine: z.string().min(1),
+      schema: z.string().nullish(),
+      seed: z.string().nullish(),
+    })
+    .nullish(),
+  /** Repo-relative seed commands (overrides the repo card's `seed`). */
+  seed: z.array(z.string()).default([]),
+  /** Workspace-relative fixture refs — MUST live under `fixtures/`. */
+  fixtures: z.array(z.string()).default([]),
+  /** External services to mock rather than call. */
+  mocks: z.array(z.string()).default([]),
+  /** Who may provision this environment (actor/role) — surfaced on the
+   *  request so the right human sees it. */
+  provisioner: z.string().nullish(),
+  /** Request expiry in minutes from creation; absent = no expiry. */
+  expires_in_minutes: z.number().int().positive().nullish(),
+  /** Free-form guidance for the human fulfilling the request. */
+  notes: z.string().nullish(),
+});
+export type TestEnvSpec = z.infer<typeof TestEnvSpecSchema>;
 
 // ---------- §1 ticket.md frontmatter ----------
 
@@ -133,6 +185,9 @@ export const TicketFrontmatterSchema = z.object({
   forced: z.boolean().default(false),
   /** `env | agent | <short text>` — set with status: blocked (§1). */
   blocked_reason: z.string().nullish(),
+  /** Declarative test-environment spec (wp-157) — carried into the
+   *  `tickets` row at materialization. */
+  test_env: TestEnvSpecSchema.nullish(),
 });
 export type TicketFrontmatter = z.infer<typeof TicketFrontmatterSchema>;
 
@@ -589,6 +644,51 @@ export const ContainerRowSchema = z.object({
 });
 export type ContainerRow = z.infer<typeof ContainerRowSchema>;
 
+// ---------- declarative test environment (PRD §15.10, wp-157) ----------
+
+/**
+ * A durable test-environment request (DB-SCHEMA `test_env_requests`,
+ * wp-157). Raised when a stage that declares a `test_env` spec is about
+ * to run; surfaced as the `test-env` gate item. The run blocks until
+ * `status` leaves `pending`. `evidence` is the provisioning evidence
+ * and `run_id` links it back to the run that needed the environment.
+ */
+export const TestEnvRequestRowSchema = z.object({
+  workspace: z.string().min(1),
+  org: z.string().nullish(),
+  /** `TE-NNNN` (projects.next_test_env_seq allocator). */
+  request_id: z.string().min(1),
+  /** Requesting subject — a ticket id (or other subject). */
+  subject: z.string().min(1),
+  ticket_id: z.string().nullish(),
+  /** Parent feature whose `test_env` was inherited, when applicable. */
+  feature: z.string().nullish(),
+  /** Stage that raised the request (`implement` | `verify` | …). */
+  stage: z.string().min(1),
+  /** Run that needed the environment — provisioning evidence links
+   *  back to it (set at launch). */
+  run_id: z.string().nullish(),
+  /** The declared spec (snapshot at request time — versioned). */
+  spec: TestEnvSpecSchema,
+  status: enumOf(TEST_ENV_REQUEST_STATUSES),
+  requested_by: z.string().nullish(),
+  requested_at: z.string(),
+  /** Who can provision (from `spec.provisioner`). */
+  provisioner: z.string().nullish(),
+  expires_at: z.string().nullish(),
+  fulfilled_by: z.string().nullish(),
+  fulfilled_at: z.string().nullish(),
+  /** Provisioning evidence — a URL/ref/note; never fabricated. */
+  evidence: z.string().nullish(),
+  waived_by: z.string().nullish(),
+  waived_at: z.string().nullish(),
+  /** Mandatory rationale on waive (fail-closed). */
+  waiver_rationale: z.string().nullish(),
+  expired_at: z.string().nullish(),
+  updated_at: z.string(),
+});
+export type TestEnvRequestRow = z.infer<typeof TestEnvRequestRowSchema>;
+
 export const TicketRowSchema = z.object({
   workspace: z.string().min(1),
   /** Nullable tenancy partition — reserved for the SaaS pivot
@@ -630,7 +730,7 @@ export const TicketRowSchema = z.object({
     .nullish(),
   /** Declarative test-environment spec (wp-157); materialized
    *  in-container before verify/implement. */
-  test_env: z.record(z.unknown()).nullish(),
+  test_env: TestEnvSpecSchema.nullish(),
   forced: z.boolean().default(false),
   spec_score: z.number().nullish(),
   spec_hash: z.string().nullish(),
@@ -654,6 +754,8 @@ export const ProjectRowSchema = z.object({
   next_release_seq: z.number().int().default(1),
   /** CS-NNNN allocator (PRD §15.5, wp-140). */
   next_changeset_seq: z.number().int().default(1),
+  /** TE-NNNN allocator (PRD §15.10, wp-157). */
+  next_test_env_seq: z.number().int().default(1),
   settings: z.record(z.unknown()).default({}),
   created_at: z.string().nullish(),
 });
@@ -740,7 +842,7 @@ export const FeatureRowSchema = z.object({
   serves: z.array(z.string()).nullish(),
   /** Declarative test-environment spec (wp-157) — inherited by
    *  member tickets unless overridden. */
-  test_env: z.record(z.unknown()).nullish(),
+  test_env: TestEnvSpecSchema.nullish(),
   created_at: z.string().nullish(),
   updated_at: z.string().nullish(),
 });

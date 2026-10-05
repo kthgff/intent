@@ -68,6 +68,7 @@ import type {
   StatementRelationRow,
   StatementRow,
   StatementVersionRow,
+  TestEnvRequestRow,
   TicketRepoRow,
   TicketRow,
   UsageCallRow,
@@ -937,4 +938,25 @@ export interface Store {
     workspace: string;
     eval_run_id: string;
   }): Promise<EvalResultRow[]>;
+
+  // ---- test-environment requests (PRD §15.10, wp-157) ----
+
+  /** `TE-NNNN` allocator — same transactional seq-bump as tickets. */
+  allocTestEnvRequestId(workspace: string): Promise<string>;
+  /**
+   * Upsert a `test_env_requests` row (DB-SCHEMA). The row is the
+   * durable request/audit trail: `pending → fulfilled|waived|expired`.
+   * Provisioning evidence + the requesting `run_id` live on it.
+   */
+  upsertTestEnvRequest(row: TestEnvRequestRow): Promise<void>;
+  getTestEnvRequest(key: {
+    workspace: string;
+    request_id: string;
+  }): Promise<TestEnvRequestRow | null>;
+  /** Requests scoped by workspace/subject/status (open-request lookup). */
+  listTestEnvRequests(filter?: {
+    workspace?: string;
+    subject?: string;
+    status?: string;
+  }): Promise<TestEnvRequestRow[]>;
 }
