@@ -77,7 +77,7 @@ Program plan for W16+ (PRD §14+§15): `docs/DEV-PLAN.md` + `docs/DELIVERY.md`.
 | W6 | wp-061 | Importers: GitHub issues → ticket folders | wp-013 | done |
 | W7 | wp-070 | KB/survey: dossiers, entities, embeddings spike → impl | wp-011 | done |
 | W8 | wp-080 | UI: 14 screens on the API (React+Vite, served by conductor) | wp-060 | done |
-| W9 | wp-081 | Board home: Kanban + card drawer + validated drag-drop (D21) | wp-080 | **blocked — build on wp-090+ contracts** |
+| W9 | wp-081 | Board home: Kanban + card drawer + validated drag-drop (D21) | wp-080 | done |
 | W10 | wp-090 | Core contracts v2: hierarchy/doc_versions/events/run_artifacts schemas + enums, config (`storage_url`→postgres, drop `tickets_repos`/`leases_via`) | — | done |
 | W10 | wp-091 | Store v2: postgres.js impl + PGlite test path, new migrations; delete sqlite.ts | wp-090 | done |
 | W10 | wp-092 | Conductor rewire: events→DB-only (drop jsonl/LOG.md regen), artifacts→`run_artifacts`, docs→`doc_versions`, id alloc→`next_*_seq` | wp-091 | done |
@@ -151,7 +151,7 @@ Program plan for W16+ (PRD §14+§15): `docs/DEV-PLAN.md` + `docs/DELIVERY.md`.
 | ~~Compute `deviation_rate` + `human_minutes` (gate dwell) in `/metrics`~~ → wp-160 | PRODUCT-MISSION review |
 | ~~`packages/cli` commands still stubs~~ → wp-099 (launch wave W12) | — |
 | ~~`gate_items.snoozed_until` column + `/inbox` field + snooze endpoint~~ → wp-160 | design review |
-| `GET /board` + derived `phase` + `drop_targets` per card; `/interview` edit mode (`subject_ref`/`target`/`session_id`) + `/interview/<session>/approve` + `doc_edited` event — API additions for board+focus (D21/D24/D27, SCHEMAS §16) | wp-081 |
+| ~~`GET /board` + derived `phase` + `drop_targets` per card; `/interview` edit mode (`subject_ref`/`target`/`session_id`) + `/interview/<session>/approve` + `doc_edited` event — API additions for board+focus (D21/D24/D27, SCHEMAS §16)~~ → wp-081 | done |
 | Addendum deferreds (PRD §15.10/§15.11): real-time collaborative whiteboarding, Figma-grade editing, interactive prototypes beyond rendered mockups, unrestricted agent swarms, full Test-Env/Data Studio (managed multi-service envs), Acceptance Lab guided UAT, Process Learning Engine, project/feature simulation, competing-solution branches, feature memory packages, "don't build it" recommendation, knowledge-expiry sweeps, voice capture (transcript upload ships instead), bidirectional tracker sync (Jira), plugin/connector marketplace, all billing/RBAC/cloud-sandbox machinery | D41/D43 |
 
 ## Open risks

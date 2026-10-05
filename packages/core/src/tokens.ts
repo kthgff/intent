@@ -67,7 +67,7 @@ export const PROMPT_TOKENS = [
   /** Chat-edit session id (cs_*) — also selects the interview-edit
    *  template when present on an `interview` run. */
   'EDIT_SESSION',
-  /** Target doc kind under edit (ticket.md / prd.md / tdd.md / …). */
+  /** Target doc kind under edit (ticket.md / rs.md / tdd.md / vs.md / …). */
   'EDIT_TARGET',
   /** The human's edit request for this turn. */
   'EDIT_MESSAGE',

@@ -848,7 +848,7 @@ function DocsTab({
   const doc = useLoad(() => client.ticketDoc(ws, id, name), [ws, id, name]);
   const [edit, setEdit] = useState(false);
   const target = name.replace(/\.md$/, '') as ChatEditTarget;
-  const editable = ['ticket', 'prd', 'tdd', 'test'].includes(target);
+  const editable = ['ticket', 'rs', 'tdd', 'vs'].includes(target);
   return (
     <div>
       <div className="row" style={{ marginBottom: 10 }}>

@@ -265,7 +265,7 @@ export interface InterviewSession {
   session: string;
   workspace: string;
   subject: string;
-  /** Target doc kind (ticket.md | prd.md | tdd.md | test.md). */
+  /** Target doc kind (ticket.md | rs.md | tdd.md | vs.md). */
   target: string;
   status:
     | 'queued'
@@ -495,7 +495,7 @@ export const client = {
     workspace: string;
     ticket_ref: string;
     message: string;
-    target?: 'ticket' | 'prd' | 'tdd' | 'test';
+    target?: 'ticket' | 'rs' | 'tdd' | 'vs';
     session_id?: string;
   }) =>
     post<{ session: string; run: string; subject: string; target: string }>(

@@ -2205,9 +2205,9 @@ export function createServer(opts: ServerOptions): ApiServer {
 
   const EDITABLE_TICKET_DOCS = new Set<DocKind>([
     'ticket.md',
-    'prd.md',
+    'rs.md',
     'tdd.md',
-    'test.md',
+    'vs.md',
   ]);
   const SESSION_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/;
   const editSessionSubject = (session: string) => `edit:${session}`;
@@ -2293,7 +2293,7 @@ export function createServer(opts: ServerOptions): ApiServer {
       const doc = docKindFor(body.target ?? 'ticket');
       if (doc === null || !EDITABLE_TICKET_DOCS.has(doc)) {
         throw badRequest(
-          `interview edit: target must be one of ticket|prd|tdd|test (got '${body.target ?? 'ticket'}')`,
+          `interview edit: target must be one of ticket|rs|tdd|vs (got '${body.target ?? 'ticket'}')`,
         );
       }
       const session =

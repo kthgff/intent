@@ -177,29 +177,36 @@ describe('GET /board', () => {
     await store.upsertTicket(
       ticketRow({ ticket_id: 'SR-0005', status: 'merged' }),
     );
-    // A failed ticket that died in build.
+    // A failed ticket that died in build — the ledger carries the
+    // in-progress transition before the failure (derivePhase walks
+    // status_changed targets back to the last meaningful phase).
     await store.upsertTicket(
       ticketRow({ ticket_id: 'SR-0006', status: 'failed' }),
     );
-    await store.appendEvent({
-      workspace: WS,
-      ticket_id: 'SR-0006',
-      ts: '2026-10-03T00:00:00Z',
-      stage: null,
-      actor_type: 'runner',
-      actor_id: 'bot',
-      event: 'status_changed',
-      run: null,
-      refs: [],
-      data: { from: 'in-progress', to: 'failed' },
-      cost_usd: null,
-      tokens_in: null,
-      tokens_out: null,
-      tokens_cached: null,
-      usage_source: null,
-      duration_s: null,
-      human_minutes: null,
-    });
+    for (const [ts, data] of [
+      ['2026-10-03T00:00:00Z', { from: 'ready', to: 'in-progress' }],
+      ['2026-10-03T01:00:00Z', { from: 'in-progress', to: 'failed' }],
+    ] as const) {
+      await store.appendEvent({
+        workspace: WS,
+        ticket_id: 'SR-0006',
+        ts,
+        stage: null,
+        actor_type: 'runner',
+        actor_id: 'bot',
+        event: 'status_changed',
+        run: null,
+        refs: [],
+        data,
+        cost_usd: null,
+        tokens_in: null,
+        tokens_out: null,
+        tokens_cached: null,
+        usage_source: null,
+        duration_s: null,
+        human_minutes: null,
+      });
+    }
     await store.upsertGateItem(
       gateItem({ subject: 'SR-0001', gate: 'prd-review' }),
     );
@@ -212,38 +219,44 @@ describe('GET /board', () => {
     });
     expect(res.statusCode).toBe(200);
     const body = res.json() as {
-      phases: {
+      cards: {
+        ref: string;
         phase: string;
-        count: number;
-        cards: {
-          ref: string;
-          phase: string;
-          attention: unknown[];
-          drop_targets: { action: string }[];
-        }[];
+        flagged: string | null;
+        attention: unknown[];
+        drop_targets: { column: string; action: string }[];
       }[];
+      ops: unknown[];
     };
-    const byPhase = Object.fromEntries(body.phases.map((p) => [p.phase, p]));
-    expect(byPhase.backlog?.count).toBe(1);
-    expect(byPhase.spec?.count).toBe(1);
+    const byPhase = new Map<string, typeof body.cards>();
+    for (const c of body.cards) {
+      const list = byPhase.get(c.phase) ?? [];
+      list.push(c);
+      byPhase.set(c.phase, list);
+    }
+    expect(byPhase.get('backlog')).toHaveLength(1);
+    expect(byPhase.get('spec')).toHaveLength(1);
     // in-progress + the failed ticket (died in build) both land in build.
-    expect(byPhase.build?.count).toBe(2);
-    expect(byPhase.review?.count).toBe(1);
-    expect(byPhase.done?.count).toBe(1);
+    expect(byPhase.get('build')).toHaveLength(2);
+    expect(byPhase.get('review')).toHaveLength(1);
+    expect(byPhase.get('done')).toHaveLength(1);
 
-    const failed = byPhase.build?.cards.find((c) => c.ref === 'ws/SR-0006');
+    const failed = byPhase.get('build')?.find((c) => c.ref === 'ws/SR-0006');
     expect(failed?.phase).toBe('build');
-    expect(failed?.drop_targets).toEqual([
-      { column: 'build', action: 'retry', confirm: true },
+    expect(failed?.flagged).toBe('failed');
+    // Dead card: abandon-to-done + retry-in-place are the allowed drops.
+    expect(failed?.drop_targets.map((t) => [t.column, t.action])).toEqual([
+      ['done', 'wont_do'],
+      ['build', 'retry'],
     ]);
 
-    const triage = byPhase.backlog?.cards.find((c) => c.ref === 'ws/SR-0001');
+    const triage = byPhase.get('backlog')?.find((c) => c.ref === 'ws/SR-0001');
     expect(triage?.attention).toHaveLength(1);
-    expect(triage?.drop_targets).toEqual([
-      { column: 'done', action: 'wont_do', confirm: true },
+    expect(triage?.drop_targets.map((t) => [t.column, t.action])).toEqual([
+      ['done', 'wont_do'],
     ]);
 
-    const merged = byPhase.done?.cards.find((c) => c.ref === 'ws/SR-0005');
+    const merged = byPhase.get('done')?.find((c) => c.ref === 'ws/SR-0005');
     expect(merged?.drop_targets).toEqual([]);
 
     await app.close();

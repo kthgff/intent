@@ -2,7 +2,7 @@
 schema: 1
 id: wp-081
 title: Board home — Kanban + ticket focus page + validated drag-drop
-status: todo
+status: done
 priority: medium
 depth: deep
 repos: []
@@ -44,21 +44,21 @@ ticket_ref) flagged — coordinate with conductor ownership.
 
 ## Acceptance criteria
 
-- [ ] Board renders all tickets in phase columns, unified + workspace
+- [x] Board renders all tickets in phase columns, unified + workspace
   filter; SSE moves cards/updates badges without refresh
-- [ ] Attention badges reflect open gate_items; failure/escalation
+- [x] Attention badges reflect open gate_items; failure/escalation
   badges visually emphasized
-- [ ] Drag-drop: only `drop_targets` drops enabled; reject animates
+- [x] Drag-drop: only `drop_targets` drops enabled; reject animates
   back + toast; successful drop posts action idempotently (expected_status)
-- [ ] Ticket focus page: stepper + inline gate action (wizard/approve/retry) +
+- [x] Ticket focus page: stepper + inline gate action (wizard/approve/retry) +
   ticket.md + chat-to-edit + activity; pop-outs to S-07/S-08/S-11
-- [ ] Chat-to-edit proposes ticket.md diff via interview run; human
+- [x] Chat-to-edit proposes ticket.md diff via interview run; human
   approve → commit + ledger event
-- [ ] Inbox tab retains snooze/claim/filters; ranking human-anxiety-first
-- [ ] In-column sort attention-first→priority→age; Done capped ~20 +
+- [x] Inbox tab retains snooze/claim/filters; ranking human-anxiety-first
+- [x] In-column sort attention-first→priority→age; Done capped ~20 +
   "show more"; ops strip for non-ticket gate items; board snooze hides
   the card until `snoozed_until`
-- [ ] Empty/error states per column and for empty board
+- [x] Empty/error states per column and for empty board
 
 ---
 

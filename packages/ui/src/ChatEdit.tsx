@@ -13,7 +13,7 @@ import { type InterviewSession, client } from './api';
 import { DiffView, ErrorBox } from './components';
 import { useStreamRefresh } from './hooks';
 
-export type ChatEditTarget = 'ticket' | 'prd' | 'tdd' | 'test';
+export type ChatEditTarget = 'ticket' | 'rs' | 'tdd' | 'vs';
 
 const POLL_MS = 2500;
 

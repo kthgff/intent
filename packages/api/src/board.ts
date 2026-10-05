@@ -34,13 +34,7 @@ import {
   statementsByItem,
   statementsForItem,
 } from '@sprint-runner/conductor';
-import type {
-  BoardItem,
-  BoardType,
-  GateItem,
-  Store,
-  TicketRow,
-} from '@sprint-runner/core';
+import type { BoardItem, BoardType, Store } from '@sprint-runner/core';
 import {
   BOARD_TYPES,
   NOTE_IMPORTANCES,
@@ -167,111 +161,9 @@ async function board<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 // ---------------------------------------------------------------------------
-// Pipeline board — derived phase + drop_targets (D21, API.md /board)
-// ---------------------------------------------------------------------------
-
-export const PHASES = ['backlog', 'spec', 'build', 'review', 'done'] as const;
-export type Phase = (typeof PHASES)[number];
-
-const PHASE_STATUSES: Record<Phase, readonly string[]> = {
-  backlog: ['imported', 'triage', 'needs-info', 'escalated'],
-  spec: [
-    'prd-draft',
-    'prd-review',
-    'prd-approved',
-    'design-qa',
-    'tdd-draft',
-    'tdd-review',
-    'tdd-approved',
-    'test-draft',
-    'test-review',
-    'test-approved',
-  ],
-  build: ['ready', 'in-progress', 'review', 'changes-requested'],
-  review: ['approved', 'pr-open', 'ci-watch', 'verifying', 'verify_failed'],
-  done: [
-    'merged',
-    'released',
-    'reverted',
-    'wont-do',
-    'aborted',
-    'split',
-    'discarded',
-  ],
-};
-
-const STATUS_PHASE: Record<string, Phase> = Object.fromEntries(
-  PHASES.flatMap((p) => PHASE_STATUSES[p].map((s) => [s, p])),
-);
-
-const TERMINAL = new Set(PHASE_STATUSES.done);
-const IN_FLIGHT = new Set([
-  'in-progress',
-  'review',
-  'changes-requested',
-  'approved',
-  'pr-open',
-  'ci-watch',
-  'verifying',
-]);
-
-/** A card's server-computed allowed drops — the UI only highlights;
- *  an invalid drop is rejected by the action route. */
-export interface DropTarget {
-  column: Phase;
-  action: 'wont_do' | 'aborted' | 'retry' | 'claim';
-  confirm: boolean;
-}
-
-/**
- * Phase for a ticket. `failed`/`blocked` render in the phase they died
- * in (D21) — derived from the last `status_changed` event's `from`.
- * `fallback` is used when no event history is available.
- */
-export function derivePhase(
-  status: string,
-  lastEventFrom?: string | null,
-): Phase {
-  if (status === 'failed' || status === 'blocked') {
-    return (
-      (lastEventFrom ? STATUS_PHASE[lastEventFrom] : undefined) ?? 'backlog'
-    );
-  }
-  return STATUS_PHASE[status] ?? 'backlog';
-}
-
-/** Allowed drag-drop targets for a card (server-authoritative, D21).
- *  `phase` is the card's derived phase — failed/blocked tickets offer
- *  only `retry` (into the phase they died in); abandoning a dead ticket
- *  is a ticket-page action, not a board drag. */
-export function dropTargets(ticket: TicketRow, phase: Phase): DropTarget[] {
-  const targets: DropTarget[] = [];
-  const dead = ticket.status === 'failed' || ticket.status === 'blocked';
-  if (dead) {
-    targets.push({ column: phase, action: 'retry', confirm: true });
-  }
-  if (ticket.status === 'escalated') {
-    targets.push({ column: phase, action: 'claim', confirm: false });
-  }
-  if (!dead && !TERMINAL.has(ticket.status)) {
-    targets.push({
-      column: 'done',
-      action: IN_FLIGHT.has(ticket.status) ? 'aborted' : 'wont_do',
-      confirm: true,
-    });
-  }
-  return targets;
-}
-
-/** A non-ticket gate item (survey/import) — the ops strip, not a card. */
-const TICKET_ID = /^[A-Z]+-\d+$/;
-
-function isOpsSubject(subject: string): boolean {
-  return subject.startsWith('survey:') || subject.startsWith('import:');
-}
-
-// ---------------------------------------------------------------------------
-// Routes
+// Routes — idea boards (§15.3). The pipeline board (GET /board) lives in
+// server.ts — it is the S-01 surface and shares that file's ranking,
+// derivePhase, and drop_targets helpers.
 // ---------------------------------------------------------------------------
 
 export function registerBoardRoutes(
@@ -279,75 +171,6 @@ export function registerBoardRoutes(
   env: BoardRouteEnv,
 ): void {
   const { store } = env;
-
-  // ---- pipeline board (GET /board) ---------------------------------
-
-  app.get('/api/v1/board', async (req) => {
-    const { workspace: wsName } = req.query as { workspace?: string };
-    const tickets = await store.listTickets(
-      wsName ? { workspace: wsName } : {},
-    );
-    const gates = await store.listGateItems(
-      wsName ? { workspace: wsName, open: true } : { open: true },
-    );
-
-    const attentionByTicket = new Map<string, GateItem[]>();
-    const ops: GateItem[] = [];
-    for (const g of gates) {
-      if (isOpsSubject(g.subject) || !TICKET_ID.test(g.subject)) {
-        ops.push(g);
-        continue;
-      }
-      const list = attentionByTicket.get(g.subject) ?? [];
-      list.push(g);
-      attentionByTicket.set(g.subject, list);
-    }
-
-    const cards = await Promise.all(
-      tickets.map(async (t) => {
-        const key = `${t.workspace}/${t.ticket_id}`;
-        const events =
-          t.status === 'failed' || t.status === 'blocked'
-            ? await store.listEvents({
-                workspace: t.workspace,
-                ticket_id: t.ticket_id,
-                event: 'status_changed',
-              })
-            : [];
-        const lastFrom =
-          (events.at(-1)?.data as { from?: string } | undefined)?.from ?? null;
-        const phase = derivePhase(t.status, lastFrom);
-        return {
-          workspace: t.workspace,
-          ref: key,
-          ticket_id: t.ticket_id,
-          title: t.title,
-          status: t.status,
-          phase,
-          priority: t.priority,
-          attention: attentionByTicket.get(t.ticket_id) ?? [],
-          drop_targets: dropTargets(t, phase),
-        };
-      }),
-    );
-
-    return {
-      generated_at: env.nowIso(),
-      phases: PHASES.map((phase) => {
-        const inPhase = cards
-          .filter((c) => c.phase === phase)
-          .sort(
-            (a, b) =>
-              b.attention.length - a.attention.length ||
-              a.ticket_id.localeCompare(b.ticket_id),
-          );
-        return { phase, count: inPhase.length, cards: inPhase };
-      }),
-      ops,
-    };
-  });
-
-  // ---- idea boards (§15.3) -----------------------------------------
 
   app.get('/api/v1/boards', async (req) => {
     const { workspace: wsName } = req.query as { workspace?: string };
