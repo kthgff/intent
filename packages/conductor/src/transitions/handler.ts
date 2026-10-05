@@ -236,8 +236,38 @@ export class RealTransitionHandler implements TransitionHandler {
           });
           if (scope && !scope.cleared_at) return null;
           if (scope?.cleared_at) {
-            await clearedGateEvent('scope-proposal');
             const tools = this.#statusTools(ctx);
+            // A `gate_overridden` row means the human DECLINED the
+            // proposal — the work is out of scope, so escalate rather
+            // than absorb it (bug≠scope, §15.7).
+            const rejected = (
+              await ctx.store.listEvents({
+                workspace: ctx.workspace,
+                ticket_id: id,
+                event: 'gate_overridden',
+              })
+            ).some(
+              (e) =>
+                (e.data as Record<string, unknown>)?.gate === 'scope-proposal',
+            );
+            await clearedGateEvent('scope-proposal');
+            if (rejected) {
+              await this.#setStatus(ctx, id, 'escalated', {
+                data: { reason: 'scope proposal declined' },
+              });
+              await tools.surfaceGateItem({
+                subject: id,
+                gate: 'escalated',
+                kind: 'escalation',
+                payload: { reason: 'scope-proposal declined', scope: true },
+              });
+              await emitEvent(tools, {
+                ticketId: id,
+                event: 'escalated',
+                data: { reason: 'scope-proposal declined' },
+              });
+              return null;
+            }
             // Re-evaluate the intake policy now that scope is approved —
             // evidence still has to hold.
             const proceed = await this.#intakeClassify(tools, id, null);

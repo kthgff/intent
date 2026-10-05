@@ -152,6 +152,34 @@ export interface TicketDetail {
   repos: TicketRepoRow[];
   open_gates: GateItem[];
   family: TicketRow[];
+  /** §15.7 Ticket Workbench (wp-151) — per-type tabs + policy evidence. */
+  workbench?: Workbench | null;
+}
+
+/** One policy evidence requirement as the workbench renders it. */
+export interface WorkbenchEvidence {
+  id: string;
+  gate: string;
+  label: string;
+  satisfied: boolean;
+  check: Record<string, unknown>;
+}
+
+/** The workbench payload server-computed from taxonomy.ts (the same
+ *  policy the conductor enforces at its gates). */
+export interface Workbench {
+  work_type: string | null;
+  origin: string | null;
+  severity: string | null;
+  severity_rule: 'required' | 'optional' | 'forbidden';
+  direct_create: boolean;
+  scope_verdict: string | null;
+  scope_approval_needed: boolean;
+  summary: string | null;
+  tabs: string[];
+  intake: { key: string; title: string; question: string; required: boolean }[];
+  evidence: WorkbenchEvidence[];
+  missing: string[];
 }
 
 export interface DocResponse {
