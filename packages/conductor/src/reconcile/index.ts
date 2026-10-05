@@ -26,6 +26,7 @@ import {
   type RunRow,
   type Stage,
 } from '@sprint-runner/core';
+import { escalationModelFor } from '@sprint-runner/prompts';
 import type { RunOutcome, RunnerTask } from '../contracts.js';
 import { applyTicketStatus } from '../contracts.js';
 import { collectArtifacts, scanArtifacts } from '../envops/index.js';
@@ -690,14 +691,27 @@ async function applyRetryLadder(ctx: ReconcileCtx, run: RunRow): Promise<void> {
   ).length;
 
   // Missing sentinel / nonzero exit / no handle = transient-shaped.
+  // wp-155: the escalation tier resolves through the routing registry
+  // (models.escalation → legacy escalation_model) — no hardcoded model.
   const verdict = retryDecision({
     stage: run.stage,
     transient: true,
     failures,
-    escalationModel: deps.config.escalation_model ?? null,
+    escalationModel: escalationModelFor(deps.config),
   });
 
   if (verdict.kind === 'retry') {
+    const isEscalation = 'escalation' in verdict && verdict.escalation;
+    // Bounded escalation (PRD §15.12): a premium-tier retry respects the
+    // per-ticket spend/token caps BEFORE the stronger model is queued —
+    // a capped ticket blocks rather than paying escalation rates.
+    if (isEscalation && run.ticket_id) {
+      const cap = await capExceeded(deps, ws.name, run.ticket_id);
+      if (cap) {
+        await blockTerminalRunTicket(ctx, run, cap);
+        return;
+      }
+    }
     // Propagate the runner-task spec (runs.request.task) — an `import`
     // retry must keep its repo/labels/milestone; a bare stage inference
     // would lose them (and task-less `import` fails closed).
@@ -708,7 +722,7 @@ async function applyRetryLadder(ctx: ReconcileCtx, run: RunRow): Promise<void> {
             tokens?: Record<string, string>;
           })
         : undefined;
-    await queuePendingRun(ctx, {
+    const queuedId = await queuePendingRun(ctx, {
       workspace: ws.name,
       subject: run.subject,
       stage: run.stage as Stage,
@@ -717,6 +731,37 @@ async function applyRetryLadder(ctx: ReconcileCtx, run: RunRow): Promise<void> {
       ...(savedReq?.task ? { task: savedReq.task } : {}),
       ...(savedReq?.tokens ? { tokens: savedReq.tokens } : {}),
     });
+    // Record the mid-flight model switch for audit (SCHEMAS §7:
+    // `model_transition` — the ticket trail explains why the retry runs
+    // on a different tier).
+    if (queuedId && isEscalation) {
+      const ts = nowIso(deps);
+      await deps.store.appendEvent({
+        workspace: ws.name,
+        ticket_id: run.ticket_id,
+        ts,
+        stage: run.stage,
+        actor_type: 'runner',
+        actor_id: actorOf(deps),
+        event: 'model_transition',
+        run: queuedId,
+        refs: [run.id],
+        data: {
+          from_run: run.id,
+          from_model: run.model,
+          to_model: verdict.model ?? null,
+          reason: 'escalation',
+          failures,
+        },
+        cost_usd: null,
+        tokens_in: null,
+        tokens_out: null,
+        tokens_cached: null,
+        usage_source: null,
+        duration_s: null,
+        human_minutes: null,
+      });
+    }
     return;
   }
 
@@ -738,4 +783,56 @@ async function applyRetryLadder(ctx: ReconcileCtx, run: RunRow): Promise<void> {
       },
     });
   }
+}
+
+/**
+ * Ticket-side `blocked` write for an already-terminal run — used when a
+ * cap stops the ESCALATION rung (the run died on its own; the cap only
+ * prevents the premium retry). Mirrors blockTicketForCap's ticket half
+ * without rewriting the finished run row to `killed`.
+ */
+async function blockTerminalRunTicket(
+  ctx: ReconcileCtx,
+  run: RunRow,
+  cap: import('../loop/caps.js').CapKind,
+): Promise<void> {
+  const { deps, ws } = ctx;
+  if (!run.ticket_id) return;
+  const ts = nowIso(deps);
+  await deps.store.transaction(async (s) => {
+    await s.appendEvent({
+      workspace: ws.name,
+      ticket_id: run.ticket_id,
+      ts,
+      stage: run.stage,
+      actor_type: 'runner',
+      actor_id: actorOf(deps),
+      event: 'blocked',
+      run: run.id,
+      refs: [],
+      data: { reason: `cap before model-tier escalation: ${cap}` },
+      cost_usd: null,
+      tokens_in: null,
+      tokens_out: null,
+      tokens_cached: null,
+      usage_source: null,
+      duration_s: null,
+      human_minutes: null,
+    });
+    await applyTicketStatus({
+      ctx: {
+        workspace: ws.name,
+        rootPath: ws.rootPath,
+        store: s,
+        actor: actorOf(deps),
+        now: () => new Date(ts),
+      },
+      opts: {
+        ticketId: run.ticket_id as string,
+        status: 'blocked',
+        blockedReason: cap,
+        run: run.id,
+      },
+    });
+  });
 }

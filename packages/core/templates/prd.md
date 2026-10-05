@@ -1,4 +1,5 @@
-You are the PRD stage for ticket {{TICKET_ID}}. Requirements Q&A is
+You are the RS stage for ticket {{TICKET_ID}} — the Requirements
+Specification draft (internal stage id `prd`). Requirements Q&A is
 complete — the human's answers are committed in the ticket.
 
 Depth tier: {{DEPTH}}
@@ -14,7 +15,7 @@ it is a reviewer comment you MUST address): {{FEEDBACK}}
 Artifact paths: {{ARTIFACT_TARGETS}}
 
 ## Task
-Write `{{TICKET_DIR}}/prd.md` per SCHEMAS.md §2 EXACTLY:
+Write `{{TICKET_DIR}}/rs.md` per SCHEMAS.md §2 EXACTLY:
 
 - Problem/why: the real need — tight, honest, no filler.
 - Requirements (final): incorporate every human answer. If two answers
@@ -24,7 +25,7 @@ Write `{{TICKET_DIR}}/prd.md` per SCHEMAS.md §2 EXACTLY:
 - AC table: each `ac_id` must be verifiable by a test or check — no
   "works correctly" vibes. A test case must plausibly exist for each.
 - Out of scope: explicit — what this ticket does NOT do.
-- Open questions: must be EMPTY for the PRD to be approvable.
+- Open questions: must be EMPTY for the RS to be approvable.
 
 The LAST non-empty line of your output must be exactly:
 `PRD-WRITTEN` or `ESCALATE: <one-line reason>`

@@ -430,14 +430,14 @@ describe('doc_versions', () => {
     const key = {
       workspace: 'ws1',
       subject: 'SR-0001',
-      doc: 'prd.md' as const,
+      doc: 'rs.md' as const,
     };
-    const v1 = await s().appendDocVersion(key, '# prd v1', 'agent:prd');
+    const v1 = await s().appendDocVersion(key, '# rs v1', 'agent:prd');
     expect(v1.version).toBe(1);
-    const v2 = await s().appendDocVersion(key, '# prd v2', 'human:keith');
+    const v2 = await s().appendDocVersion(key, '# rs v2', 'human:keith');
     expect(v2.version).toBe(2);
-    expect((await s().getDoc(key))?.content).toBe('# prd v2');
-    expect((await s().getDocVersion(key, 1))?.content).toBe('# prd v1');
+    expect((await s().getDoc(key))?.content).toBe('# rs v2');
+    expect((await s().getDocVersion(key, 1))?.content).toBe('# rs v1');
     expect((await s().listDocVersions(key)).map((v) => v.version)).toEqual([
       1, 2,
     ]);
@@ -447,7 +447,7 @@ describe('doc_versions', () => {
       'agent:design',
     );
     const docs = await s().listDocs({ workspace: 'ws1', subject: 'SR-0001' });
-    expect(docs.map((d) => d.doc).sort()).toEqual(['prd.md', 'tdd.md']);
+    expect(docs.map((d) => d.doc).sort()).toEqual(['rs.md', 'tdd.md']);
   });
 });
 
@@ -766,7 +766,7 @@ describe('regression — R1 review findings', () => {
     const key = {
       workspace: 'ws1',
       subject: 'SR-0001',
-      doc: 'prd.md' as const,
+      doc: 'rs.md' as const,
     };
     const v = await s().appendDocVersion(key, '# v1', 'agent:prd');
     const pk = [key.workspace, key.subject, key.doc, v.version];

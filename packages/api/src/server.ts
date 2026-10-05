@@ -790,7 +790,7 @@ export function createServer(opts: ServerOptions): ApiServer {
 
   /**
    * Doc name → DOC_KINDS doc. Routes accept either the bare name
-   * (`prd`) or the full doc kind (`prd.md`). `split-plan` is the one
+   * (`rs`) or the full doc kind (`rs.md`). `split-plan` is the one
    * exception: it's a run_artifact (RUN_ARTIFACT_KINDS), served from
    * the latest producing run.
    */
@@ -1753,6 +1753,7 @@ export function createServer(opts: ServerOptions): ApiServer {
     const runsByStatus: Record<string, number> = {};
     const eventsByName: Record<string, number> = {};
     let openGateItems = 0;
+    let acceptedOutcomes = 0;
     const totals = {
       cost_usd: 0,
       tokens_in: 0,
@@ -1788,7 +1789,19 @@ export function createServer(opts: ServerOptions): ApiServer {
             (eventsByName.usage_calls ?? 0) + calls.length;
         }
       }
+      // wp-155 (PRD §15.12): cost per VERIFIED ACCEPTED OUTCOME —
+      // inference + retries + execution + remediation over outcomes
+      // that reached a delivered terminal state, never per-call price.
+      for (const t of await store.listTickets({ workspace: ws })) {
+        if (t.status === 'merged' || t.status === 'released') {
+          acceptedOutcomes += 1;
+        }
+      }
     }
+    const costPerAcceptedOutcome =
+      acceptedOutcomes > 0
+        ? Number((totals.cost_usd / acceptedOutcomes).toFixed(6))
+        : null;
     return {
       workspaces,
       tickets_by_status: ticketsByStatus,
@@ -1796,6 +1809,8 @@ export function createServer(opts: ServerOptions): ApiServer {
       events_by_name: eventsByName,
       open_gate_items: openGateItems,
       totals,
+      accepted_outcomes: acceptedOutcomes,
+      cost_per_accepted_outcome: costPerAcceptedOutcome,
     };
   });
 

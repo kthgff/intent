@@ -84,7 +84,7 @@ Program plan for W16+ (PRD §14+§15): `docs/DEV-PLAN.md` + `docs/DELIVERY.md`.
 | W10 | wp-093 | Gitops slim (code-repo ops only) + delete projection + importer→rows + capture endpoint | wp-092 | done |
 | W10 | wp-094 | E2E re-green: fixtures become seed rows not a git tickets repo; all tests pass | wp-093 | done |
 | W11 | wp-095 | Container runtime: docker client (CLI or Engine API), `containers` table + `runs.container_id`, lifecycle (lazy create/start/stop/rm/orphan sweep), base image build, caps | wp-091 | done |
-| W11 | wp-096 | Aider-in-container: `docker exec` run/control (`kill`/`pause`/`unpause`), usage stream-parse over exec stdout, env injection, `runtime` flag + `containers:` settings | wp-095,wp-092 | todo |
+| W11 | wp-096 | Aider-in-container: `docker exec` run/control (`kill`/`pause`/`unpause`), usage stream-parse over exec stdout, env injection, `runtime` flag + `containers:` settings | wp-095,wp-092 | done |
 | W11 | wp-097 | Conductor rewire: LAUNCH container-ensure + gate-sleep + terminal teardown hooks; heartbeats via docker inspect; multi-mount recreate on repo-set growth | wp-096 | todo |
 | W11 | wp-098 | Container E2E: fixture repo + mock-in-container (or aider image), full stage chain in-container, orphan-sweep + kill/pause coverage; `pnpm test` green | wp-097 | todo |
 | W12 | wp-099 | Launch: `veto` CLI wires conductor + serves UI dist; init/daemon/tick/status/doctor | wp-092 | done |
@@ -93,14 +93,9 @@ Program plan for W16+ (PRD §14+§15): `docs/DEV-PLAN.md` + `docs/DELIVERY.md`.
 | W13 | wp-111 | Product integration: pre-PRD grounding, PRD quality findings, traceability verification, impact/test/review evidence UI | wp-110,wp-081 | todo |
 | W14 | wp-112 | Continuous alignment: intended/implemented/verified findings + release-readiness narrative + feedback clustering | wp-111 | todo |
 | W15 | wp-120 | Telemetry/incident intelligence: sanitized connector, fingerprint/dedupe, investigation, validated resolution, draft-ticket gate | wp-112 | todo |
-<<<<<<< HEAD
 | W16 | wp-130 | Finish conductor test-layer migration (wp-094 fold-in) + full regreen | — | done |
-| W16 | wp-131 | Contracts v3: enums/schemas/0001 amendments/Store sigs for the whole addendum program | wp-130 | todo |
-=======
-| W16 | wp-130 | Finish conductor test-layer migration (wp-094 fold-in) + full regreen | — | todo |
 | W16 | wp-131 | Contracts v3: enums/schemas/0001 amendments/Store sigs for the whole addendum program | wp-130 | done |
->>>>>>> wp/131
-| W16 | wp-132 | Vocabulary rename: project→Solution, prd→rs, +Solution Brief, +Verification Spec | wp-131 | todo |
+| W16 | wp-132 | Vocabulary rename: project→Solution, prd→rs, +Solution Brief, +Verification Spec | wp-131 | done |
 | W17 | wp-133 | Merge Center: readiness checklist + Veto-executed `gh pr merge` + post-merge bookkeeping | wp-131 | todo |
 | W17 | wp-134 | Release Center core: entities, lifecycle, manifest freeze, approvals | wp-131, wp-133 | todo |
 | W17 | wp-135 | Deployments, feature exposure, release notes (3 audiences), outcomes, retrospectives | wp-134 | todo |
@@ -123,7 +118,7 @@ Program plan for W16+ (PRD §14+§15): `docs/DEV-PLAN.md` + `docs/DELIVERY.md`.
 | W21 | wp-152 | Feature Workspace: tabs, health rollup, acceptance package, scoped assistant | wp-131, wp-134, wp-146 | todo |
 | W21 | wp-153 | Process machinery: DoR/DoD engines, Assumption Register, Quality Debt, Delivery Commitments | wp-131, wp-134 | todo |
 | W21 | wp-154 | Work Decomposition Engine + contract-first tickets + integration coordination | wp-131, wp-143 | todo |
-| W22 | wp-155 | Model Routing Registry: versioned task→model config, latency classes, cost-per-accepted | wp-131 | todo |
+| W22 | wp-155 | Model Routing Registry: versioned task→model config, latency classes, cost-per-accepted | wp-131 | done |
 | W22 | wp-156 | AI Evaluation Lab: golden sets, bake-off harness, promotion gates | wp-155, wp-143 | todo |
 | W22 | wp-157 | Test-environment requests: declarative env spec + conductor provisioning | wp-131 | todo |
 | W23 | wp-158 | Discovery E2E: board→statements→interview→RS→approve→tickets vertical | wp-143–146 | todo |
