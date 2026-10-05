@@ -121,8 +121,13 @@ export function cosine(a: number[], b: number[]): number {
  */
 export function defaultSimilarity(a: ClusterItem, b: ClusterItem): number {
   const title = jaccard(tokenize(a.title), tokenize(b.title));
-  const body = jaccard(tokenize(a.body), tokenize(b.body));
-  let score = title * 0.8 + body * 0.2;
+  const hasBody =
+    (a.body?.trim().length ?? 0) > 0 || (b.body?.trim().length ?? 0) > 0;
+  let score = title;
+  if (hasBody) {
+    const body = jaccard(tokenize(a.body), tokenize(b.body));
+    score = title * 0.8 + body * 0.2;
+  }
   const ra = new Set(a.repos ?? []);
   if (ra.size > 0 && (b.repos ?? []).some((r) => ra.has(r))) {
     score = Math.min(1, score + 0.05);
