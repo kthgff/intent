@@ -43,6 +43,17 @@ export const STAGE_TEMPLATES = {
   escalate: 'escalate',
   survey: 'survey',
   verify: null,
+  /** Addendum stages (wp-131 freeze) — no shipped prompt template yet;
+   *  owning wps map them when the stage lands. `extract` is wp-143's
+   *  statement-extraction stage — its LLM surface runs through
+   *  conductor/semantics `runExtraction` (prompt builder +
+   *  EXTRACT_PROMPT_VERSION), not a core template, so it maps null
+   *  here. */
+  'release-notes': null,
+  retro: null,
+  extract: null,
+  mockup: null,
+  'design-ingest': null,
 } as const satisfies Record<Stage, string | null>;
 
 /** Context handed to {@link renderPrompt} / {@link renderTemplate}. */

@@ -526,9 +526,11 @@ export const RUN_ARTIFACT_KINDS = [
   /** Addendum run output (wp-131): `contract.json` is the decompose
    *  run's interface-contract output (promoted to doc_versions on
    *  approval, wp-154); `design-system.json` is the ingestion run's
-   *  extracted component-token bundle (wp-149). */
+   *  extracted component-token bundle (wp-149); `statements.json` is
+   *  the `extract` stage's statement batch (wp-143, SCHEMAS §22). */
   'contract.json',
   'design-system.json',
+  'statements.json',
 ] as const;
 export type RunArtifactKind = (typeof RUN_ARTIFACT_KINDS)[number];
 
@@ -868,6 +870,18 @@ export const PROVENANCE_STATES = [
   'stakeholder-verified',
 ] as const;
 export type ProvenanceState = (typeof PROVENANCE_STATES)[number];
+
+/** semantic_statements.source_ref.kind — the evidence kind a statement
+ *  was extracted from (wp-143). `manual` = directly authored (no
+ *  extraction run). */
+export const STATEMENT_SOURCE_KINDS = [
+  'board-item',
+  'interview-message',
+  'import',
+  'doc',
+  'manual',
+] as const;
+export type StatementSourceKind = (typeof STATEMENT_SOURCE_KINDS)[number];
 
 // ---------- interview orchestrator (PRD §15.9, wp-145) ----------
 
