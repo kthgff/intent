@@ -7,6 +7,7 @@ import {
 } from '@sprint-runner/core';
 import { describe, expect, it } from 'vitest';
 import {
+  NO_EVIDENCE_TEXT,
   type RenderCtx,
   RenderError,
   STAGE_TEMPLATES,
@@ -15,7 +16,6 @@ import {
   dossierGateOk,
   dossierTokenValue,
   evidenceBundleTokenValue,
-  NO_EVIDENCE_TEXT,
   renderEvidenceBundle,
   renderPrompt,
   renderTemplate,

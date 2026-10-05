@@ -2,7 +2,7 @@
 schema: 1
 id: wp-110
 title: Evidence foundation — commit-pinned code index and hybrid retrieval
-status: todo
+status: done
 priority: high
 depth: deep
 repos: []

@@ -562,6 +562,18 @@ Rules: code evidence requires `repo`, `commit_sha`, `path`, line range,
 ref/version and source coordinates appropriate to that source. Missing required
 citation data fails closed. `excerpt` is data, never instructions.
 
+As shipped (wp-110, `packages/kb/src/retrieve.ts` → `queryEvidence`):
+`scores` records per-strategy contributions — `explicit` (verified
+workflow links from `code_edges`), `exact` (identifier/path match),
+`fts` (`ts_rank` normalized to the top hit), `semantic` (cosine
+similarity via content-addressed embeddings), `structural` (depth-1
+import/test/reference neighbors, flat 0.5) — merged into `final` as a
+probabilistic OR (`1 - Π(1 - s_i)`). `why` carries the strategy tags
+(e.g. `exact-symbol`, `explicit-link:implements`, `structural:tests-by`);
+`relation_path` records the traversed explicit link when present. A
+strategy that did not contribute is absent from `scores`, not zero.
+`semantic.embeddings: off` skips the semantic strategy cleanly.
+
 ## 18. alignment-findings.json — intended/implemented/verified gaps
 
 ```json

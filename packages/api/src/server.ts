@@ -2338,7 +2338,10 @@ export function createServer(opts: ServerOptions): ApiServer {
       conductor.deps.workspaces.find((w) => w.name === name)?.rootPath,
     repoPath: (_wsName, repo) => config.repos[repo]?.path,
     notify: (e) =>
-      conductor.deps.notify?.(e as Parameters<typeof hub.notify>[0]),
+      conductor.deps.notify?.({
+        type: e.type as 'index_status',
+        payload: e.payload,
+      }),
     now,
   });
 

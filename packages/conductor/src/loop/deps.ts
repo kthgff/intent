@@ -58,6 +58,9 @@ export interface StreamEvent {
     | 'run_output'
     | 'usage_partial'
     | 'notification'
+    /** Repository-index progress (wp-110 — D37 `index_status` row in
+     *  the API.md event table). */
+    | 'index_status'
     /** ChangeSet lifecycle writes (wp-140 — SSE mirrors `changeset_*`,
      *  DELIVERY §5). */
     | 'changeset';
