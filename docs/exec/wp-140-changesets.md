@@ -2,7 +2,7 @@
 schema: 1
 id: wp-140
 title: ChangeSets — lifecycle, versioned spec diffs, apply/reconcile (PRD §15.5)
-status: todo
+status: done
 priority: high
 depth: deep
 repos: []

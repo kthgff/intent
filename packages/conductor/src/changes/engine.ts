@@ -59,8 +59,8 @@ import {
 import type { StreamEvent } from '../loop/deps.js';
 import { specInputsHash } from '../transitions/actions.js';
 import {
-  OPEN_CHANGESET_STATUSES,
   type ChangesetAnalysis,
+  OPEN_CHANGESET_STATUSES,
   analyzeImpact,
   detectConflicts,
   itemFootprint,
@@ -372,13 +372,11 @@ export async function createChangeset(
   let comment: ReviewCommentRow | null = null;
   if (args.review_comment_id) {
     comment =
-      (
-        await ctx.store.listReviewComments({ workspace: ctx.workspace })
-      ).find((c) => c.comment_id === args.review_comment_id) ?? null;
+      (await ctx.store.listReviewComments({ workspace: ctx.workspace })).find(
+        (c) => c.comment_id === args.review_comment_id,
+      ) ?? null;
     if (!comment) {
-      throw notFound(
-        `unknown review comment '${args.review_comment_id}'`,
-      );
+      throw notFound(`unknown review comment '${args.review_comment_id}'`);
     }
     if (comment.type !== 'out-of-scope') {
       throw invalid(
@@ -398,11 +396,13 @@ export async function createChangeset(
   if (args.baseline) {
     const version =
       args.baseline.version === undefined
-        ? ((await ctx.store.getDoc({
-            workspace: ctx.workspace,
-            subject: args.baseline.subject,
-            doc: assertDocKind(args.baseline.doc),
-          }))?.version ?? null)
+        ? ((
+            await ctx.store.getDoc({
+              workspace: ctx.workspace,
+              subject: args.baseline.subject,
+              doc: assertDocKind(args.baseline.doc),
+            })
+          )?.version ?? null)
         : args.baseline.version;
     baseline = {
       subject: args.baseline.subject,
@@ -519,9 +519,7 @@ export async function addChangesetItem(
   });
   const seq = args.seq ?? (items.at(-1)?.seq ?? -1) + 1;
   if (items.some((i) => i.seq === seq)) {
-    throw conflict(
-      `changeset ${cs.changeset_id} already has item seq ${seq}`,
-    );
+    throw conflict(`changeset ${cs.changeset_id} already has item seq ${seq}`);
   }
   const row: ChangesetItemRow = {
     workspace: ctx.workspace,
@@ -657,7 +655,7 @@ export async function decideChangeset(
     const swapOut = args.consequences?.swap_out ?? [];
     if (swapOut.length === 0) {
       throw invalid(
-        `swap-scope requires consequences.swap_out — the displaced release items`,
+        'swap-scope requires consequences.swap_out — the displaced release items',
       );
     }
     const removed: DecideConsequences['swap_out'] = [];
@@ -705,7 +703,11 @@ export async function decideChangeset(
         release_id: target,
       });
       if (!rel) throw notFound(`next-release: unknown release '${target}'`);
-      if (rel.status === 'released' || rel.status === 'closed' || rel.status === 'abandoned') {
+      if (
+        rel.status === 'released' ||
+        rel.status === 'closed' ||
+        rel.status === 'abandoned'
+      ) {
         throw badState(
           `next-release: release ${target} is '${rel.status}' — not a live target`,
         );
@@ -797,7 +799,12 @@ async function assertApplySerialized(
 }
 
 interface ApplyOutcome {
-  applied: { seq: number; subject: string; doc: string | null; version: number | null }[];
+  applied: {
+    seq: number;
+    subject: string;
+    doc: string | null;
+    version: number | null;
+  }[];
   skipped: { seq: number; reason: string }[];
   failed: { seq: number; reason: string }[];
   spec_hash: Record<string, { from: string | null; to: string }>;
@@ -942,7 +949,13 @@ export async function applyChangeset(
           });
           if (!ticket) continue;
           const to = await specInputsHash(
-            { workspace: ctx.workspace, rootPath: '', store, actor: txCtx.actor, now: ctx.now },
+            {
+              workspace: ctx.workspace,
+              rootPath: '',
+              store,
+              actor: txCtx.actor,
+              now: ctx.now,
+            },
             subject,
           );
           if (to !== ticket.spec_hash) {
@@ -1086,7 +1099,9 @@ export async function verifyChangeset(
     workspace: ctx.workspace,
     changeset_id: cs.changeset_id,
   });
-  const pending = items.filter((i) => i.status === 'pending' || i.status === 'failed');
+  const pending = items.filter(
+    (i) => i.status === 'pending' || i.status === 'failed',
+  );
   if (pending.length > 0) {
     throw badState(
       `changeset ${cs.changeset_id} has unresolved items (${pending.map((i) => `seq ${i.seq}:${i.status}`).join(', ')}) — rebase + re-decide`,
@@ -1096,9 +1111,16 @@ export async function verifyChangeset(
   // Post-apply drift audit — a head that moved past proposed_version
   // after apply means another change landed on top; record it, never
   // hide it.
-  const drift: { seq: number; subject: string; doc: string; expected: number; head: number }[] = [];
+  const drift: {
+    seq: number;
+    subject: string;
+    doc: string;
+    expected: number;
+    head: number;
+  }[] = [];
   for (const item of items) {
-    if (item.status !== 'applied' || !item.doc || !item.proposed_version) continue;
+    if (item.status !== 'applied' || !item.doc || !item.proposed_version)
+      continue;
     const head = await ctx.store.getDoc({
       workspace: ctx.workspace,
       subject: item.subject,
@@ -1202,9 +1224,12 @@ export async function rebaseChangesetItem(
     changeset_id: cs.changeset_id,
   });
   const item = items.find((i) => i.seq === args.seq);
-  if (!item) throw notFound(`changeset ${cs.changeset_id} has no item seq ${args.seq}`);
+  if (!item)
+    throw notFound(`changeset ${cs.changeset_id} has no item seq ${args.seq}`);
   if (item.status !== 'failed' && cs.status === 'apply-failed') {
-    throw badState(`item seq ${args.seq} is '${item.status}' — only failed items rebase`);
+    throw badState(
+      `item seq ${args.seq} is '${item.status}' — only failed items rebase`,
+    );
   }
   const head = item.doc
     ? await ctx.store.getDoc({
@@ -1225,10 +1250,12 @@ export async function rebaseChangesetItem(
   // A rebase invalidates the original decision — the set returns to
   // awaiting-decision; only the drifted items get re-pinned.
   if (cs.status === 'apply-failed') {
-    const remaining = (await ctx.store.listChangesetItems({
-      workspace: ctx.workspace,
-      changeset_id: cs.changeset_id,
-    })).filter((i) => i.status === 'failed');
+    const remaining = (
+      await ctx.store.listChangesetItems({
+        workspace: ctx.workspace,
+        changeset_id: cs.changeset_id,
+      })
+    ).filter((i) => i.status === 'failed');
     if (remaining.length === 0) {
       const upd = await writeState(
         ctx,
@@ -1253,14 +1280,22 @@ export async function abandonChangeset(
 ): Promise<ChangesetRow> {
   const cs = await loadChangeset(ctx, args.changesetId);
   if (cs.status === 'applying') {
-    throw badState(`changeset ${cs.changeset_id} is applying — cannot abandon mid-apply`);
+    throw badState(
+      `changeset ${cs.changeset_id} is applying — cannot abandon mid-apply`,
+    );
   }
   if (cs.status === 'verified' || cs.status === 'abandoned') {
     throw badState(`changeset ${cs.changeset_id} is already '${cs.status}'`);
   }
-  const next = await writeState(ctx, cs, { status: 'abandoned' }, 'note_added', {
-    kind: 'changeset-abandoned',
-  });
+  const next = await writeState(
+    ctx,
+    cs,
+    { status: 'abandoned' },
+    'note_added',
+    {
+      kind: 'changeset-abandoned',
+    },
+  );
   await clearDecisionGate(ctx, cs);
   return next;
 }

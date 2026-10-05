@@ -72,7 +72,9 @@ export function baselineOverlap(a: ChangesetRow, b: ChangesetRow): boolean {
   const ba = a.baseline;
   const bb = b.baseline;
   if (ba && bb) {
-    return ba.subject === bb.subject && (!ba.doc || !bb.doc || ba.doc === bb.doc);
+    return (
+      ba.subject === bb.subject && (!ba.doc || !bb.doc || ba.doc === bb.doc)
+    );
   }
   return false;
 }
@@ -96,10 +98,14 @@ export async function detectConflicts(
   cs: ChangesetRow,
   items?: ChangesetItemRow[],
 ): Promise<ChangesetConflict[]> {
-  const footprint = itemFootprint(cs, items ?? (await store.listChangesetItems({
-    workspace: cs.workspace,
-    changeset_id: cs.changeset_id,
-  })));
+  const footprint = itemFootprint(
+    cs,
+    items ??
+      (await store.listChangesetItems({
+        workspace: cs.workspace,
+        changeset_id: cs.changeset_id,
+      })),
+  );
   const conflicts: ChangesetConflict[] = [];
   for (const other of await store.listChangesets({
     workspace: cs.workspace,
@@ -148,7 +154,8 @@ export async function analyzeImpact(
     if (!prev) affected.set(a.subject, a);
   };
   for (const i of items) add({ subject: i.subject, via: 'item' });
-  if (cs.baseline?.subject) add({ subject: cs.baseline.subject, via: 'baseline' });
+  if (cs.baseline?.subject)
+    add({ subject: cs.baseline.subject, via: 'baseline' });
 
   // relations: edges in both directions — a change to a subject affects
   // things it points at AND things that point at it.
@@ -237,7 +244,9 @@ export async function analyzeImpact(
     // member ticket hit → feature owner is accountable too
     if (
       f.owner &&
-      allTickets.some((t) => t.feature === f.feature && subjects.has(t.ticket_id))
+      allTickets.some(
+        (t) => t.feature === f.feature && subjects.has(t.ticket_id),
+      )
     ) {
       owners.add(f.owner);
     }

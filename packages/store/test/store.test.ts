@@ -41,8 +41,8 @@ const run = (over: Partial<RunRow> = {}): RunRow => ({
 });
 
 describe('migrations + meta', () => {
-  it('applies pg/0001_init + 0002 and records schema_meta', async () => {
-    expect(await s().getSchemaVersion()).toBe(2);
+  it('applies pg/0001_init + 0002 + 0003 and records schema_meta', async () => {
+    expect(await s().getSchemaVersion()).toBe(3);
     const rows = await s().db.query<{ table_name: string }>(
       `SELECT table_name FROM information_schema.tables
        WHERE table_schema='public' ORDER BY table_name`,
@@ -72,12 +72,54 @@ describe('migrations + meta', () => {
       'gate_items',
       'containers',
       'schema_meta',
+      // wp-131 contracts v3 + wp-140 changeset allocator
+      'releases',
+      'release_items',
+      'release_manifests',
+      'release_approvals',
+      'release_notes',
+      'release_gate_results',
+      'deployments',
+      'feature_exposure',
+      'release_outcomes',
+      'changesets',
+      'changeset_items',
+      'semantic_statements',
+      'statement_versions',
+      'statement_relations',
+      'statement_clarifications',
+      'statement_decisions',
+      'statement_artifact_links',
+      'semantic_extraction_runs',
+      'wizard_definitions',
+      'wizard_versions',
+      'interview_sessions',
+      'interview_branches',
+      'interview_messages',
+      'knowledge_slots',
+      'question_candidates',
+      'session_snapshots',
+      'review_sessions',
+      'review_revisions',
+      'review_findings',
+      'review_comments',
+      'review_decisions',
+      'finding_resolutions',
+      'review_evidence_links',
+      'external_review_mappings',
+      'design_approvals',
+      'assumptions',
+      'quality_debt',
+      'delivery_commitments',
+      'eval_runs',
+      'eval_cases',
+      'eval_results',
     ]) {
       expect(tables).toContain(t);
     }
     // re-running migrations is idempotent
     await s().migrate();
-    expect(await s().getSchemaVersion()).toBe(2);
+    expect(await s().getSchemaVersion()).toBe(3);
   });
 });
 

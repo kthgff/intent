@@ -1244,7 +1244,9 @@ export class PostgresStore implements Store {
 
   // ---- projects / id allocation ----
 
-  async upsertProject(row: ProjectRow): Promise<void> {
+  async upsertProject(
+    row: Pick<ProjectRow, 'workspace'> & Partial<ProjectRow>,
+  ): Promise<void> {
     await this.db.query(
       `INSERT INTO projects (workspace, org, name, next_ticket_seq,
          next_feature_seq, next_initiative_seq, next_release_seq,
