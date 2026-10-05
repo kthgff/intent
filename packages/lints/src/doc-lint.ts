@@ -5,7 +5,10 @@
  * to the doc-repair path (CONDUCTOR "Structured-doc lint failure").
  */
 import {
+  CONTRACT_KINDS,
   COVERAGE_KINDS,
+  DECOMPOSE_COMPLEXITIES,
+  DECOMPOSE_SECURITY,
   DEPTH_TIERS,
   TEST_CASE_TYPES,
   TICKET_PRIORITIES,
@@ -18,7 +21,12 @@ import {
   FILE_PLAN_COLUMNS,
   pinnedTable,
 } from './coverage.js';
-import { headerMatches, parseFrontmatter, parseTables } from './md.js';
+import {
+  headerMatches,
+  parseFrontmatter,
+  parseTables,
+  sectionLines,
+} from './md.js';
 
 const v = (rule: string, message: string, line?: number): LintViolation =>
   line === undefined ? { rule, message } : { rule, message, line };
@@ -198,16 +206,124 @@ function lintDeviationsMd(content: string): LintViolation[] {
   return [];
 }
 
+// Pinned columns for the optional wp-154 decomposition sections
+// (SCHEMAS §14): `## Contracts` declares the shared interface
+// contracts a feature's children consume (contract-first — each row's
+// `artifact` names a contracts/<name>.json run artifact); `##
+// Decomposition` carries the per-child boundary/ownership/test/
+// security/complexity/shared-file cells the conductor turns into
+// `execution_readiness` + `parallel_safety`.
+export const SPLIT_CONTRACTS_COLUMNS = [
+  'contract',
+  'kind',
+  'consumers',
+  'artifact',
+] as const;
+export const SPLIT_DECOMPOSITION_COLUMNS = [
+  'child',
+  'boundary',
+  'ownership',
+  'tests',
+  'security',
+  'complexity',
+  'shared_files',
+] as const;
+
+/**
+ * An OPTIONAL pinned-columns section: absent → no violation; present
+ * but missing/bad-header table → violation (fail-closed — a section
+ * the human approved must be machine-readable).
+ */
+function lintOptionalTable(
+  docName: string,
+  content: string,
+  section: string,
+  pinned: readonly string[],
+): LintViolation[] {
+  const lines = sectionLines(content, section);
+  if (lines === null) return [];
+  const [table] = parseTables(lines);
+  if (!table)
+    return [
+      v('doc.table', `${docName}: ## ${section} has no table — fail-closed`),
+    ];
+  if (!headerMatches(table, [...pinned]))
+    return [
+      v(
+        'doc.table',
+        `${docName}: ## ${section} table header [${table.header.join(' | ')}] != pinned [${pinned.join(' | ')}] — fail-closed`,
+        table.line,
+      ),
+    ];
+  return [];
+}
+
 function lintSplitPlanMd(content: string): LintViolation[] {
+  const violations: LintViolation[] = [];
   const t = pinnedTable(
     content,
     'Children',
     ['child', 'title', 'repos', 'depends_on', 'covers'],
     'doc.table',
   );
-  return t.violation
-    ? [{ ...t.violation, message: `split-plan.md: ${t.violation.message}` }]
-    : [];
+  if (t.violation)
+    violations.push({
+      ...t.violation,
+      message: `split-plan.md: ${t.violation.message}`,
+    });
+
+  violations.push(
+    ...lintOptionalTable(
+      'split-plan.md',
+      content,
+      'Contracts',
+      SPLIT_CONTRACTS_COLUMNS,
+    ),
+    ...lintOptionalTable(
+      'split-plan.md',
+      content,
+      'Decomposition',
+      SPLIT_DECOMPOSITION_COLUMNS,
+    ),
+  );
+
+  // Enum cells — only when the tables parsed cleanly.
+  const contractLines = sectionLines(content, 'Contracts');
+  if (contractLines) {
+    const [table] = parseTables(contractLines);
+    if (table && headerMatches(table, [...SPLIT_CONTRACTS_COLUMNS]))
+      checkEnumCells(
+        'split-plan.md',
+        'Contracts',
+        table.rows,
+        1,
+        CONTRACT_KINDS,
+        violations,
+      );
+  }
+  const decompLines = sectionLines(content, 'Decomposition');
+  if (decompLines) {
+    const [table] = parseTables(decompLines);
+    if (table && headerMatches(table, [...SPLIT_DECOMPOSITION_COLUMNS])) {
+      checkEnumCells(
+        'split-plan.md',
+        'Decomposition',
+        table.rows,
+        4,
+        DECOMPOSE_SECURITY,
+        violations,
+      );
+      checkEnumCells(
+        'split-plan.md',
+        'Decomposition',
+        table.rows,
+        5,
+        DECOMPOSE_COMPLEXITIES,
+        violations,
+      );
+    }
+  }
+  return violations;
 }
 
 const PR_BODY_HEADINGS = [

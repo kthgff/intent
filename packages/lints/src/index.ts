@@ -15,7 +15,12 @@ export {
   filePlanRows,
   pinnedTable,
 } from './coverage.js';
-export { structuredDocLint } from './doc-lint.js';
+export {
+  SPLIT_CONTRACTS_COLUMNS,
+  SPLIT_DECOMPOSITION_COLUMNS,
+  structuredDocLint,
+} from './doc-lint.js';
+export { contractDocLint, contractLint } from './contract.js';
 export * from './eval/index.js';
 export {
   type ExtractedStatementLike,
