@@ -25,6 +25,7 @@ import {
   resolveConfig,
 } from '@sprint-runner/config';
 import type { Adapter } from '@sprint-runner/core';
+import { resolveRuntime } from '@sprint-runner/core';
 import { PostgresStore } from '@sprint-runner/store';
 import { overlayRepoCards } from './cards.js';
 import { runsDir as defaultRunsDir, defaultWorkspaceRoot } from './paths.js';
@@ -109,12 +110,24 @@ export function makeAdapters(config: EffectiveConfig): Record<string, Adapter> {
           ...(config.main_model != null ? { model: config.main_model } : {}),
         });
         break;
-      case 'aider':
+      case 'aider': {
+        // D30 (wp-097): resolve the effective runtime so the adapter
+        // knows whether its runs `docker exec` inside the subject's
+        // container (no host aider probe under `runtime: container`).
+        // The conductor resolves the same runtime at launch to decide
+        // whether to ensure + pass `container_id`.
+        const runtime = resolveRuntime({
+          override: config.capabilities.aider?.runtime,
+          declared: 'container',
+          global: config.containers.runtime,
+        });
         adapter = new AiderAdapter({
+          runtime,
           ...(config.main_model != null ? { model: config.main_model } : {}),
           env: config.secrets,
         });
         break;
+      }
       case 'mock':
         // Test backend (D18) — registered so `backend: mock` works for
         // local dry-runs against a seeded fixture.
