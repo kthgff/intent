@@ -94,6 +94,9 @@ importers:
       '@sprint-runner/core':
         specifier: workspace:*
         version: link:../core
+      '@sprint-runner/prompts':
+        specifier: workspace:*
+        version: link:../prompts
       '@sprint-runner/store':
         specifier: workspace:*
         version: link:../store
@@ -125,6 +128,9 @@ importers:
       '@sprint-runner/lints':
         specifier: workspace:*
         version: link:../lints
+      '@sprint-runner/prompts':
+        specifier: workspace:*
+        version: link:../prompts
       '@sprint-runner/store':
         specifier: workspace:*
         version: link:../store

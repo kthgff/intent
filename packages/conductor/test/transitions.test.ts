@@ -624,8 +624,8 @@ describe('gate modes', () => {
     handler = new RealTransitionHandler(makeConfig('minimal'));
     await seedTicket('SR-0001', 'prd-draft');
     await store.appendDocVersion(
-      { workspace: WS, subject: 'SR-0001', doc: 'prd.md' },
-      '# PRD\n',
+      { workspace: WS, subject: 'SR-0001', doc: 'rs.md' },
+      '# RS\n',
       'test-seed',
     );
     const run = await makeRun('SR-0001', 'prd', 'PRD-WRITTEN', 'SR-0001');
@@ -644,8 +644,8 @@ describe('gate modes', () => {
   it('full mode surfaces the prd-review gate', async () => {
     await seedTicket('SR-0001', 'prd-draft');
     await store.appendDocVersion(
-      { workspace: WS, subject: 'SR-0001', doc: 'prd.md' },
-      '# PRD\n',
+      { workspace: WS, subject: 'SR-0001', doc: 'rs.md' },
+      '# RS\n',
       'test-seed',
     );
     const run = await makeRun('SR-0001', 'prd', 'PRD-WRITTEN', 'SR-0001');
@@ -707,6 +707,22 @@ describe('events table (D29 ledger — no events.jsonl, no LOG.md)', () => {
       'reparented',
       'verify_failed',
       'discarded',
+      // wp-131 addendum events — emitters land with their wps
+      // (wp-133/134/135 delivery, wp-140 changesets, wp-155 routing).
+      'merge_ready',
+      'merge_attempted',
+      'merge_conflict',
+      'release_created',
+      'release_items_changed',
+      'manifest_cut',
+      'release_approved',
+      'release_released',
+      'deployment_confirmed',
+      'feature_exposed',
+      'release_note_approved',
+      'retro_completed',
+      'correction_filed',
+      'baseline_reconciled',
     ]);
     const missing = EVENT_NAMES.filter(
       (n: EventName) =>

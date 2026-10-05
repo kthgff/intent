@@ -1244,13 +1244,15 @@ export class PostgresStore implements Store {
 
   // ---- projects / id allocation ----
 
-  async upsertProject(row: ProjectRow): Promise<void> {
+  async upsertProject(
+    row: Pick<ProjectRow, 'workspace'> & Partial<ProjectRow>,
+  ): Promise<void> {
     await this.db.query(
       `INSERT INTO projects (workspace, org, name, next_ticket_seq,
          next_feature_seq, next_initiative_seq, next_release_seq,
-         settings, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-       ON CONFLICT (workspace) DO UPDATE SET org=$2, name=$3, settings=$8`,
+         next_changeset_seq, settings, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+       ON CONFLICT (workspace) DO UPDATE SET org=$2, name=$3, settings=$9`,
       [
         row.workspace,
         row.org ?? null,
@@ -1259,6 +1261,7 @@ export class PostgresStore implements Store {
         row.next_feature_seq ?? 1,
         row.next_initiative_seq ?? 1,
         row.next_release_seq ?? 1,
+        row.next_changeset_seq ?? 1,
         j(row.settings ?? {}),
         row.created_at ?? null,
       ],
@@ -1286,7 +1289,8 @@ export class PostgresStore implements Store {
       | 'next_ticket_seq'
       | 'next_feature_seq'
       | 'next_initiative_seq'
-      | 'next_release_seq',
+      | 'next_release_seq'
+      | 'next_changeset_seq',
     prefix: string,
   ): Promise<string> {
     const bump = () =>
@@ -1311,19 +1315,20 @@ export class PostgresStore implements Store {
         );
         return r[0]?.n ?? 1;
       };
-      const [t, f, i, rel] = await Promise.all([
+      const [t, f, i, rel, cs] = await Promise.all([
         seqStart('tickets', 'ticket_id', 'SR'),
         seqStart('features', 'feature', 'F'),
         seqStart('initiatives', 'initiative', 'I'),
         seqStart('releases', 'release_id', 'REL'),
+        seqStart('changesets', 'changeset_id', 'CS'),
       ]);
       await this.db.query(
         `INSERT INTO projects (workspace, name, next_ticket_seq,
            next_feature_seq, next_initiative_seq, next_release_seq,
-           settings, created_at)
-         VALUES ($1, $1, $2, $3, $4, $5, '{}', $6)
+           next_changeset_seq, settings, created_at)
+         VALUES ($1, $1, $2, $3, $4, $5, $6, '{}', $7)
          ON CONFLICT (workspace) DO NOTHING`,
-        [workspace, t, f, i, rel, new Date().toISOString()],
+        [workspace, t, f, i, rel, cs, new Date().toISOString()],
       );
       rows = await bump();
     }
@@ -1350,6 +1355,10 @@ export class PostgresStore implements Store {
 
   allocReleaseId(workspace: string): Promise<string> {
     return this.allocSeq(workspace, 'next_release_seq', 'REL');
+  }
+
+  allocChangesetId(workspace: string): Promise<string> {
+    return this.allocSeq(workspace, 'next_changeset_seq', 'CS');
   }
 
   // ---- boards / canvas ----
@@ -3936,6 +3945,7 @@ function rowToProject(row: Row): ProjectRow {
     next_feature_seq: (row.next_feature_seq as number) ?? 1,
     next_initiative_seq: (row.next_initiative_seq as number) ?? 1,
     next_release_seq: (row.next_release_seq as number) ?? 1,
+    next_changeset_seq: (row.next_changeset_seq as number) ?? 1,
     settings: unj(row.settings, {}),
     created_at: (row.created_at as string | null) ?? null,
   };

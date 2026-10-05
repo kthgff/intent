@@ -198,9 +198,9 @@ export class ScriptedAdapter implements Adapter {
 // Scripted spec-doc payloads (pinned SCHEMAS tables — see lints).
 // ---------------------------------------------------------------------------
 
-export function prdDoc(id: string): string {
+export function rsDoc(id: string): string {
   return [
-    `# PRD — ${id}`,
+    `# RS — ${id}`,
     '',
     '## Problem',
     'Transient S3 errors abort the nightly ETL run permanently.',
@@ -225,9 +225,9 @@ export function tddDoc(id: string, file = 'src/app.ts'): string {
   ].join('\n');
 }
 
-export function testDoc(id: string, file = 'src/app.ts'): string {
+export function vsDoc(id: string, file = 'src/app.ts'): string {
   return [
-    `# Test plan — ${id}`,
+    `# Verification spec — ${id}`,
     '',
     '## Cases',
     '| case_id | title | type | file | covers |',

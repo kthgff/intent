@@ -74,6 +74,7 @@ import {
   REVIEW_COMMENT_TYPES,
   REVIEW_FINDING_STATUSES,
   REVIEW_SESSION_STATUSES,
+  ROUTE_DECISION_SOURCES,
   RUN_STATUSES,
   SECURITY_CATEGORIES,
   SENTINELS,
@@ -498,7 +499,7 @@ export const AddendumRowSchema = z.object({
 });
 export type AddendumRow = z.infer<typeof AddendumRowSchema>;
 
-/** test.md case row (§4). */
+/** vs.md (Verification Specification) case row (§4). */
 export const TestCaseRowSchema = z.object({
   case_id: z.string().min(1),
   title: z.string(),
@@ -508,7 +509,7 @@ export const TestCaseRowSchema = z.object({
 });
 export type TestCaseRow = z.infer<typeof TestCaseRowSchema>;
 
-/** test.md coverage-matrix row (§4); `case_ids` may be `n/a` for
+/** vs.md coverage-matrix row (§4); `case_ids` may be `n/a` for
  *  `untestable:` file-plan rows. */
 export const CoverageRowSchema = z.object({
   item: z.string().min(1),
@@ -650,6 +651,8 @@ export const ProjectRowSchema = z.object({
   next_initiative_seq: z.number().int().default(1),
   /** REL-NNNN allocator (DELIVERY §3). */
   next_release_seq: z.number().int().default(1),
+  /** CS-NNNN allocator (PRD §15.5, wp-140). */
+  next_changeset_seq: z.number().int().default(1),
   settings: z.record(z.unknown()).default({}),
   created_at: z.string().nullish(),
 });
@@ -873,7 +876,7 @@ export type SentinelValue = z.infer<typeof SentinelSchema>;
  *  agent resolves THIS, never "latest" (§15.5; wp-141). Shape only:
  *  `runs.request` stays a json column — no DDL. */
 export const RunBaselineSchema = z.object({
-  /** doc_versions version of the RS/prd doc the run pins. */
+  /** doc_versions version of the rs.md doc the run pins. */
   rs_version: z.number().int().nullish(),
   /** doc_versions version of ticket.md. */
   ticket_rev: z.number().int().nullish(),
@@ -1704,3 +1707,31 @@ export const ModelRouteSchema = z.object({
   latency_class: enumOf(LATENCY_CLASSES).nullish(),
 });
 export type ModelRoute = z.infer<typeof ModelRouteSchema>;
+
+/** `models:` registry entries may be sparse — unset fields inherit
+ *  `models.default`, then the legacy knobs (main_model/review_model/
+ *  escalation_model) at resolution time (wp-155). */
+export const ModelRouteEntrySchema = ModelRouteSchema.partial();
+export type ModelRouteEntry = z.infer<typeof ModelRouteEntrySchema>;
+
+/** The registry RESOLUTION for one run — `model` is the pinned value
+ *  after request/ticket overrides (`primary` is the registry's own
+ *  pick before pins). Persisted on `runs.request.route` so a queued
+ *  row's launch resolves identically (§15.12 run pinning). */
+export const RouteDecisionSchema = z.object({
+  /** The registry kind that resolved (stage name or reserved key). */
+  kind: z.string().min(1),
+  /** Effective model pinned for this run; null = backend default. */
+  model: z.string().nullish(),
+  /** Registry-resolved primary before request/ticket pins. */
+  primary: z.string().nullish(),
+  fallback: z.array(z.string()).default([]),
+  max_output_tokens: z.number().int().nullish(),
+  schema_required: z.boolean().default(false),
+  providers: z.array(z.string()).default([]),
+  eval_threshold: z.number().min(0).max(1).nullish(),
+  latency_class: enumOf(LATENCY_CLASSES),
+  /** Which precedence layer supplied `model` (audit). */
+  source: enumOf(ROUTE_DECISION_SOURCES),
+});
+export type RouteDecision = z.infer<typeof RouteDecisionSchema>;

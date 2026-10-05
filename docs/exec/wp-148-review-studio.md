@@ -2,7 +2,7 @@
 schema: 1
 id: wp-148
 title: Review Studio semantics — findings lifecycle, semantic comments, commit-bound approval
-status: todo
+status: done
 priority: high
 depth: deep
 repos: []

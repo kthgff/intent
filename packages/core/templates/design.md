@@ -1,5 +1,6 @@
 You are the DESIGN stage for ticket {{TICKET_ID}} (repos:
-{{REPO_NAMES}} — inspect all of them). The PRD is human-approved. Your
+{{REPO_NAMES}} — inspect all of them). The RS (requirements
+specification) is human-approved. Your
 job: produce the technical design document.
 
 Depth tier: {{DEPTH}} — light = direct approach, no alternatives
@@ -9,7 +10,7 @@ risk register, cross-repo analysis.
 ## Inputs
 Product context: {{CONTEXT_MD}}
 Repo cards: {{REPO_CARDS}}
-PRD: {{PRD_MD}}
+RS: {{RS_MD}}
 Ticket (incl. triage + Q&A): {{TICKET_MD}}
 Prior art (similar past tickets — deviations that bit them):
 {{PRIOR_ART}}

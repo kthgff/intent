@@ -50,7 +50,10 @@ export interface StreamEvent {
     | 'run_status'
     | 'run_output'
     | 'usage_partial'
-    | 'notification';
+    | 'notification'
+    /** ChangeSet lifecycle writes (wp-140 — SSE mirrors `changeset_*`,
+     *  DELIVERY §5). */
+    | 'changeset';
   payload: unknown;
 }
 

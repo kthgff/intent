@@ -30,6 +30,7 @@ import {
 } from '@sprint-runner/core';
 import { coverageLint, structuredDocLint } from '@sprint-runner/lints';
 import { specLint } from '@sprint-runner/lints';
+import { escalationModelFor } from '@sprint-runner/prompts';
 import {
   type ApplyStatusOptions,
   type NextTransition,
@@ -52,6 +53,7 @@ import {
   dismissalClaimsFromDeviations,
   planReviewRound,
 } from '../review/index.js';
+import { syncReviewHead, syncReviewStudio } from '../review/studio/index.js';
 import {
   type TriageSuggestions,
   applySuggestionsToTicketMd,
@@ -849,7 +851,7 @@ export class RealTransitionHandler implements TransitionHandler {
     // -- doc stages --
     prdReview: async ({ outcome, tools }) => {
       const id = outcome.run.ticket_id ?? outcome.run.subject;
-      await this.#docGate(outcome, tools, id, 'prd-review', 'prd.md');
+      await this.#docGate(outcome, tools, id, 'prd-review', 'rs.md');
     },
 
     designQa: async ({ outcome, tools, payload }) => {
@@ -890,21 +892,21 @@ export class RealTransitionHandler implements TransitionHandler {
 
     testplanReview: async ({ outcome, tools }) => {
       const id = outcome.run.ticket_id ?? outcome.run.subject;
-      const test = await tools.getDocText(id, 'test.md');
+      const test = await tools.getDocText(id, 'vs.md');
       const tdd = await tools.getDocText(id, 'tdd.md');
       const violations = test
         ? [
-            ...structuredDocLint('test.md', test),
+            ...structuredDocLint('vs.md', test),
             // Coverage-matrix lint — fail-closed (SCHEMAS §4; every
             // ac_id/file-plan row → ≥1 case_id, no fake coverage).
             ...coverageLint(tdd ?? '', test),
           ]
-        : [{ rule: 'doc.missing', message: 'test.md not written' }];
+        : [{ rule: 'doc.missing', message: 'vs.md not written' }];
       if (violations.length > 0) {
-        await this.#requestDocRepair(tools, id, 'test.md', violations);
+        await this.#requestDocRepair(tools, id, 'vs.md', violations);
         return;
       }
-      await this.#docGate(outcome, tools, id, 'test-review', 'test.md');
+      await this.#docGate(outcome, tools, id, 'test-review', 'vs.md');
     },
 
     // -- implement / verify / review --
@@ -1054,6 +1056,11 @@ export class RealTransitionHandler implements TransitionHandler {
         });
       }
 
+      // Review Studio (wp-148): project the merged threads + the
+      // reviewable head into review_sessions/review_findings — the
+      // entity layer the human studio works on.
+      await this.#studioSync(tools, id, { runId: outcome.run.id });
+
       const after = await readReviewJson(tools, id);
       if (!after || !REVIEW_PASSES.every((p) => after.passes.includes(p))) {
         await this.#queueNextReviewPass(tools, id);
@@ -1112,7 +1119,7 @@ export class RealTransitionHandler implements TransitionHandler {
         stage: 'review',
         transient: false,
         failures: Math.max(failures, 1),
-        escalationModel: this.#config.escalation_model ?? null,
+        escalationModel: escalationModelFor(this.#config),
       });
       if (verdict.kind === 'retry') {
         await tools.requestRun({
@@ -1201,6 +1208,10 @@ export class RealTransitionHandler implements TransitionHandler {
           });
         }
       }
+      // Review Studio (wp-148): fix claims moved threads + the fix
+      // run moved the head — re-pin + re-project before re-review.
+      await this.#studioSync(tools, id, { runId: outcome.run.id });
+
       // FIXES-COMPLETE → a full re-review round: verify task again,
       // then the 4 passes merge over the grown review.json.
       await tools.requestRun({
@@ -1291,6 +1302,10 @@ export class RealTransitionHandler implements TransitionHandler {
         ticket_id: id,
       });
       const pushed = await pushBranches(tools, ticket);
+      // Review Studio (wp-148): commits pushed AFTER a bound approval
+      // stale it — re-pin the reviewable head (covers ci-fix,
+      // comment-fix and rebase pushes through this shared path).
+      await this.#studioSync(tools, id, { headOnly: true });
       await tools.applyTicketStatus({
         ticketId: id,
         status: 'ci-watch',
@@ -1389,11 +1404,11 @@ export class RealTransitionHandler implements TransitionHandler {
       > => {
         switch (status) {
           case 'test-draft': {
-            const test = await tools.getDocText(id, 'test.md');
+            const test = await tools.getDocText(id, 'vs.md');
             const tdd = await tools.getDocText(id, 'tdd.md');
             return test
               ? [
-                  ...structuredDocLint('test.md', test),
+                  ...structuredDocLint('vs.md', test),
                   ...coverageLint(tdd ?? '', test),
                 ]
               : null;
@@ -1430,7 +1445,7 @@ export class RealTransitionHandler implements TransitionHandler {
       }
       switch (status) {
         case 'test-draft':
-          await this.#docGate(outcome, tools, id, 'test-review', 'test.md');
+          await this.#docGate(outcome, tools, id, 'test-review', 'vs.md');
           return;
         case 'tdd-draft':
           await this.#docGate(outcome, tools, id, 'tdd-review', 'tdd.md');
@@ -1858,6 +1873,43 @@ export class RealTransitionHandler implements TransitionHandler {
       event: 'question_answered',
       data: { gate, answered: questions.length - auto, auto },
     });
+  }
+
+  /**
+   * Review Studio sync (wp-148): `full` projects review.json threads +
+   * head/baseline into the studio tables after a merge/fix; `headOnly`
+   * re-pins the reviewable head after a push transition so
+   * post-approval commits stale bound approvals. Fail-closed-but-
+   * nonblocking: a sync defect surfaces a `repair` gate item instead
+   * of wedging the pipeline — review.json stays the pass truth and
+   * the next merge re-syncs.
+   */
+  async #studioSync(
+    tools: TransitionTools,
+    ticketId: string,
+    opts: { runId?: string; headOnly?: boolean } = {},
+  ): Promise<void> {
+    try {
+      if (opts.headOnly) {
+        await syncReviewHead(tools, { ticketId });
+        return;
+      }
+      await syncReviewStudio(tools, {
+        ticketId,
+        ...(opts.runId ? { runId: opts.runId } : {}),
+      });
+    } catch (e) {
+      await tools.surfaceGateItem({
+        subject: ticketId,
+        gate: 'repair',
+        kind: 'repair',
+        blockedAgent: true,
+        payload: {
+          reason: `review-studio sync failed: ${(e as Error).message}`,
+          head_only: opts.headOnly === true,
+        },
+      });
+    }
   }
 
   /** Probe CARD-WRITTEN/PROBE-FAILED → persist the card snapshot as a

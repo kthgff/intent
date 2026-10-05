@@ -650,6 +650,33 @@ entry — never a hardcoded model in a stage:
 ~1s TTFT) | `background` (quality-adjusted cost). Registry entries are
 versioned config — eval results (wp-156) feed route changes.
 
+## Appendix A. Vocabulary mapping — old → new (wp-132)
+
+The addendum adopts the shared-chat vocabulary (PRD §15.2). Storage
+keeps the `workspace` partition key; stage ids and sentinels keep
+their internal wire names (low churn) — only doc kinds, prompt tokens,
+and user-facing labels switch. Migration of pre-existing
+`doc_versions` rows happens in `0001_init.sql` (pre-release).
+
+| Old (internal / user-facing) | New | Where |
+|---|---|---|
+| `prd.md` (doc kind) | `rs.md` | DOC_KINDS, doc_versions, templates, lints |
+| `test.md` (doc kind) | `vs.md` | DOC_KINDS, doc_versions, templates, lints |
+| `PRD_MD` (prompt token) | `RS_MD` | PROMPT_TOKENS |
+| `TEST_MD` (prompt token) | `VS_MD` | PROMPT_TOKENS |
+| — (new) | `solution-brief.md` | Solution-scope brief (wp-131 doc kind) |
+| — (new) | `retro.md` | Retrospective document (retro stage) |
+| "PRD" (UI label) | "RS" / "Requirements Specification" | UI strings, docs |
+| "Test plan" (UI label) | "Verification spec" | UI strings, docs |
+| `project` (user-facing noun) | `Solution` | UI strings, docs, prompts |
+| `workspace` (storage key) | *unchanged* | DB columns, APIs, config |
+| stage id `prd` | *unchanged* (internal) | transitions, sentinels |
+| stage id `testplan` | *unchanged* (internal) | transitions, sentinels |
+| `PRD-WRITTEN` / `TESTPLAN-WRITTEN` (sentinels) | *unchanged* | wire contract |
+
+Binding internals may keep old names where the churn isn't worth it —
+this table is the authoritative mapping.
+
 ---
 
 **Lint rule (all docs):** structured tables must parse cleanly or the
