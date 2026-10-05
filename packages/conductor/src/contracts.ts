@@ -26,6 +26,7 @@ import type {
   EventRow,
   GateItem,
   GateKind,
+  MergeStrategy,
   RunResult,
   RunRow,
   Stage,
@@ -110,6 +111,10 @@ export interface ApplyStatusResult {
  *   derives repos + worktrees from the run's ticket.
  * - `import` — fetch → materialize into tickets/doc_versions rows
  *   (import/run.ts). `repo` = `owner/name` (GitHub).
+ * - `merge` — the Merge Center's execution half (DELIVERY §2/§5,
+ *   wp-133): the readiness checklist + `gh pr merge` + confirm, run
+ *   conductor-side. Never bypasses branch protection; a conflict
+ *   surfaces a `merge_conflict` gate + a `rebase` run.
  */
 export type RunnerTask =
   | { kind: 'verify' }
@@ -118,7 +123,8 @@ export type RunnerTask =
       repo?: string;
       milestone?: string;
       labels?: string[];
-    };
+    }
+  | { kind: 'merge'; strategy?: MergeStrategy };
 
 /** A run the handler asks the conductor to queue (deduplicated on
  *  live same-subject+same-stage runs). */

@@ -21,6 +21,7 @@ import { appendFile, mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type {
   LeaseKey,
+  MergeStrategy,
   RunRow,
   TestReport,
   TestReportCase,
@@ -41,6 +42,10 @@ import {
   stageTimeout,
 } from '../loop/deps.js';
 import type { LeaseManager } from '../loop/lease.js';
+import { makeTransitionTools } from '../loop/tools.js';
+import { executeMerge } from '../merge/exec.js';
+import type { MergeCtx } from '../merge/types.js';
+import { ShellGhClient } from '../shepherd/gh.js';
 
 /** The task's RunResult equivalent — collectRun reads it back for
  *  `backend: 'runner'` rows (there is no adapter.collect). */
@@ -107,7 +112,9 @@ export async function runRunnerTask(args: RunnerTaskArgs): Promise<void> {
     outcome =
       task.kind === 'import'
         ? await importOutcome(args, runDir)
-        : await verifyOutcome(args, runDir);
+        : task.kind === 'merge'
+          ? await mergeOutcome(args, runDir)
+          : await verifyOutcome(args, runDir);
   } catch (e) {
     outcome = {
       result: { sentinel: null, sentinel_raw: null, exit_code: 1 },
@@ -135,10 +142,18 @@ export async function runRunnerTask(args: RunnerTaskArgs): Promise<void> {
     );
     const cur = await deps.store.getRun(run.id);
     if (cur && SETTLE_FROM.has(cur.status)) {
+      // `merge` is conductor-side compute with no sentinel-table row —
+      // settle it straight to `done` so RECONCILE never hands it to the
+      // transition handler (which would fail an unhandled (merge, …)).
       await deps.store.updateRun(run.id, {
-        status: 'exited',
+        status: task.kind === 'merge' ? 'done' : 'exited',
         exited_at: nowIso(deps),
       });
+      if (task.kind === 'merge') {
+        // No collect path runs for a `done` runner row — release the
+        // lease here or it would linger until TTL sweep.
+        await leases.release(ws, leaseKey).catch(() => {});
+      }
     }
   } catch (e) {
     deps.onError?.(e);
@@ -313,9 +328,81 @@ async function importOutcome(
   };
 }
 
+// ---------------------------------------------------------------------------
+// merge — Merge Center execution (DELIVERY §2/§5, wp-133)
+// ---------------------------------------------------------------------------
+
+/**
+ * Execute the Merge Center's `gh pr merge` for the run's ticket. The
+ * readiness checklist is evaluated by the shepherd poll before this
+ * task is queued; this half performs the execution (never bypassing
+ * branch protection) and writes `merge-result.json`. A confirmed merge
+ * sets each row's `merged_sha`; the ticket-level rollup + post-merge
+ * bookkeeping happen in the poll (`recordMerged`).
+ */
+async function mergeOutcome(
+  args: RunnerTaskArgs,
+  _runDir: string,
+): Promise<TaskOutcome> {
+  const { deps, ws, run, task } = args;
+  const ticketId = run.ticket_id;
+  if (!ticketId) {
+    return {
+      result: { sentinel: null, sentinel_raw: null, exit_code: 1 },
+      files: {},
+      log: 'merge task: run has no ticket_id\n',
+    };
+  }
+  const ticket = await deps.store.getTicket({
+    workspace: ws.name,
+    ticket_id: ticketId,
+  });
+  if (!ticket) {
+    return {
+      result: { sentinel: null, sentinel_raw: null, exit_code: 1 },
+      files: {},
+      log: `merge task: no tickets row for ${ticketId}\n`,
+    };
+  }
+  const rows = await deps.store.listTicketRepos({
+    workspace: ws.name,
+    ticket_id: ticketId,
+  });
+  const gh = deps.gh ?? new ShellGhClient();
+  const ctx: MergeCtx = {
+    deps,
+    ws,
+    leases: args.leases,
+    handles: new Map(),
+    killedForCap: new Set(),
+    gh,
+  };
+  const tools = makeTransitionTools(ctx);
+  const strategy: MergeStrategy =
+    task.kind === 'merge' && task.strategy
+      ? task.strategy
+      : (deps.config.merge_strategy as MergeStrategy);
+  const outcomes = await executeMerge({ ctx, ticket, rows, tools, strategy });
+  const blocked = outcomes.some((o) => o.kind === 'blocked');
+  const conflict = outcomes.some((o) => o.kind === 'conflict');
+  const sentinel = blocked ? 'BLOCKED' : conflict ? 'CONFLICT' : 'MERGED';
+  return {
+    result: {
+      sentinel,
+      sentinel_raw: sentinel,
+      exit_code: sentinel === 'MERGED' ? 0 : 1,
+    },
+    files: {
+      'merge-result.json': `${JSON.stringify(outcomes, null, 2)}\n`,
+    },
+    log: `merge ${ticketId}: ${sentinel}\n`,
+  };
+}
+
 /** Stage → runner-task inference when the request didn't carry one. */
 export function taskForStage(stage: string): RunnerTask | null {
   if (stage === 'verify') return { kind: 'verify' };
   if (stage === 'import') return { kind: 'import' };
+  if (stage === 'merge') return { kind: 'merge' };
   return null;
 }
