@@ -436,7 +436,7 @@ const gateGroups = [
     items: [
       [
         'SR-0140',
-        'PRD v3 ready — Notification fan-out',
+        'RS v3 ready — Notification fan-out',
         'team-a',
         'P1',
         'prd-review',
@@ -571,7 +571,7 @@ function InboxContent() {
                 {label === 'Failures'
                   ? 'implement · timeout'
                   : label === 'Repair'
-                    ? 'PRD parse failed'
+                    ? 'RS parse failed'
                     : 'Open group'}
               </span>
             </button>
@@ -681,7 +681,7 @@ const boardColumns: Array<{
         pri: 'P1',
         sub: 'prd-review',
         age: '3h',
-        badges: [{ label: 'approve PRD v3', tone: 'blue' }],
+        badges: [{ label: 'approve RS v3', tone: 'blue' }],
       },
       {
         id: 'WEB-81',
@@ -998,7 +998,7 @@ function GatePanel({ card }: { card: BoardCard }) {
           <strong>Implementation is in progress</strong>
           <p>
             Veto is adding the billing ledger adapter, then it will run the
-            approved test plan.
+            approved verification spec.
           </p>
           <div className="d-next-progress">
             <i style={{ width: '44%' }} />
@@ -1085,9 +1085,9 @@ const focusDetails: Record<string, FocusDetails> = {
     repos: 'api, billing',
     branch: 'feat/SR-0133',
     package: [
-      ['PRD.md', 'v3 · approved', 'mint'],
+      ['RS.md', 'v3 · approved', 'mint'],
       ['TDD.md', 'v2 · approved', 'mint'],
-      ['TEST.md', 'v2 · 14 cases', 'blue'],
+      ['VS.md', 'v2 · 14 cases', 'blue'],
     ],
     evidence: [
       ['14:18', 'Implement run · step 4 of 9'],
@@ -1109,9 +1109,9 @@ function spotlightTab(card: BoardCard): string | null {
 
 const focusRoadmap = [
   ['Ticket definition', 'Clarify the outcome and acceptance criteria'],
-  ['Product requirements', 'Approve the PRD'],
+  ['Requirements Specification', 'Approve the RS'],
   ['Technical design', 'Approve the TDD'],
-  ['Test plan', 'Approve coverage before implementation'],
+  ['Verification Specification', 'Approve coverage before implementation'],
   ['Implementation', 'Build and verify the change'],
   ['Code review', 'Resolve findings and approve the code'],
   ['Merge and release', 'Pass checks and merge'],
@@ -1151,7 +1151,7 @@ function nextStepCopy(card: BoardCard, phase?: string) {
     return { owner: 'No action needed', action: 'Work is complete' };
   return {
     owner: 'Veto is working',
-    action: 'Finish implementation and run the test plan',
+    action: 'Finish implementation and run the verification spec',
   };
 }
 
@@ -1350,7 +1350,9 @@ function TicketFocusScreen() {
                   }
                 />
                 <article className="d-doc-preview">
-                  <span className="d-doc-kicker">Product requirements</span>
+                  <span className="d-doc-kicker">
+                    Requirements Specification
+                  </span>
                   <h3>{documentPreview.title}</h3>
                   <p>{documentPreview.summary}</p>
                   <h4>Acceptance criteria</h4>
@@ -1613,7 +1615,9 @@ function SettingsScreen() {
                 <ShieldCheck size={16} />
                 <span>
                   <strong>Require spec approval</strong>
-                  <small>PRD, TDD, and test plan remain human gates.</small>
+                  <small>
+                    RS, TDD, and verification spec remain human gates.
+                  </small>
                 </span>
                 <Toggle />
               </div>
@@ -1802,8 +1806,8 @@ function CreateImportScreen() {
           <div className="d-flow-note">
             <Workflow size={16} />
             <span>
-              <strong>Next:</strong> 4–6 focused questions, then triage and a
-              PRD proposal.
+              <strong>Next:</strong> 4–6 focused questions, then triage and a RS
+              proposal.
             </span>
           </div>
         </aside>
@@ -1949,9 +1953,9 @@ const stages = [
   ['Imported', 'done'],
   ['Triage', 'done'],
   ['Questions', 'done'],
-  ['PRD', 'done'],
+  ['RS', 'done'],
   ['TDD', 'done'],
-  ['Test plan', 'current'],
+  ['Verification spec', 'current'],
   ['Implement', 'next'],
   ['Review', 'next'],
   ['PR', 'next'],
@@ -1993,7 +1997,7 @@ function TicketDetailScreen() {
               More
             </Button>
             <Button variant="primary" icon={<Play size={14} />}>
-              Approve test plan
+              Approve verification spec
             </Button>
           </>
         }
@@ -2014,7 +2018,7 @@ function TicketDetailScreen() {
               </p>
             </div>
             <Button variant="primary" icon={<ArrowRight size={14} />}>
-              Review test plan
+              Review verification spec
             </Button>
           </Panel>
           <Panel>
@@ -2030,8 +2034,8 @@ function TicketDetailScreen() {
             <div className="d-doc-list">
               {[
                 [
-                  'PRD.md',
-                  'Product requirements',
+                  'RS.md',
+                  'Requirements Specification',
                   'v3',
                   'approved',
                   '6 ACs · score 91',
@@ -2044,7 +2048,7 @@ function TicketDetailScreen() {
                   'Redis · dual-read migration',
                 ],
                 [
-                  'TEST.md',
+                  'VS.md',
                   'Test plan',
                   'v2',
                   'awaiting you',
@@ -2199,8 +2203,8 @@ function DocReviewScreen() {
             <ArrowLeft size={13} /> SR-0142 / Documents
           </span>
         }
-        title="PRD.md"
-        description="Product requirements · version 3"
+        title="RS.md"
+        description="Requirements Specification · version 3"
         meta={
           <>
             <Badge tone="mint">score 91</Badge>
@@ -2213,7 +2217,7 @@ function DocReviewScreen() {
               Add comment
             </Button>
             <Button variant="primary" icon={<Check size={14} />}>
-              Approve PRD
+              Approve RS
             </Button>
           </>
         }
@@ -2422,7 +2426,11 @@ function DocReviewScreen() {
 
 const logLines = [
   ['12:41:06', 'system', 'Run started · implement · backend, web'],
-  ['12:41:09', 'agent', 'Reading PRD, TDD, test plan, and repository cards…'],
+  [
+    '12:41:09',
+    'agent',
+    'Reading RS, TDD, verification spec, and repository cards…',
+  ],
   ['12:41:31', 'tool', 'git status --short'],
   ['12:41:33', 'result', 'working tree clean'],
   [
@@ -3496,7 +3504,7 @@ function LedgerScreen() {
             />
             <pre className="d-json">{`{
   "gate": "test-review",
-  "document": "TEST.md",
+  "document": "VS.md",
   "version": 2,
   "spec_score": 91,
   "human_minutes": 7

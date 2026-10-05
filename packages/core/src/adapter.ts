@@ -42,11 +42,36 @@ export interface RenderedPrompt {
   tokens: TokenValues;
 }
 
-/** Detached run handle — {pid, log_path} per ADAPTERS run(). */
+/** Detached run handle — {pid, log_path} per ADAPTERS run();
+ *  container-runtime runs also carry {container_id} (D30). */
 export interface RunHandle {
+  /** Host-side pid — the spawned process (`runtime: process`) or the
+   *  `docker exec` client process (`runtime: container`). Either way
+   *  pid liveness mirrors the run's liveness. */
   pid: number;
   /** Path to the run's stdout/stderr log (sentinel = last non-empty line). */
   log_path: string;
+  /** D30 — docker id/name of the subject container this run exec'd
+   *  into; absent on host-process runs. Mirrored to
+   *  `runs.container_id` and persisted in handle.json so
+   *  control/collect pick the docker seam after a restart. */
+  container_id?: string;
+  /** Reserved — the docker CLI does not surface an exec id (only
+   *  `docker inspect .ExecIDs`, racy); unset today. */
+  exec_id?: string;
+}
+
+/** Per-run launch options — the optional 4th arg of Adapter.run (D30
+ *  seam). All fields optional so process-runtime callers pass nothing. */
+export interface RunOpts {
+  /** `runs/<id>/` dir when prepare() didn't flow one through — adapters
+   *  that write prompt/log files pre-spawn need it. */
+  run_dir?: string;
+  /** Container exec target (`runtime: container`): docker id/name of
+   *  the subject's ensured container — the run issues
+   *  `docker exec -w <worktree>` inside it. Absent ⇒ detached
+   *  host-process spawn. */
+  container_id?: string;
 }
 
 /** Internal per-message usage stream (ADAPTERS on_usage → conductor;
@@ -59,7 +84,9 @@ export interface UsagePartial {
 
 export type UsageCallback = (partial: UsagePartial) => void;
 
-/** ADAPTERS control ops — POSIX signals. */
+/** ADAPTERS control ops — POSIX signals on `runtime: process`
+ *  (SIGTERM→SIGKILL | SIGSTOP | SIGCONT), docker verbs on
+ *  `runtime: container` (docker kill | docker pause | docker unpause). */
 export type ControlOp = 'kill' | 'pause' | 'resume';
 
 /** Context handed to prepare/collect — deliberately loose in core;
@@ -130,18 +157,24 @@ export interface Adapter {
   ): Promise<RenderedPrompt> | RenderedPrompt;
 
   /**
-   * Spawn the detached run process in `worktree`; return {pid, log_path}.
-   * `timeout` in seconds (SETTINGS `timeouts.<stage>`).
+   * Launch the detached run in `worktree`; return the handle —
+   * {pid, log_path} for a host-process spawn, or {pid, log_path,
+   * container_id} when `opts.container_id` targets the subject's
+   * container (D30 `docker exec -w <worktree>`; the pid is the exec
+   * client). `timeout` in seconds (SETTINGS `timeouts.<stage>`).
    */
   run(
     worktree: string,
     rendered: RenderedPrompt,
     timeout: number,
+    opts?: RunOpts,
   ): Promise<RunHandle> | RunHandle;
 
   /**
-   * Run control (ADAPTERS): kill = SIGTERM → SIGKILL after grace;
-   * pause = SIGSTOP; resume = SIGCONT.
+   * Run control (ADAPTERS) — per the run's runtime: process runs get
+   * POSIX signals (kill = SIGTERM → SIGKILL after grace; pause =
+   * SIGSTOP; resume = SIGCONT); container runs get docker verbs
+   * (docker kill -s TERM → docker kill; docker pause; docker unpause).
    */
   control(handle: RunHandle, op: ControlOp): Promise<void> | void;
 
