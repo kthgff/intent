@@ -498,7 +498,7 @@ export const AddendumRowSchema = z.object({
 });
 export type AddendumRow = z.infer<typeof AddendumRowSchema>;
 
-/** test.md case row (§4). */
+/** vs.md (Verification Specification) case row (§4). */
 export const TestCaseRowSchema = z.object({
   case_id: z.string().min(1),
   title: z.string(),
@@ -508,7 +508,7 @@ export const TestCaseRowSchema = z.object({
 });
 export type TestCaseRow = z.infer<typeof TestCaseRowSchema>;
 
-/** test.md coverage-matrix row (§4); `case_ids` may be `n/a` for
+/** vs.md coverage-matrix row (§4); `case_ids` may be `n/a` for
  *  `untestable:` file-plan rows. */
 export const CoverageRowSchema = z.object({
   item: z.string().min(1),
@@ -873,7 +873,7 @@ export type SentinelValue = z.infer<typeof SentinelSchema>;
  *  agent resolves THIS, never "latest" (§15.5; wp-141). Shape only:
  *  `runs.request` stays a json column — no DDL. */
 export const RunBaselineSchema = z.object({
-  /** doc_versions version of the RS/prd doc the run pins. */
+  /** doc_versions version of the rs.md doc the run pins. */
   rs_version: z.number().int().nullish(),
   /** doc_versions version of ticket.md. */
   ticket_rev: z.number().int().nullish(),

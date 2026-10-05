@@ -7,7 +7,7 @@ const TDD = `# TDD — SR-0001
 | src/a.ts | r | add | x |
 `;
 
-const TEST_MD = `# Test plan
+const VS_MD = `# Verification spec
 ## Cases
 | case_id | title | type | file | covers |
 | c1 | t | unit | f | x |
@@ -19,7 +19,7 @@ const TEST_MD = `# Test plan
 describe('structuredDocLint', () => {
   it('accepts well-formed docs', () => {
     expect(structuredDocLint('tdd.md', TDD)).toEqual([]);
-    expect(structuredDocLint('test.md', TEST_MD)).toEqual([]);
+    expect(structuredDocLint('vs.md', VS_MD)).toEqual([]);
     expect(
       structuredDocLint(
         'DEVIATIONS.md',
@@ -44,12 +44,12 @@ describe('structuredDocLint', () => {
     expect(vs.map((x) => x.rule)).toContain('doc.table');
   });
 
-  it('flags bad enum values inside test.md tables', () => {
-    const bad = TEST_MD.replace(
+  it('flags bad enum values inside vs.md tables', () => {
+    const bad = VS_MD.replace(
       '| c1 | t | unit | f | x |',
       '| c1 | t | bogus | f | x |',
     );
-    const vs = structuredDocLint('test.md', bad);
+    const vs = structuredDocLint('vs.md', bad);
     expect(vs.map((x) => x.rule)).toContain('doc.bad-enum');
   });
 

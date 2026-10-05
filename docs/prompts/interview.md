@@ -5,6 +5,9 @@ triage, but there is no ticket yet: the OUTPUT is ticket.md.
 ## Inputs
 Rough idea / seed text: {{SEED_TEXT}}
 Reserved ticket id: {{NEW_ID}} (assigned by the runner — use verbatim)
+Your previous question set with the human's answers (empty on the
+first run — when present, Phase 1 is done; draft the ticket):
+{{TRIAGE_JSON}}
 
 Target repos (if known): {{REPO_NAMES}}
 Product context: {{CONTEXT_MD}}

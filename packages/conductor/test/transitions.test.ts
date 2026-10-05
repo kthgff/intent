@@ -624,8 +624,8 @@ describe('gate modes', () => {
     handler = new RealTransitionHandler(makeConfig('minimal'));
     await seedTicket('SR-0001', 'prd-draft');
     await store.appendDocVersion(
-      { workspace: WS, subject: 'SR-0001', doc: 'prd.md' },
-      '# PRD\n',
+      { workspace: WS, subject: 'SR-0001', doc: 'rs.md' },
+      '# RS\n',
       'test-seed',
     );
     const run = await makeRun('SR-0001', 'prd', 'PRD-WRITTEN', 'SR-0001');
@@ -644,8 +644,8 @@ describe('gate modes', () => {
   it('full mode surfaces the prd-review gate', async () => {
     await seedTicket('SR-0001', 'prd-draft');
     await store.appendDocVersion(
-      { workspace: WS, subject: 'SR-0001', doc: 'prd.md' },
-      '# PRD\n',
+      { workspace: WS, subject: 'SR-0001', doc: 'rs.md' },
+      '# RS\n',
       'test-seed',
     );
     const run = await makeRun('SR-0001', 'prd', 'PRD-WRITTEN', 'SR-0001');

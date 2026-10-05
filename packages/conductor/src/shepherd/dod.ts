@@ -2,7 +2,7 @@
  * shepherd/dod.ts — Definition-of-Done at merge (CONDUCTOR "DoD at
  * merge", SCHEMAS §4).
  *
- * `test.md` carries a `## Definition of Done` table
+ * `vs.md` carries a `## Definition of Done` table
  * (`| criterion | verified_by |`) where `verified_by` is
  * `cmd:<shell command>` (runner executes it as a verify task before
  * merge enables) or `manual` (a human attest checkbox on the
@@ -65,13 +65,13 @@ function splitRow(line: string): string[] {
 }
 
 /**
- * Parse the `## Definition of Done` table rows from test.md.
+ * Parse the `## Definition of Done` table rows from vs.md.
  * Header/comment (`#`) lines are ignored; returns [] when the section
  * or table is absent — a missing DoD table means there is nothing to
  * verify, not a lint failure (coverage lint owns doc shape).
  */
-export function parseDodRows(testMd: string): DodRowClassified[] {
-  const section = sectionBody(testMd, 'Definition of Done');
+export function parseDodRows(vsMd: string): DodRowClassified[] {
+  const section = sectionBody(vsMd, 'Definition of Done');
   if (section === null) return [];
   const rows: DodRowClassified[] = [];
   for (const line of section.split('\n')) {

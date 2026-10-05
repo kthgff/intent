@@ -21,6 +21,11 @@ import {
  * Stage → prompt template name. `review` executes per-pass through the
  * `review-base` template (CONDUCTOR: "4 review passes"). `verify` runs
  * are detached runner tasks with no agent and no prompt → null.
+ * Addendum stages without a shipped template map to null until their
+ * owning wp lands one (wp-132 wired `retro`; `release-notes` → wp-134,
+ * `extract` → wp-143, `mockup`/`design-ingest` → wp-149). The
+ * `solution-brief` template is also shipped (unbound — its producing
+ * stage arrives with the discovery wps; DOC_KINDS accepts the doc).
  */
 export const STAGE_TEMPLATES = {
   interview: 'interview',
@@ -43,6 +48,11 @@ export const STAGE_TEMPLATES = {
   escalate: 'escalate',
   survey: 'survey',
   verify: null,
+  'release-notes': null,
+  retro: 'retro',
+  extract: null,
+  mockup: null,
+  'design-ingest': null,
 } as const satisfies Record<Stage, string | null>;
 
 /** Context handed to {@link renderPrompt} / {@link renderTemplate}. */

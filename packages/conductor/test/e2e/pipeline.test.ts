@@ -26,9 +26,9 @@ import {
   WS,
   findingsFragment,
   makeFixtureWorld,
-  prdDoc,
+  rsDoc,
   tddDoc,
-  testDoc,
+  vsDoc,
   testReport,
   ticketMd,
 } from '../helpers/fixtures.js';
@@ -75,7 +75,7 @@ function happyScript(r: ScriptedRunInfo): MockScript {
     case 'prd':
       return {
         sentinel: 'PRD-WRITTEN',
-        files: { [join(td, 'prd.md')]: prdDoc(id) },
+        files: { [join(td, 'rs.md')]: rsDoc(id) },
       };
     case 'design':
       if (r.attempt === 1) {
@@ -97,7 +97,7 @@ function happyScript(r: ScriptedRunInfo): MockScript {
     case 'testplan':
       return {
         sentinel: 'TESTPLAN-WRITTEN',
-        files: { [join(td, 'test.md')]: testDoc(id) },
+        files: { [join(td, 'vs.md')]: vsDoc(id) },
       };
     case 'implement':
       return { sentinel: 'DONE', artifacts: { 'result.json': { ok: true } } };
@@ -180,7 +180,7 @@ describe('e2e pipeline (wp-040)', () => {
 
       await world.runToStatus(T, 'prd-review');
       expect(
-        await world.store.getDoc({ workspace: WS, subject: T, doc: 'prd.md' }),
+        await world.store.getDoc({ workspace: WS, subject: T, doc: 'rs.md' }),
       ).not.toBeNull();
       await world.clearGate(T, 'prd-review');
 
@@ -210,7 +210,7 @@ describe('e2e pipeline (wp-040)', () => {
 
       // ---- assertions: row truth + doc_versions + artifacts (D29) ----
       expect(await world.docStatus(T)).toBe('pr-open');
-      for (const doc of ['prd.md', 'tdd.md', 'test.md'] as const) {
+      for (const doc of ['rs.md', 'tdd.md', 'vs.md'] as const) {
         expect(
           await world.store.getDoc({ workspace: WS, subject: T, doc }),
           `missing doc ${doc}`,

@@ -789,7 +789,7 @@ export function createServer(opts: ServerOptions): ApiServer {
 
   /**
    * Doc name → DOC_KINDS doc. Routes accept either the bare name
-   * (`prd`) or the full doc kind (`prd.md`). `split-plan` is the one
+   * (`rs`) or the full doc kind (`rs.md`). `split-plan` is the one
    * exception: it's a run_artifact (RUN_ARTIFACT_KINDS), served from
    * the latest producing run.
    */

@@ -849,7 +849,7 @@ export class RealTransitionHandler implements TransitionHandler {
     // -- doc stages --
     prdReview: async ({ outcome, tools }) => {
       const id = outcome.run.ticket_id ?? outcome.run.subject;
-      await this.#docGate(outcome, tools, id, 'prd-review', 'prd.md');
+      await this.#docGate(outcome, tools, id, 'prd-review', 'rs.md');
     },
 
     designQa: async ({ outcome, tools, payload }) => {
@@ -890,21 +890,21 @@ export class RealTransitionHandler implements TransitionHandler {
 
     testplanReview: async ({ outcome, tools }) => {
       const id = outcome.run.ticket_id ?? outcome.run.subject;
-      const test = await tools.getDocText(id, 'test.md');
+      const test = await tools.getDocText(id, 'vs.md');
       const tdd = await tools.getDocText(id, 'tdd.md');
       const violations = test
         ? [
-            ...structuredDocLint('test.md', test),
+            ...structuredDocLint('vs.md', test),
             // Coverage-matrix lint — fail-closed (SCHEMAS §4; every
             // ac_id/file-plan row → ≥1 case_id, no fake coverage).
             ...coverageLint(tdd ?? '', test),
           ]
-        : [{ rule: 'doc.missing', message: 'test.md not written' }];
+        : [{ rule: 'doc.missing', message: 'vs.md not written' }];
       if (violations.length > 0) {
-        await this.#requestDocRepair(tools, id, 'test.md', violations);
+        await this.#requestDocRepair(tools, id, 'vs.md', violations);
         return;
       }
-      await this.#docGate(outcome, tools, id, 'test-review', 'test.md');
+      await this.#docGate(outcome, tools, id, 'test-review', 'vs.md');
     },
 
     // -- implement / verify / review --
@@ -1389,11 +1389,11 @@ export class RealTransitionHandler implements TransitionHandler {
       > => {
         switch (status) {
           case 'test-draft': {
-            const test = await tools.getDocText(id, 'test.md');
+            const test = await tools.getDocText(id, 'vs.md');
             const tdd = await tools.getDocText(id, 'tdd.md');
             return test
               ? [
-                  ...structuredDocLint('test.md', test),
+                  ...structuredDocLint('vs.md', test),
                   ...coverageLint(tdd ?? '', test),
                 ]
               : null;
@@ -1430,7 +1430,7 @@ export class RealTransitionHandler implements TransitionHandler {
       }
       switch (status) {
         case 'test-draft':
-          await this.#docGate(outcome, tools, id, 'test-review', 'test.md');
+          await this.#docGate(outcome, tools, id, 'test-review', 'vs.md');
           return;
         case 'tdd-draft':
           await this.#docGate(outcome, tools, id, 'tdd-review', 'tdd.md');
