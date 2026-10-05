@@ -93,6 +93,9 @@ export interface ScriptedRunInfo {
   /** `<run_dir>/<ticket_id>/` — the agent's doc-write scope. */
   ticketDir?: string;
   runId: string;
+  /** The rendered prompt text handed to `adapter.run` (wp-111 grounding
+   *  assertions — populated on `seen`, absent inside `script` calls). */
+  prompt?: string;
 }
 
 export type ScriptFn = (run: ScriptedRunInfo) => MockScript;
@@ -157,7 +160,7 @@ export class ScriptedAdapter implements Adapter {
     };
     const rendered = this.#inner.prepare(subject, stage, ctx);
     this.#meta.set(rendered, info);
-    this.seen.push(info);
+    this.seen.push({ ...info, prompt: rendered.text });
     return rendered;
   }
 
