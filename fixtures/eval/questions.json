@@ -1,0 +1,36 @@
+{
+  "family": "questions",
+  "cases": [
+    {
+      "case_id": "q-01-first-contact",
+      "tags": [],
+      "input": { "known_slots": [], "open_slots": ["goals", "users"] },
+      "expected": {
+        "questions": [
+          { "knowledge_slot": "goals" },
+          { "knowledge_slot": "users" }
+        ]
+      },
+      "recorded": {
+        "questions": [
+          { "knowledge_slot": "goals", "text": "What outcome are you after?" },
+          { "knowledge_slot": "users", "text": "Who uses this day to day?" }
+        ]
+      }
+    },
+    {
+      "case_id": "q-02-skip-known",
+      "tags": [],
+      "input": { "known_slots": ["users"], "open_slots": ["constraints"] },
+      "expected": { "questions": [{ "knowledge_slot": "constraints" }] },
+      "recorded": {
+        "questions": [
+          {
+            "knowledge_slot": "constraints",
+            "text": "Any hard constraints we must respect?"
+          }
+        ]
+      }
+    }
+  ]
+}

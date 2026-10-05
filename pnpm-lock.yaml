@@ -231,6 +231,9 @@ importers:
 
   packages/lints:
     dependencies:
+      '@sprint-runner/config':
+        specifier: workspace:*
+        version: link:../config
       '@sprint-runner/core':
         specifier: workspace:*
         version: link:../core

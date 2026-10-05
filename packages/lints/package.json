@@ -11,6 +11,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@sprint-runner/config": "workspace:*",
     "@sprint-runner/core": "workspace:*",
     "yaml": "^2.5.0"
   },
