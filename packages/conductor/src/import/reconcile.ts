@@ -31,11 +31,15 @@ import {
   type ReconciliationKind,
   type SourceRef,
   type Store,
-  type TicketRow,
   TERMINAL_STATUSES,
+  type TicketRow,
   provenanceAllowsAutoApproval,
 } from '@sprint-runner/core';
-import { type Cluster, type ClusterItem, clusterItems } from '../semantics/index.js';
+import {
+  type Cluster,
+  type ClusterItem,
+  clusterItems,
+} from '../semantics/index.js';
 import { sourceFor } from './preview.js';
 import type { RawIssue } from './types.js';
 
@@ -87,10 +91,7 @@ function norm(s: string | null | undefined): string {
 }
 
 /** Extract a `## <heading>` section body from a ticket.md doc. */
-export function sectionBody(
-  doc: string,
-  heading: string,
-): string | null {
+export function sectionBody(doc: string, heading: string): string | null {
   const re = new RegExp(
     `^##\\s+${heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`,
     'im',
@@ -119,7 +120,11 @@ export function detectDrift(
 ): DriftField[] {
   const out: DriftField[] = [];
   if (norm(ticket.title) !== norm(issue.title)) {
-    out.push({ field: 'title', imported: norm(ticket.title), source: norm(issue.title) });
+    out.push({
+      field: 'title',
+      imported: norm(ticket.title),
+      source: norm(issue.title),
+    });
   }
   const importedBody = sectionBody(docContent ?? '', 'Description');
   if (importedBody !== null && norm(importedBody) !== norm(issue.body)) {
@@ -130,7 +135,11 @@ export function detectDrift(
     });
   }
   const original = ticket.source_ref?.original_status;
-  if (original && issue.state && norm(original).toLowerCase() !== norm(issue.state).toLowerCase()) {
+  if (
+    original &&
+    issue.state &&
+    norm(original).toLowerCase() !== norm(issue.state).toLowerCase()
+  ) {
     out.push({
       field: 'status',
       imported: norm(original),
@@ -141,7 +150,8 @@ export function detectDrift(
 }
 
 /** Stable board_item id for a ticket card on the import board. */
-export const ticketCardId = (ticketId: string): string => `import-ticket-${ticketId}`;
+export const ticketCardId = (ticketId: string): string =>
+  `import-ticket-${ticketId}`;
 /** Stable board_item id for a finding (idempotent upserts). */
 export const findingCardId = (kind: ReconciliationKind, key: string): string =>
   `recon-${kind}-${key}`;
@@ -227,12 +237,16 @@ export async function reconcileImport(
   }
 
   // ---- 2. load the imported tickets under reconciliation ----
-  const allImported = await store.listTickets({ workspace, status: 'imported' });
+  const allImported = await store.listTickets({
+    workspace,
+    status: 'imported',
+  });
   const wanted = opts.ticketIds ? new Set(opts.ticketIds) : null;
   const tickets = allImported.filter((t) => !wanted || wanted.has(t.ticket_id));
 
   const issueBySource = new Map<string, RawIssue>();
-  for (const issue of opts.issues ?? []) issueBySource.set(sourceFor(issue), issue);
+  for (const issue of opts.issues ?? [])
+    issueBySource.set(sourceFor(issue), issue);
 
   const items: string[] = [];
   const findings: ReconciliationFinding[] = [];
@@ -308,7 +322,10 @@ export async function reconcileImport(
           subject: ticket.ticket_id,
           related: [],
           detail: drift
-            .map((d) => `${d.field}: imported "${d.imported}" ≠ source "${d.source}"`)
+            .map(
+              (d) =>
+                `${d.field}: imported "${d.imported}" ≠ source "${d.source}"`,
+            )
             .join('; '),
           provenance: 'inferred',
           sourceRef: ticket.source_ref ?? null,
@@ -350,7 +367,8 @@ export async function reconcileImport(
           kind: 'clarification',
           subject: ticket.ticket_id,
           related: [],
-          detail: 'no repo mapped — triage must confirm which repo(s) this touches',
+          detail:
+            'no repo mapped — triage must confirm which repo(s) this touches',
           provenance: 'inferred',
           sourceRef: ticket.source_ref ?? null,
           now,
@@ -419,7 +437,11 @@ export async function reconcileImport(
         });
         if (gate && !gate.cleared_at) {
           await store.clearGateItem(
-            { workspace, subject: ticket.ticket_id, gate: IMPORT_RECONCILE_GATE },
+            {
+              workspace,
+              subject: ticket.ticket_id,
+              gate: IMPORT_RECONCILE_GATE,
+            },
             now,
           );
         }
@@ -434,7 +456,12 @@ export async function reconcileImport(
   for (const ticket of tickets) {
     const embedding =
       opts.embeddingModel != null
-        ? await loadEmbedding(store, workspace, ticket.ticket_id, opts.embeddingModel)
+        ? await loadEmbedding(
+            store,
+            workspace,
+            ticket.ticket_id,
+            opts.embeddingModel,
+          )
         : null;
     const doc = await store.getDoc({
       workspace,
@@ -459,7 +486,9 @@ export async function reconcileImport(
   );
   for (const cluster of clusters) {
     const [a, b] = cluster.members;
-    const kind: ReconciliationKind = cluster.duplicate ? 'duplicate' : 'conflict';
+    const kind: ReconciliationKind = cluster.duplicate
+      ? 'duplicate'
+      : 'conflict';
     const detail = cluster.duplicate
       ? `possible duplicate (${cluster.reason}, similarity ${cluster.similarity.toFixed(2)}): ${cluster.members.join(', ')}`
       : `overlapping/conflicting work (${cluster.reason}): ${cluster.members.join(', ')}`;
@@ -563,7 +592,10 @@ export async function resolveReconciliationFinding(
   if (!card) throw new Error(`reconciliation finding not found: ${findingId}`);
 
   // Provenance enforcement: inferred findings need a human.
-  if (!opts.human && !provenanceAllowsAutoApproval(card.provenance as ProvenanceState | null)) {
+  if (
+    !opts.human &&
+    !provenanceAllowsAutoApproval(card.provenance as ProvenanceState | null)
+  ) {
     throw new Error(
       `finding ${findingId} has provenance '${card.provenance}' — inferred findings cannot be auto-resolved`,
     );
@@ -576,7 +608,9 @@ export async function resolveReconciliationFinding(
     kind,
     decision,
     // A human decision re-proves the item.
-    provenance: opts.human ? 'stakeholder-verified' : (card.provenance ?? 'source-backed'),
+    provenance: opts.human
+      ? 'stakeholder-verified'
+      : (card.provenance ?? 'source-backed'),
     subject: card.ref ?? null,
     related: (card.applies_to ?? []).filter((r) => r !== card.ref),
     detail: card.body ?? '',
@@ -600,7 +634,12 @@ export async function resolveReconciliationFinding(
     actor_id: actor,
     event: 'import_reconciled',
     refs: [],
-    data: { finding: findingId, kind, decision, provenance: finding.provenance },
+    data: {
+      finding: findingId,
+      kind,
+      decision,
+      provenance: finding.provenance,
+    },
   });
 
   // Clear the ticket's reconcile gate when no open findings remain.
@@ -641,15 +680,13 @@ export async function resolveReconciliationFinding(
  * ordinary board (default `enhancement`) with all import history
  * preserved (board items + events are untouched).
  */
-export async function convertImportBoard(
-  opts: {
-    workspace: string;
-    store: Store;
-    board?: string;
-    to?: 'enhancement' | 'modernization' | 'quality';
-    actor?: string;
-  },
-): Promise<{ board: string; board_type: string }> {
+export async function convertImportBoard(opts: {
+  workspace: string;
+  store: Store;
+  board?: string;
+  to?: 'enhancement' | 'modernization' | 'quality';
+  actor?: string;
+}): Promise<{ board: string; board_type: string }> {
   const { workspace, store } = opts;
   const slug = opts.board ?? DEFAULT_IMPORT_BOARD;
   const to = opts.to ?? 'enhancement';

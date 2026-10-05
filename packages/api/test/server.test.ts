@@ -147,6 +147,10 @@ describe('auth', () => {
     ['POST', '/api/v1/workspaces'],
     ['POST', '/api/v1/interview'],
     ['POST', '/api/v1/import'],
+    ['GET', '/api/v1/import/board'],
+    ['POST', '/api/v1/import/reconcile'],
+    ['POST', '/api/v1/import/convert'],
+    ['POST', '/api/v1/import/findings/x/resolve'],
     ['GET', '/api/v1/settings'],
     ['PUT', '/api/v1/settings'],
     ['GET', '/api/v1/kb/repo'],
@@ -177,6 +181,58 @@ describe('auth', () => {
       headers: { authorization: `Bearer ${'b'.repeat(64)}` },
     });
     expect(res.statusCode).toBe(401);
+    await app.close();
+  });
+});
+
+describe('import reconciliation — wp-139 routes', () => {
+  it('runs reconciliation and exposes the import board', async () => {
+    const app = makeServer();
+    const rec = await app.inject({
+      method: 'POST',
+      url: '/api/v1/import/reconcile',
+      headers: AUTH,
+      payload: { workspace: WS },
+    });
+    expect(rec.statusCode).toBe(200);
+    const body = rec.json() as {
+      result: { board: string; boardCreated: boolean };
+    };
+    expect(body.result.board).toBe('import');
+    expect(body.result.boardCreated).toBe(true);
+
+    const board = await app.inject({
+      method: 'GET',
+      url: `/api/v1/import/board?workspace=${WS}`,
+      headers: AUTH,
+    });
+    expect(board.statusCode).toBe(200);
+    const boardBody = board.json() as {
+      board: { board_type: string } | null;
+      items: unknown[];
+    };
+    expect(boardBody.board?.board_type).toBe('import');
+    expect(boardBody.items).toEqual([]);
+    await app.close();
+  });
+
+  it('rejects an unknown decision and a missing finding', async () => {
+    const app = makeServer();
+    const bad = await app.inject({
+      method: 'POST',
+      url: '/api/v1/import/findings/recon-drift-SR-0001/resolve',
+      headers: AUTH,
+      payload: { workspace: WS, decision: 'nonsense' },
+    });
+    expect(bad.statusCode).toBe(400);
+
+    const missing = await app.inject({
+      method: 'POST',
+      url: '/api/v1/import/findings/recon-drift-SR-0001/resolve',
+      headers: AUTH,
+      payload: { workspace: WS, decision: 'dismissed' },
+    });
+    expect(missing.statusCode).toBe(400);
     await app.close();
   });
 });

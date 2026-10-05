@@ -918,8 +918,7 @@ export const RECONCILIATION_DECISIONS = [
   'imported-kept',
   'dismissed',
 ] as const;
-export type ReconciliationDecision =
-  (typeof RECONCILIATION_DECISIONS)[number];
+export type ReconciliationDecision = (typeof RECONCILIATION_DECISIONS)[number];
 
 // ---------- interview orchestrator (PRD §15.9, wp-145) ----------
 

@@ -18,10 +18,7 @@ import { fetchIssues } from './github.js';
 import type { FetchIssuesOptions } from './github.js';
 import { IMPORT_FAILURE_GATE, materialize } from './materialize.js';
 import type { MaterializeResult } from './materialize.js';
-import {
-  type ReconcileImportResult,
-  reconcileImport,
-} from './reconcile.js';
+import { type ReconcileImportResult, reconcileImport } from './reconcile.js';
 import type { FetchIssuesResult } from './types.js';
 import type { ImportOutcome } from './types.js';
 
@@ -111,7 +108,9 @@ export async function runImport(
           store: opts.store,
           issues: fetched.issues,
           ...(opts.board ? { board: opts.board } : {}),
-          ...(opts.embeddingModel ? { embeddingModel: opts.embeddingModel } : {}),
+          ...(opts.embeddingModel
+            ? { embeddingModel: opts.embeddingModel }
+            : {}),
           ...(opts.actor ? { actor: opts.actor } : {}),
         });
       } catch (e) {

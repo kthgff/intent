@@ -183,7 +183,8 @@ export function clusterItems(
       if (!byId.has(rel) || rel === item.id) continue;
       union(item.id, rel);
       const key = [item.id, rel].sort().join('\u0000');
-      if (!pairEdges.has(key)) pairEdges.set(key, { reason: 'relation', score: 0 });
+      if (!pairEdges.has(key))
+        pairEdges.set(key, { reason: 'relation', score: 0 });
     }
   }
 

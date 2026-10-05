@@ -44,8 +44,8 @@ import {
 import { emitEvent } from '../events/index.js';
 import type { EmitArgs } from '../events/index.js';
 import { gateForStatus, gateKindFor } from '../gates/index.js';
-import { IMPORT_RECONCILE_GATE } from '../import/reconcile.js';
 import { parseTicketMd } from '../import/parse.js';
+import { IMPORT_RECONCILE_GATE } from '../import/reconcile.js';
 import { retryDecision } from '../loop/retry.js';
 import {
   type ReviewDocument,

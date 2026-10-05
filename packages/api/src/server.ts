@@ -22,9 +22,9 @@ import type { ConductorDeps, StreamEvent } from '@sprint-runner/conductor';
 import {
   type Conductor,
   type ConductorWorkspace,
+  DEFAULT_IMPORT_BOARD,
   type RunnerTask,
   type ToolCtx,
-  DEFAULT_IMPORT_BOARD,
   applyTicketStatus,
   convertImportBoard,
   fetchIssues,
@@ -1615,7 +1615,10 @@ export function createServer(opts: ServerOptions): ApiServer {
       return { boards };
     }
     const row = await store.getBoard(wsName, slug);
-    const items = await store.listBoardItems({ workspace: wsName, board: slug });
+    const items = await store.listBoardItems({
+      workspace: wsName,
+      board: slug,
+    });
     return { board: row, items };
   });
 
@@ -1643,13 +1646,17 @@ export function createServer(opts: ServerOptions): ApiServer {
       req.body,
       'resolve-finding',
     );
-    if (!(RECONCILIATION_DECISIONS as readonly string[]).includes(body.decision)) {
+    if (
+      !(RECONCILIATION_DECISIONS as readonly string[]).includes(body.decision)
+    ) {
       throw badRequest(
         `unknown decision '${body.decision}' (expected ${RECONCILIATION_DECISIONS.join('|')})`,
       );
     }
     if (body.decision === 'open') {
-      throw badRequest('resolve-finding: decision must be a resolution, not `open`');
+      throw badRequest(
+        'resolve-finding: decision must be a resolution, not `open`',
+      );
     }
     const ws = workspace(body.workspace);
     try {

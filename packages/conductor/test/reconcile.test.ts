@@ -51,7 +51,9 @@ describe('source_ref — original tracker identity (wp-139)', () => {
   it('classifies GitHub issues vs pull requests by URL', () => {
     expect(issueKind(issue({ number: 1 }))).toBe('issue');
     expect(
-      issueKind(issue({ number: 2, url: 'https://github.com/acme/app/pull/2' })),
+      issueKind(
+        issue({ number: 2, url: 'https://github.com/acme/app/pull/2' }),
+      ),
     ).toBe('pull-request');
     // An explicit kind always wins over the URL heuristic.
     expect(
@@ -212,7 +214,11 @@ describe('reconcileImport (PGlite)', () => {
 
   it('creates the import board and auto-reconciles a clean import', async () => {
     const issues = [issue({ number: 42, title: 'Fix login redirect' })];
-    await materialize(issues, { workspace: WORKSPACE, store, repoMap: REPO_MAP });
+    await materialize(issues, {
+      workspace: WORKSPACE,
+      store,
+      repoMap: REPO_MAP,
+    });
 
     const r = await reconcileImport({ workspace: WORKSPACE, store, issues });
     expect(r.boardCreated).toBe(true);
@@ -242,7 +248,11 @@ describe('reconcileImport (PGlite)', () => {
   it('surfaces a clarification finding + blocks on the reconcile gate', async () => {
     // No label → repo-map-unmapped → repos [] → clarification needed.
     const issues = [issue({ number: 43, title: 'Dark mode', labels: [] })];
-    await materialize(issues, { workspace: WORKSPACE, store, repoMap: REPO_MAP });
+    await materialize(issues, {
+      workspace: WORKSPACE,
+      store,
+      repoMap: REPO_MAP,
+    });
 
     const r = await reconcileImport({ workspace: WORKSPACE, store, issues });
     expect(r.blocked).toEqual(['SR-0001']);
@@ -297,7 +307,11 @@ describe('reconcileImport (PGlite)', () => {
       issue({ number: 50, title: 'Fix login redirect bug' }),
       issue({ number: 51, title: 'Fix the login redirect bug' }),
     ];
-    await materialize(issues, { workspace: WORKSPACE, store, repoMap: REPO_MAP });
+    await materialize(issues, {
+      workspace: WORKSPACE,
+      store,
+      repoMap: REPO_MAP,
+    });
 
     const r = await reconcileImport({ workspace: WORKSPACE, store, issues });
     const dup = r.findings.find((f) => f.kind === 'duplicate');
@@ -314,7 +328,11 @@ describe('reconcileImport (PGlite)', () => {
 
   it('flags completed work when the source closed but the ticket is live', async () => {
     const issues = [issue({ number: 52, title: 'Ship it', state: 'CLOSED' })];
-    await materialize(issues, { workspace: WORKSPACE, store, repoMap: REPO_MAP });
+    await materialize(issues, {
+      workspace: WORKSPACE,
+      store,
+      repoMap: REPO_MAP,
+    });
 
     const r = await reconcileImport({ workspace: WORKSPACE, store, issues });
     const done = r.findings.find((f) => f.kind === 'completed');
@@ -324,9 +342,21 @@ describe('reconcileImport (PGlite)', () => {
 
   it('is idempotent — re-running upserts the same findings', async () => {
     const issues = [issue({ number: 53, title: 'Dark mode', labels: [] })];
-    await materialize(issues, { workspace: WORKSPACE, store, repoMap: REPO_MAP });
-    const first = await reconcileImport({ workspace: WORKSPACE, store, issues });
-    const second = await reconcileImport({ workspace: WORKSPACE, store, issues });
+    await materialize(issues, {
+      workspace: WORKSPACE,
+      store,
+      repoMap: REPO_MAP,
+    });
+    const first = await reconcileImport({
+      workspace: WORKSPACE,
+      store,
+      issues,
+    });
+    const second = await reconcileImport({
+      workspace: WORKSPACE,
+      store,
+      issues,
+    });
     expect(second.findings.map((f) => f.id)).toEqual(
       first.findings.map((f) => f.id),
     );
@@ -340,7 +370,11 @@ describe('reconcileImport (PGlite)', () => {
 
   it('rejects an automatic resolution of an inferred finding', async () => {
     const issues = [issue({ number: 60, title: 'Dark mode', labels: [] })];
-    await materialize(issues, { workspace: WORKSPACE, store, repoMap: REPO_MAP });
+    await materialize(issues, {
+      workspace: WORKSPACE,
+      store,
+      repoMap: REPO_MAP,
+    });
     const r = await reconcileImport({ workspace: WORKSPACE, store, issues });
     const findingId = r.findings[0]?.id as string;
     await expect(
@@ -356,7 +390,11 @@ describe('reconcileImport (PGlite)', () => {
 
   it('a human resolution re-proves the item and clears the gate', async () => {
     const issues = [issue({ number: 61, title: 'Dark mode', labels: [] })];
-    await materialize(issues, { workspace: WORKSPACE, store, repoMap: REPO_MAP });
+    await materialize(issues, {
+      workspace: WORKSPACE,
+      store,
+      repoMap: REPO_MAP,
+    });
     const r = await reconcileImport({ workspace: WORKSPACE, store, issues });
     const findingId = r.findings[0]?.id as string;
 
@@ -385,7 +423,11 @@ describe('reconcileImport (PGlite)', () => {
 
   it('converts to an enhancement board with import history preserved', async () => {
     const issues = [issue({ number: 70, title: 'Fix login redirect' })];
-    await materialize(issues, { workspace: WORKSPACE, store, repoMap: REPO_MAP });
+    await materialize(issues, {
+      workspace: WORKSPACE,
+      store,
+      repoMap: REPO_MAP,
+    });
     await reconcileImport({ workspace: WORKSPACE, store, issues });
 
     const before = await store.listBoardItems({

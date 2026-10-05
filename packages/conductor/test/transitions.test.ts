@@ -520,7 +520,8 @@ describe('auto-advance chain', () => {
     expect(await ticketMd('SR-0009')).toMatch(/^status: triage$/m);
   });
 
-  it('READY applies suggestions but human-set fields win', async () => {    await seedTicket('SR-0001', 'triage', {
+  it('READY applies suggestions but human-set fields win', async () => {
+    await seedTicket('SR-0001', 'triage', {
       backend: 'devin',
       priority: 'high',
     });
