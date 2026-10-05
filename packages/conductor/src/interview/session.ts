@@ -312,15 +312,10 @@ export function computeReadiness(
 
   const draft_ready = draft_blockers.length === 0;
   const approval_ready = approval_blockers.length === 0;
-  const summary =
-    `draft_ready=${draft_ready} approval_ready=${approval_ready}; ` +
-    `${requiredRows.length} required slot(s): ` +
-    ALL_STATES.filter((s) => states[s] > 0)
-      .map((s) => `${states[s]} ${s}`)
-      .join(', ') +
-    (openDecisions.length > 0
-      ? `; ${openDecisions.length} open decision(s)`
-      : '');
+  const slotCounts = ALL_STATES.filter((s) => states[s] > 0)
+    .map((s) => `${states[s]} ${s}`)
+    .join(', ');
+  const summary = `draft_ready=${draft_ready} approval_ready=${approval_ready}; ${requiredRows.length} required slot(s): ${slotCounts}${openDecisions.length > 0 ? `; ${openDecisions.length} open decision(s)` : ''}`;
   return {
     draft_ready,
     approval_ready,

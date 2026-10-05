@@ -108,8 +108,8 @@ Program plan for W16+ (PRD §14+§15): `docs/DEV-PLAN.md` + `docs/DELIVERY.md`.
 | W18 | wp-142 | Scope Creep Radar: metrics, budgets, escalation | wp-140, wp-134 | todo |
 | W19 | wp-143 | Statement Ledger: semantic_statements, extraction pipeline, typed relations | wp-131 | done |
 | W19 | wp-144 | Board v2: typed notes, board types, multi-board + org boards, deferred retention | wp-131, wp-143 | done |
-| W19 | wp-145 | Interview Orchestrator: wizard defs, knowledge slots, question planner, snapshots | wp-131, wp-143 | todo |
-| W19 | wp-146 | Discovery readiness + Understanding Panel API + findings→revise loop | wp-145 | todo |
+| W19 | wp-145 | Interview Orchestrator: wizard defs, knowledge slots, question planner, snapshots | wp-131, wp-143 | done |
+| W19 | wp-146 | Discovery readiness + Understanding Panel API + findings→revise loop | wp-145 | done |
 | W19 | wp-147 | Discovery UI: board canvas v2, Understanding Panel, wizard surface | wp-131, wp-136, wp-146 | todo |
 | W20 | wp-148 | Review Studio: findings lifecycle, semantic comments, commit-bound approval | wp-131 | done |
 | W20 | wp-149 | Design artifacts: structured mockups, visual ACs, design approvals + Mockups UI | wp-131, wp-132 | done |

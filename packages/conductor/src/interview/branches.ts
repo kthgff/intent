@@ -215,12 +215,7 @@ export async function mergeBranch(
   await appendMessage(ctx, {
     sessionId: args.sessionId,
     role: 'system',
-    content:
-      `[branch merged] ${args.branch}${branch.role ? ` (role: ${branch.role})` : ''}: ` +
-      `${statements.length} statement(s) merged with attribution` +
-      (conflicts.length > 0
-        ? `; ${conflicts.length} disagreement(s) routed to decision items`
-        : ''),
+    content: `[branch merged] ${args.branch}${branch.role ? ` (role: ${branch.role})` : ''}: ${statements.length} statement(s) merged with attribution${conflicts.length > 0 ? `; ${conflicts.length} disagreement(s) routed to decision items` : ''}`,
     branch: args.branch,
   });
 
