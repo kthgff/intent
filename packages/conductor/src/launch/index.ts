@@ -315,8 +315,9 @@ export async function launch(
   // SCHEMAS §21 `providers` is an allowlist, not a preference: when the
   // resolved model names a provider the route excludes, launch fails
   // closed rather than quietly routing around the registry.
-  const modelProvider =
-    model && model.includes('/') ? model.slice(0, model.indexOf('/')) : null;
+  const modelProvider = model?.includes('/')
+    ? model.slice(0, model.indexOf('/'))
+    : null;
   if (modelProvider) assertRouteProvider(route, modelProvider);
   const depth = (ticket?.depth ?? deps.config.spec_depth) as RunRow['depth'];
   const ts = nowIso(deps);
