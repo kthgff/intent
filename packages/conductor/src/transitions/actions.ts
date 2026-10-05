@@ -30,6 +30,10 @@ import {
 import { git, push } from '@sprint-runner/gitops';
 import { fingerprint, matchThread, threadIdFor } from '@sprint-runner/lints';
 import type { TransitionContext } from '../contracts.js';
+import { promoteContracts } from '../decompose/contracts.js';
+import type { DecompositionRow, PlanContract } from '../decompose/plan.js';
+import { computeExecutionReadiness } from '../decompose/readiness.js';
+import { computeParallelSafety } from '../decompose/safety.js';
 
 export const FRONTMATTER_RE =
   /^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
@@ -430,8 +434,35 @@ export async function materializeSplit(args: {
   ctx: TransitionContext;
   ticketId: string;
   children: SplitChild[];
+  /** wp-154 decomposition pass (`## Decomposition` rows, keyed by
+   *  child label) — drives `parallel_safety` per child. Absent →
+   *  every child lands `unknown` (the conservative verdict). */
+  decomposition?: DecompositionRow[];
+  /** wp-154 contract-first (`## Contracts` rows) — each row's
+   *  `contracts/<name>.json` run artifact promotes to a
+   *  `contract.json` doc_version on every consuming child INSIDE this
+   *  transaction; consuming children's ticket.md gains a `contract:`
+   *  frontmatter list. A missing/invalid artifact throws (fail-closed
+   *  — never a half-promoted split). */
+  contracts?: PlanContract[];
 }): Promise<Record<string, string>> {
   const { ctx, ticketId } = args;
+  const contracts = args.contracts ?? [];
+  // Contract names per child label (the `contract:` frontmatter list +
+  // the readiness check's declared set).
+  const contractsByLabel = new Map<string, string[]>();
+  for (const c of contracts) {
+    for (const label of c.consumers) {
+      const list = contractsByLabel.get(label) ?? [];
+      list.push(c.name);
+      contractsByLabel.set(label, list);
+    }
+  }
+  // wp-154 parallel-safety verdicts from the decomposition table.
+  const safety = computeParallelSafety({
+    children: args.children,
+    decomposition: args.decomposition ?? [],
+  });
   // ids + rows + doc versions in ONE transaction (CONDUCTOR split
   // materialization: "allocates child ids transactionally").
   return ctx.store.transaction(async (store) => {
@@ -462,6 +493,7 @@ export async function materializeSplit(args: {
           `materializeSplit: no children/${child.label}.md draft artifact for ${ticketId} (fail-closed — a missing draft must not silently materialize)`,
         );
       }
+      const declaredContracts = contractsByLabel.get(child.label) ?? [];
       const next = upsertFrontmatterKeys(draft, {
         id: newId,
         status: 'imported',
@@ -469,6 +501,11 @@ export async function materializeSplit(args: {
         depends_on: `[${depIds.join(', ')}]`,
         ...(child.repos.length > 0
           ? { repos: `[${child.repos.join(', ')}]` }
+          : {}),
+        // contract-first: the consuming child's pinned contract names
+        // (wp-154 — the coordinator reads these at claim time).
+        ...(declaredContracts.length > 0
+          ? { contract: `[${declaredContracts.join(', ')}]` }
           : {}),
       });
       await store.appendDocVersion(
@@ -495,6 +532,9 @@ export async function materializeSplit(args: {
         work_type: parent?.work_type ?? null,
         origin: parent?.origin ?? null,
         severity: parent?.severity ?? null,
+        // wp-154 decomposition attrs — readiness lands below once
+        // every sibling row exists (dep statuses resolve).
+        parallel_safety: safety.get(child.label) ?? 'unknown',
         forced: false,
         spec_score: null,
         spec_hash: null,
@@ -502,6 +542,45 @@ export async function materializeSplit(args: {
         created_at: ts,
         updated_at: ts,
       } satisfies TicketRow);
+    }
+    // contract-first (wp-154): promote `contracts/<name>.json` run
+    // artifacts to `contract.json` doc_versions on each consuming
+    // child — BEFORE any implement run can pin
+    // `runs.request.baseline.contract_ver`. Throws on a missing/
+    // invalid artifact → the whole materialization rolls back.
+    if (contracts.length > 0) {
+      await promoteContracts({
+        ctx: tx,
+        ticketId,
+        contracts,
+        ids,
+        readArtifact: (name) => ticketArtifactText(tx, ticketId, name),
+      });
+    }
+    // wp-154 readiness verdict per child — computed last so dep rows +
+    // promoted contract docs are all visible inside the transaction.
+    for (const child of args.children) {
+      const newId = ids[child.label] as string;
+      const row = await store.getTicket({
+        workspace: ctx.workspace,
+        ticket_id: newId,
+      });
+      if (!row) continue;
+      const res = await computeExecutionReadiness({
+        ctx: tx,
+        ticket: {
+          ticket_id: newId,
+          depends_on: row.depends_on,
+        },
+        contracts: contractsByLabel.get(child.label) ?? [],
+      });
+      if (row.execution_readiness !== res.readiness) {
+        await store.upsertTicket({
+          ...row,
+          execution_readiness: res.readiness,
+          updated_at: ts,
+        });
+      }
     }
     return ids;
   });

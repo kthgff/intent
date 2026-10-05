@@ -38,10 +38,11 @@ import { join } from 'node:path';
 import type { RunRow, TicketRepoRow, TicketRow } from '@sprint-runner/core';
 import { git } from '@sprint-runner/gitops';
 import type { TransitionTools } from '../contracts.js';
+import { revalidateDependents } from '../decompose/coordinator.js';
 import { runVerifyTask } from '../envops/index.js';
 import { hasLiveRun } from '../launch/index.js';
 import { nowIso, resolveRepoPath } from '../loop/deps.js';
-import { makeTransitionTools } from '../loop/tools.js';
+import { makeTransitionTools, transitionContext } from '../loop/tools.js';
 import type { ToolCtx } from '../loop/tools.js';
 import { recordMerged } from '../merge/bookkeeping.js';
 import { runMergeCenter } from '../merge/center.js';
@@ -389,6 +390,21 @@ export async function pollOpenPrs(ctx: ShepherdCtx): Promise<ShepherdReport> {
         rows: finalRows,
         status: terminal,
       });
+      // wp-154 Integration Coordinator: post-merge revalidation of
+      // every non-terminal dependent — `execution_readiness` recompute
+      // (the dep just delivered or reverted) + pinned-contract drift
+      // check; drift surfaces a `baseline-drift` gate item, never a
+      // silent proceed.
+      try {
+        await revalidateDependents({
+          ctx: { ...transitionContext(ctx), notify: deps.notify },
+          mergedTicketId: id,
+        });
+      } catch (e) {
+        report.warnings.push(
+          `${id}: dependent revalidation: ${(e as Error).message}`,
+        );
+      }
       // Clear the merge-gate inbox row so it doesn't linger open forever.
       const gate = await store.getGateItem({
         workspace: ws.name,

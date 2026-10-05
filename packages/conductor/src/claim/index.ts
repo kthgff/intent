@@ -23,6 +23,7 @@ import {
 import { z } from 'zod';
 import { applyTicketStatus } from '../contracts.js';
 import type { RunnerTask } from '../contracts.js';
+import { coordinateClaim } from '../decompose/coordinator.js';
 import { hasLiveRun, launch, queuePendingRun } from '../launch/index.js';
 import { capsBlockClaim } from '../loop/caps.js';
 import type { ConductorDeps } from '../loop/deps.js';
@@ -66,6 +67,18 @@ export async function claim(ctx: ToolCtx): Promise<ClaimReport> {
   const { deps, ws } = ctx;
   const report: ClaimReport = { launched: [], skipped: [] };
   const tctx = transitionContext(ctx);
+  /** wp-154 Integration Coordinator context (deps.notify → the SSE
+   *  fan-out; optional everywhere downstream). */
+  const coordCtx = { ...tctx, notify: deps.notify };
+
+  // Live-run snapshot the coordinator fences against — refreshed as
+  // this pass launches so exclusive/predicted-conflict checks see
+  // runs claimed earlier in the SAME tick.
+  const live = await deps.store.listLiveRuns();
+  const noteLaunched = async (id: string) => {
+    const row = await deps.store.getRun(id);
+    if (row) live.push(row);
+  };
 
   // --- queued pending runs first (probe/split/fix requests) ---
   const pending = (
@@ -75,6 +88,30 @@ export async function claim(ctx: ToolCtx): Promise<ClaimReport> {
     })
   ).sort((a, b) => (a.started_at ?? '').localeCompare(b.started_at ?? ''));
   for (const row of pending) {
+    // wp-154: a ticket-bound pending run in a repo-executing stage is
+    // still an AI execution — the coordinator's exclusive/contract/
+    // shared-file fences apply (a queued retry must not jump the fence).
+    if (
+      row.ticket_id &&
+      (REPO_EXECUTING_STAGES as readonly string[]).includes(row.stage)
+    ) {
+      const ticket = await deps.store.getTicket({
+        workspace: ws.name,
+        ticket_id: row.ticket_id,
+      });
+      if (ticket) {
+        const reason = await coordinateClaim({
+          ctx: coordCtx,
+          ticket,
+          stage: row.stage,
+          live,
+        });
+        if (reason) {
+          report.skipped.push({ ticket: ticket.ticket_id, reason });
+          continue;
+        }
+      }
+    }
     const saved = PendingRequestSchema.safeParse(row.request);
     const req = saved.success ? saved.data : null;
     const id = await launch(ctx, {
@@ -87,7 +124,10 @@ export async function claim(ctx: ToolCtx): Promise<ClaimReport> {
       ...(req?.task ? { task: req.task as RunnerTask } : {}),
       pendingRow: row,
     });
-    if (id) report.launched.push(id);
+    if (id) {
+      report.launched.push(id);
+      await noteLaunched(id);
+    }
   }
 
   // --- ticket-driven claims ---
@@ -100,7 +140,6 @@ export async function claim(ctx: ToolCtx): Promise<ClaimReport> {
     );
 
   // Implement concurrency budget (CONDUCTOR "Scheduling policy").
-  const live = await deps.store.listLiveRuns();
   let implementActive = live.filter(
     (r) => r.stage === 'implement' && ['running', 'paused'].includes(r.status),
   ).length;
@@ -160,6 +199,22 @@ export async function claim(ctx: ToolCtx): Promise<ClaimReport> {
       }
     }
 
+    // wp-154 Integration Coordinator (repo-executing stages only):
+    // exclusive fencing, shared-file conflict prediction, and the
+    // contract-first pin — every rejection is a named skip reason on
+    // the report (dependency-aware sequencing is observable in claim
+    // order, never silent).
+    const coordReason = await coordinateClaim({
+      ctx: coordCtx,
+      ticket,
+      stage: next.stage,
+      live,
+    });
+    if (coordReason) {
+      skip(coordReason);
+      continue;
+    }
+
     const id = await launch(ctx, {
       workspace: ws.name,
       subject,
@@ -170,6 +225,7 @@ export async function claim(ctx: ToolCtx): Promise<ClaimReport> {
     if (id) {
       report.launched.push(id);
       if (next.stage === 'implement') implementActive += 1;
+      await noteLaunched(id);
     } else {
       skip('lease-contested');
     }

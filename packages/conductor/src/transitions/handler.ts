@@ -40,9 +40,11 @@ import {
   severityRule,
 } from '@sprint-runner/core';
 import { coverageLint, structuredDocLint } from '@sprint-runner/lints';
+import { contractLint } from '@sprint-runner/lints';
 import { specLint } from '@sprint-runner/lints';
 import { escalationModelFor } from '@sprint-runner/prompts';
 import { type ChangesCtx, createChangeset } from '../changes/index.js';
+import { parseDecompositionPlan } from '../decompose/plan.js';
 import {
   type ApplyStatusOptions,
   type NextTransition,
@@ -78,7 +80,6 @@ import {
   materializeSplit,
   mergeFindingsPass,
   openBlockingSeverities,
-  parseSplitPlan,
   pushBranches,
   putArtifactText,
   putDocText,
@@ -530,10 +531,12 @@ export class RealTransitionHandler implements TransitionHandler {
       return { stage: 'triage' };
     }
     // The plan is a run_artifacts row written by the split run
-    // (D29 — was tickets/<id>/split-plan.md).
+    // (D29 — was tickets/<id>/split-plan.md). wp-154: the full
+    // decomposition parse — `## Children` + the optional
+    // `## Contracts`/`## Decomposition` sections, fail-closed.
     const plan = await ticketArtifactText(ctx, id, 'split-plan.md');
-    const children = plan ? parseSplitPlan(plan) : null;
-    if (!children) {
+    const parsed = plan ? parseDecompositionPlan(plan) : null;
+    if (!parsed) {
       await tools.surfaceGateItem({
         subject: id,
         gate: 'repair',
@@ -545,9 +548,18 @@ export class RealTransitionHandler implements TransitionHandler {
     await emitEvent(tools, {
       ticketId: id,
       event: 'split_approved',
-      data: { children: children.length },
+      data: {
+        children: parsed.children.length,
+        contracts: parsed.contracts.map((c) => c.name),
+      },
     });
-    const ids = await materializeSplit({ ctx, ticketId: id, children });
+    const ids = await materializeSplit({
+      ctx,
+      ticketId: id,
+      children: parsed.children,
+      decomposition: parsed.decomposition,
+      contracts: parsed.contracts,
+    });
     await emitEvent(tools, {
       ticketId: id,
       event: 'split_materialized',
@@ -1025,11 +1037,63 @@ export class RealTransitionHandler implements TransitionHandler {
       const violations = plan
         ? structuredDocLint('split-plan.md', plan)
         : [{ rule: 'doc.missing', message: 'split-plan.md not written' }];
+      // wp-154 contract-first: a `## Contracts` row promises a
+      // `contracts/<name>.json` run artifact holding a valid
+      // ContractSpec, consumed only by real child labels. The gate
+      // must never surface a plan that cannot materialize (the
+      // approval path promotes contracts fail-closed).
+      const parsed =
+        plan && violations.length === 0
+          ? parseDecompositionPlan(plan)
+          : null;
+      if (plan && violations.length === 0 && parsed === null) {
+        violations.push({
+          rule: 'doc.table',
+          message: 'split-plan.md: decomposition sections unparseable',
+        });
+      }
+      if (parsed) {
+        const labels = new Set(parsed.children.map((c) => c.label));
+        for (const c of parsed.contracts) {
+          const raw =
+            (await runArtifactText(tools, outcome.run.id, id, c.artifact)) ??
+            (await ticketArtifactText(tools, id, c.artifact));
+          if (raw === null) {
+            violations.push({
+              rule: 'contract.missing',
+              message: `split-plan.md: contract '${c.name}' artifact '${c.artifact}' not among the run's artifacts`,
+            });
+          } else {
+            for (const cv of contractLint(raw)) {
+              violations.push({
+                ...cv,
+                message: `split-plan.md: ${c.artifact}: ${cv.message}`,
+              });
+            }
+          }
+          for (const consumer of c.consumers) {
+            if (!labels.has(consumer)) {
+              violations.push({
+                rule: 'contract.consumer',
+                message: `split-plan.md: contract '${c.name}' consumer '${consumer}' is not a ## Children label`,
+              });
+            }
+          }
+        }
+        for (const d of parsed.decomposition) {
+          if (!labels.has(d.child)) {
+            violations.push({
+              rule: 'decomposition.child',
+              message: `split-plan.md: ## Decomposition row '${d.child}' is not a ## Children label`,
+            });
+          }
+        }
+      }
       if (violations.length > 0) {
         await this.#requestDocRepair(tools, id, 'split-plan.md', violations);
         return;
       }
-      const children = parseSplitPlan(plan as string) ?? [];
+      const children = parsed?.children ?? [];
       await emitEvent(tools, {
         ticketId: id,
         stage: 'split',
