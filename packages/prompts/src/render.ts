@@ -48,6 +48,8 @@ export const STAGE_TEMPLATES = {
   escalate: 'escalate',
   survey: 'survey',
   verify: null,
+  // Addendum stages (wp-131 freeze) — templates land with their owning
+  // wps; `retro` is wired by wp-132, the rest map to null until then.
   'release-notes': null,
   retro: 'retro',
   extract: null,
