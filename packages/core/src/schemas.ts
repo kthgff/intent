@@ -4,6 +4,7 @@
  * structured output blocks the pipeline rather than guessing (AGENTS.md).
  */
 import { z } from 'zod';
+import type { RsQualityDimension } from './enums.js';
 import {
   ACTOR_TYPES,
   ASSUMPTION_STATUSES,
@@ -83,6 +84,8 @@ import {
   RELEASE_STATUSES,
   REPO_INDEX_STATUSES,
   RETRIEVAL_TASKS,
+  RS_QUALITY_DIMENSIONS,
+  RS_QUALITY_SEVERITIES,
   REVIEW_ACTIONS,
   REVIEW_COMMENT_DISPOSITIONS,
   REVIEW_COMMENT_TYPES,
@@ -2291,4 +2294,113 @@ export function validateRetrievalEvidence(value: unknown): RetrievalEvidence {
   const parsed = RetrievalEvidenceSchema.safeParse(value);
   if (!parsed.success) throw new EvidenceError(parsed.error.issues);
   return parsed.data;
+}
+
+// ---------- rs-quality.json — the cited AI PRD-quality pass (INTELLIGENCE §5, wp-111) ----------
+
+/**
+ * One RS quality finding. `citations` is REQUIRED and non-empty —
+ * a finding without a source (doc ref `rs.md`, ticket ref, or an
+ * `ev_<id>`/`code:<repo>:<sha>:…` evidence ref from the run's
+ * retrieval-evidence.json) is a malformed artifact, never a guess.
+ */
+export const RsQualityFindingSchema = z.object({
+  id: z.string().min(1),
+  dimension: enumOf(RS_QUALITY_DIMENSIONS),
+  severity: enumOf(RS_QUALITY_SEVERITIES),
+  /** Reviewable claim about the spec — a hypothesis, never a verdict. */
+  claim: z.string().min(1),
+  /** ≥1 citation — evidence ids, code object_refs, or doc refs. */
+  citations: z.array(z.string().min(1)).min(1),
+  /** The doc section/AC the finding attaches to (e.g. `ac:AC-2`,
+   *  `section:rollback`, `rs.md#requirements`). */
+  ref: z.string().nullish(),
+  suggested_fix: z.string().nullish(),
+  confidence: z.number().min(0).max(1).nullish(),
+  /** Human/settlement state — `open | resolved | waived`; the agent
+   *  always emits `open` (a finding can't resolve itself). */
+  status: z.enum(['open', 'resolved', 'waived']).default('open'),
+});
+export type RsQualityFinding = z.infer<typeof RsQualityFindingSchema>;
+
+/**
+ * `rs-quality.json` (SCHEMAS §24) — the `prd` run's cited quality pass
+ * over its own rs.md draft. Advisory by construction: it carries NO
+ * score and NO approval field, it can never touch `tickets.spec_score`
+ * or a gate row itself — the RUNNER translates critical findings into
+ * an `rs-quality` gate item (conductor prdReview). Empty `findings`
+ * is a valid, explicit "clean pass" outcome.
+ */
+export const RsQualitySchema = z
+  .object({
+    schema: SchemaVersionSchema,
+    subject: z.string().min(1),
+    /** The rs.md doc_version the pass evaluated. */
+    doc_version: z.number().int().positive().nullish(),
+    /** Evidence bundle the findings cite into (run artifact ref —
+     *  e.g. `retrieval-evidence.json`); null on greenfield. */
+    evidence_ref: z.string().nullish(),
+    /** Every dimension the pass claims to have checked — the runner
+     *  compares it to {@link RS_QUALITY_DIMENSIONS} so a silent
+     *  partial pass fails closed. */
+    dimensions_checked: z.array(enumOf(RS_QUALITY_DIMENSIONS)).min(1),
+    findings: z.array(RsQualityFindingSchema).default([]),
+    generated_at: z.string(),
+  })
+  .superRefine((q, ctx) => {
+    const seen = new Set<string>();
+    q.findings.forEach((f, i) => {
+      if (seen.has(f.id)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['findings', i, 'id'],
+          message: `duplicate finding id '${f.id}'`,
+        });
+      }
+      seen.add(f.id);
+      if (!q.dimensions_checked.includes(f.dimension)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['findings', i, 'dimension'],
+          message: `finding dimension '${f.dimension}' is not in dimensions_checked`,
+        });
+      }
+    });
+  });
+export type RsQuality = z.infer<typeof RsQualitySchema>;
+
+/** Thrown when an rs-quality.json artifact fails closed. */
+export class RsQualityError extends Error {
+  readonly issues: z.ZodIssue[];
+  constructor(issues: z.ZodIssue[]) {
+    super(
+      `rs-quality failed validation: ${issues
+        .map((i) => `${i.path.join('.')} ${i.message}`)
+        .join('; ')}`,
+    );
+    this.name = 'RsQualityError';
+    this.issues = issues;
+  }
+}
+
+/** Fail-closed validation for `rs-quality.json` (AGENTS — malformed
+ *  structured output blocks the pipeline). */
+export function validateRsQuality(value: unknown): RsQuality {
+  const parsed = RsQualitySchema.safeParse(value);
+  if (!parsed.success) throw new RsQualityError(parsed.error.issues);
+  return parsed.data;
+}
+
+/**
+ * Dimensions the quality pass failed to check — a non-empty result
+ * means the artifact was a silent partial pass and must be treated
+ * as malformed (fail-closed). Order follows
+ * {@link RS_QUALITY_DIMENSIONS}.
+ */
+export function missingQualityDimensions(
+  q: Pick<RsQuality, 'dimensions_checked'>,
+): RsQualityDimension[] {
+  return RS_QUALITY_DIMENSIONS.filter(
+    (d) => !q.dimensions_checked.includes(d),
+  );
 }
