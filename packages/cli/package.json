@@ -14,7 +14,13 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@sprint-runner/core": "workspace:*"
+    "@sprint-runner/adapters": "workspace:*",
+    "@sprint-runner/api": "workspace:*",
+    "@sprint-runner/config": "workspace:*",
+    "@sprint-runner/conductor": "workspace:*",
+    "@sprint-runner/core": "workspace:*",
+    "@sprint-runner/store": "workspace:*",
+    "yaml": "^2.5.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
