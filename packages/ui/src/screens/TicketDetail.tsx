@@ -159,20 +159,25 @@ function sectionOf(md: string | null, heading: string): string | null {
   const lines = md.split('\n');
   const want = heading.toLowerCase();
   const start = lines.findIndex(
-    (l) => /^##\s+/.test(l) && l.replace(/^##\s+/, '').trim().toLowerCase() === want,
+    (l) =>
+      /^##\s+/.test(l) &&
+      l
+        .replace(/^##\s+/, '')
+        .trim()
+        .toLowerCase() === want,
   );
   if (start === -1) return null;
   const end = lines.findIndex((l, i) => i > start && /^##\s/.test(l));
-  const body = lines.slice(start + 1, end === -1 ? undefined : end).join('\n').trim();
+  const body = lines
+    .slice(start + 1, end === -1 ? undefined : end)
+    .join('\n')
+    .trim();
   return body === '' ? null : body;
 }
 
 /** Evidence requirements that belong to a per-type tab (matched on the
  *  policy check, not a per-type branch). */
-function tabEvidence(
-  tab: string,
-  wb: Workbench,
-): WorkbenchEvidence[] {
+function tabEvidence(tab: string, wb: Workbench): WorkbenchEvidence[] {
   return wb.evidence.filter((e) => {
     const c = e.check as {
       kind?: string;
@@ -192,9 +197,14 @@ function tabEvidence(
       case 'findings':
         return c.kind === 'doc' && c.doc === 'notes.md';
       case 'migration-checks':
-        return c.kind === 'doc-contains' && c.needle?.toLowerCase() === 'migration';
+        return (
+          c.kind === 'doc-contains' && c.needle?.toLowerCase() === 'migration'
+        );
       case 'ac-design':
-        return c.kind === 'section' && c.section?.toLowerCase() === 'acceptance criteria';
+        return (
+          c.kind === 'section' &&
+          c.section?.toLowerCase() === 'acceptance criteria'
+        );
       default:
         return false;
     }
@@ -305,7 +315,6 @@ function WorkbenchSectionTab({
     </div>
   );
 }
-
 
 function Overview({ d }: { d: Detail }) {
   return (

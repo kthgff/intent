@@ -870,9 +870,7 @@ export function createServer(opts: ServerOptions): ApiServer {
       needsScopeApproval(workType, origin, null, scopeApproved)
     ) {
       throw forbidden(
-        `work type '${workType}' may not be created directly — it must ` +
-          `originate from an approved RS/board proposal (set origin ` +
-          `${APPROVED_SCOPE_ORIGINS.join('|')} or supply scope_ref)`,
+        `work type '${workType}' may not be created directly — it must originate from an approved RS/board proposal (set origin ${APPROVED_SCOPE_ORIGINS.join('|')} or supply scope_ref)`,
       );
     }
     // Priority ≠ severity: severity is forbidden where it can only mean

@@ -19,9 +19,9 @@ import { createHash } from 'node:crypto';
 import { basename, isAbsolute, join, resolve } from 'node:path';
 import type { EffectiveConfig } from '@sprint-runner/config';
 import {
+  type EventRow,
   type EvidenceGate,
   type EvidenceRequirement,
-  type EventRow,
   type GateMode,
   INTAKE_QUESTION_PREFIX,
   REVIEW_PASSES,
@@ -313,9 +313,18 @@ export class RealTransitionHandler implements TransitionHandler {
           // `test-approved` evidence (per-type completion evidence). A
           // cleared — or mode-suppressed — gate is NOT a pass while the
           // requirements are unmet (never a silent pass).
-          const missing = await this.#missingEvidence(ctx, ticket, 'test-approved');
+          const missing = await this.#missingEvidence(
+            ctx,
+            ticket,
+            'test-approved',
+          );
           if (missing.length > 0) {
-            await this.#parkForEvidenceGate(ctx, ticket, 'test-approved', missing);
+            await this.#parkForEvidenceGate(
+              ctx,
+              ticket,
+              'test-approved',
+              missing,
+            );
             return null;
           }
           // Stale-spec check (CONDUCTOR special paths) runs BEFORE the
@@ -2040,14 +2049,18 @@ export class RealTransitionHandler implements TransitionHandler {
 
     // Intake-gate evidence: required intake slots + severity + origin
     // rules. Missing ⇒ a needs-info round, never a silent pass.
-    const snapshot = await gatherEvidenceSnapshot(tools.store, tools.workspace, {
-      ticket_id: id,
-      work_type: workType,
-      origin,
-      severity,
-      parent: row.parent ?? null,
-      feature: row.feature ?? null,
-    });
+    const snapshot = await gatherEvidenceSnapshot(
+      tools.store,
+      tools.workspace,
+      {
+        ticket_id: id,
+        work_type: workType,
+        origin,
+        severity,
+        parent: row.parent ?? null,
+        feature: row.feature ?? null,
+      },
+    );
     const intake = evaluateEvidence(workType, origin, 'intake', snapshot);
     if (intake.missing.length > 0) {
       await this.#parkForIntake(tools, id, runId, intake.missing, 'evidence');
@@ -2311,7 +2324,11 @@ export class RealTransitionHandler implements TransitionHandler {
     await emitEvent(tools, {
       ticketId: ticket.ticket_id,
       event: 'note_added',
-      data: { kind: 'evidence-missing', gate, missing: missing.map((r) => r.id) },
+      data: {
+        kind: 'evidence-missing',
+        gate,
+        missing: missing.map((r) => r.id),
+      },
     });
   }
 

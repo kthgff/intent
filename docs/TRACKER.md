@@ -114,7 +114,7 @@ Program plan for W16+ (PRD §14+§15): `docs/DEV-PLAN.md` + `docs/DELIVERY.md`.
 | W20 | wp-148 | Review Studio: findings lifecycle, semantic comments, commit-bound approval | wp-131 | done |
 | W20 | wp-149 | Design artifacts: structured mockups, visual ACs, design approvals + Mockups UI | wp-131, wp-132 | done |
 | W20 | wp-150 | Security review dimension: categories, finding fields, risk-tiered enforcement | wp-148 | done |
-| W21 | wp-151 | Ticket taxonomy: work types/origins, per-type intake, Ticket Workbench | wp-131 | todo |
+| W21 | wp-151 | Ticket taxonomy: work types/origins, per-type intake, Ticket Workbench | wp-131 | done |
 | W21 | wp-152 | Feature Workspace: tabs, health rollup, acceptance package, scoped assistant | wp-131, wp-134, wp-146 | todo |
 | W21 | wp-153 | Process machinery: DoR/DoD engines, Assumption Register, Quality Debt, Delivery Commitments | wp-131, wp-134 | todo |
 | W21 | wp-154 | Work Decomposition Engine + contract-first tickets + integration coordination | wp-131, wp-143 | todo |
