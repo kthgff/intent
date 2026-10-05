@@ -2,7 +2,7 @@
 schema: 1
 id: wp-097
 title: Conductor rewire — container-ensure in LAUNCH, gate-sleep, teardown, docker heartbeats
-status: todo
+status: done
 priority: high
 depth: standard
 repos: []

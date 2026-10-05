@@ -18,6 +18,7 @@ import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
+  type Adapter,
   PROMPT_TOKENS,
   REPO_EXECUTING_STAGES,
   type RouteDecision,
@@ -30,12 +31,15 @@ import {
 import { createWorktree } from '@sprint-runner/gitops';
 import { assertRouteProvider, resolveRunRoute } from '@sprint-runner/prompts';
 import type { RunRequest } from '../contracts.js';
+import { ensureSubjectContainer } from '../envops/index.js';
 import { capExceeded } from '../loop/caps.js';
 import {
   type ConductorDeps,
   type ConductorWorkspace,
   actorOf,
   adapterFor,
+  backendRuntime,
+  containerRuntimeDeps,
   nowIso,
   resolveRepoPath,
   saveHandle,
@@ -278,6 +282,54 @@ function persistedRequest(
 }
 
 /**
+ * Container ensure (CONDUCTOR LAUNCH step 3, D30) — for a
+ * repo-executing stage on a `runtime: container` backend, create the
+ * subject's persistent container if absent (bind-mounting every current
+ * `ticket_repos` worktree) or `docker start` it if stopped; the wp-095
+ * lifecycle recreates it when the mount set grew. Returns the container
+ * id to hand to `adapter.run(opts.container_id)`, or `undefined` when
+ * this run stays host-side.
+ *
+ * Lazy-create rule: cardless doc stages (triage/prd/design/testplan/
+ * interview) run on the host — no container exists until the first
+ * repo-executing stage has code to execute against.
+ */
+async function ensureRunContainer(
+  ctx: LaunchContext,
+  args: {
+    req: RunRequest;
+    ticket: TicketRow | null;
+    adapter: Adapter;
+  },
+): Promise<string | undefined> {
+  const { deps, ws } = ctx;
+  const { req, ticket, adapter } = args;
+  if (!ticket) return undefined;
+  if (!(REPO_EXECUTING_STAGES as readonly string[]).includes(req.stage)) {
+    return undefined; // cardless stage → host process
+  }
+  if (backendRuntime(deps, adapter.name, adapter) !== 'container') {
+    return undefined; // process backend
+  }
+  // Mounts = every worktree on the ticket (one container, N mounts for
+  // multi-repo — never N containers). Worktrees were created above.
+  const ticketRepos = await deps.store.listTicketRepos({
+    workspace: ws.name,
+    ticket_id: ticket.ticket_id,
+  });
+  const mounts = ticketRepos
+    .map((r) => r.worktree)
+    .filter((w): w is string => typeof w === 'string' && w.length > 0);
+  if (mounts.length === 0) return undefined; // nothing to execute against
+  const ensured = await ensureSubjectContainer(containerRuntimeDeps(deps), {
+    workspace: ws.name,
+    subject: req.subject,
+    mounts,
+  });
+  return ensured?.row.container_id;
+}
+
+/**
  * LAUNCH one run: lease → worktree(s) → prepare → spawn detached →
  * register. `pendingRow` set → reuses that row (requestRun path).
  * Returns the run id, or null when the lease was contested.
@@ -495,10 +547,17 @@ export async function launch(
       runDir,
     ),
   });
+  // Container ensure BEFORE the exec (CONDUCTOR LAUNCH step 3, D30) —
+  // the adapter's `docker exec -w <worktree>` targets this container.
+  const containerId = await ensureRunContainer(ctx, { req, ticket, adapter });
   const handle = await adapter.run(
     worktree,
     rendered,
     stageTimeout(deps, req.stage),
+    {
+      run_dir: runDir,
+      ...(containerId !== undefined ? { container_id: containerId } : {}),
+    },
   );
   await saveHandle(runDir, handle);
   ctx.handles.set(runId, handle);
@@ -516,7 +575,7 @@ export async function launch(
     depth,
     pid: handle.pid,
     worktree,
-    container_id: null,
+    container_id: containerId ?? null,
     request: persistedRequest(
       req.pendingRow,
       reqTokens,
@@ -555,7 +614,12 @@ export async function launch(
     event: 'run_started',
     run: runId,
     refs: [],
-    data: { attempt, pid: handle.pid, worktree },
+    data: {
+      attempt,
+      pid: handle.pid,
+      worktree,
+      ...(containerId !== undefined ? { container_id: containerId } : {}),
+    },
     cost_usd: null,
     tokens_in: null,
     tokens_out: null,
