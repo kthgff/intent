@@ -1088,6 +1088,28 @@ export const ReleaseItemRowSchema = z.object({
 });
 export type ReleaseItemRow = z.infer<typeof ReleaseItemRowSchema>;
 
+/** One frozen scope entry inside a manifest — item → [{repo,
+ *  merged_sha}] (DELIVERY §3). `partial_ac` is part of the frozen
+ *  scope: a partial release bakes its approved ac_ids into the cut. */
+export const ReleaseManifestItemSchema = z.object({
+  item_kind: enumOf(RELEASE_ITEM_KINDS),
+  item_id: z.string().min(1),
+  /** Frozen ac_ids for partial releases; null/absent = full item. */
+  partial_ac: z.array(z.string()).nullish(),
+  repos: z.array(
+    z.object({
+      repo: z.string().min(1),
+      /** Member ticket this entry came from (feature items can carry
+       *  the same repo once per member ticket). */
+      ticket: z.string().nullish(),
+      /** Source-control-confirmed merge SHA at cut time; null = not
+       *  yet merged (invariant 2 blocks `released` until all set). */
+      merged_sha: z.string().nullish(),
+    }),
+  ),
+});
+export type ReleaseManifestItem = z.infer<typeof ReleaseManifestItemSchema>;
+
 /** Immutable manifest cut — a scope change cuts a new version and
  *  resets pending approvals (DELIVERY invariant 3). */
 export const ReleaseManifestRowSchema = z.object({
@@ -1095,10 +1117,10 @@ export const ReleaseManifestRowSchema = z.object({
   org: z.string().nullish(),
   release_id: z.string().min(1),
   version: z.number().int().positive(),
-  /** sha256 of the item→repo→merged_sha map. */
+  /** sha256 of the canonical item→repo→merged_sha map. */
   digest: z.string().min(1),
-  /** [{item_kind, item_id, repos: [{repo, merged_sha}]}]. */
-  items: z.array(z.record(z.unknown())),
+  /** [{item_kind, item_id, partial_ac?, repos: [{repo, merged_sha}]}]. */
+  items: z.array(ReleaseManifestItemSchema),
   created_at: z.string().nullish(),
 });
 export type ReleaseManifestRow = z.infer<typeof ReleaseManifestRowSchema>;

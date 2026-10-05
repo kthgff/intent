@@ -41,8 +41,8 @@ const run = (over: Partial<RunRow> = {}): RunRow => ({
 });
 
 describe('migrations + meta', () => {
-  it('applies pg/0001_init + 0002 + 0003 + 0004 + 0005 and records schema_meta', async () => {
-    expect(await s().getSchemaVersion()).toBe(5);
+  it('applies pg/0001_init through 0006 and records schema_meta', async () => {
+    expect(await s().getSchemaVersion()).toBe(6);
     const rows = await s().db.query<{ table_name: string }>(
       `SELECT table_name FROM information_schema.tables
        WHERE table_schema='public' ORDER BY table_name`,
