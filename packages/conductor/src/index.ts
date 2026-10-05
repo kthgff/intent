@@ -13,6 +13,7 @@ export * from './loop/tools.js';
 export * from './reconcile/index.js';
 export * from './review/index.js';
 export * from './semantics/index.js';
+export * from './interview/index.js';
 export * from './import/index.js';
 export * from './claim/index.js';
 export * from './shepherd/index.js';

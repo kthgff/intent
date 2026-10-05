@@ -26,6 +26,13 @@ import {
  * `extract` → wp-143, `mockup`/`design-ingest` → wp-149). The
  * `solution-brief` template is also shipped (unbound — its producing
  * stage arrives with the discovery wps; DOC_KINDS accepts the doc).
+ *
+ * `interview` (wp-145): the orchestrator drives the wizard turn loop
+ * (wizard defs, knowledge slots, question planner, snapshots); its two
+ * LLM surfaces — answer→statements and next-question proposal — run
+ * through conductor `runExtraction` (EXTRACT_PROMPT_VERSION) and
+ * `buildQuestionPrompt` (INTERVIEW_PROMPT_VERSION), not this core
+ * template. The template below is the legacy single-shot interview run.
  */
 export const STAGE_TEMPLATES = {
   interview: 'interview',
