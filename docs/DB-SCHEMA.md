@@ -41,6 +41,8 @@ projects(
                                            --   RETURNING * (atomic)
   next_feature_seq INT DEFAULT 1,          -- F-NNNN
   next_initiative_seq INT DEFAULT 1,       -- I-NNNN
+  next_release_seq INT DEFAULT 1,          -- REL-NNNN (DELIVERY §3)
+  next_changeset_seq INT DEFAULT 1,        -- CS-NNNN (PRD §15.5, wp-140)
   settings TEXT,                           -- jsonb — per-project config
                                            -- overrides (SETTINGS
                                            -- precedence layer)
@@ -48,8 +50,16 @@ projects(
 
 -- --- boards / canvas (D26 idea boards, D27 capture tray) ---
 boards(
-  workspace TEXT, board TEXT,              -- slug, unique per workspace
-  name TEXT, created_at TEXT,
+  workspace TEXT, org TEXT,                -- org-level boards (§15.3)
+  board TEXT,                              -- slug, unique per workspace
+  name TEXT,
+  board_type TEXT,                         -- new-project|import|enhancement|
+                                           -- modernization|quality|feedback|
+                                           -- release-planning|exploration
+                                           -- (§15.3 — config, not pipeline)
+  status TEXT,                             -- draft|discovery|proposal-ready|
+                                           -- approved|deferred|archived
+  created_at TEXT,
   PRIMARY KEY(workspace, board));
 board_items(                               -- every card on a canvas;
   id TEXT PRIMARY KEY,                     -- board NULL = capture tray
@@ -71,6 +81,11 @@ board_items(                               -- every card on a canvas;
                                            -- frozen|shipped|discarded;
                                            -- goal items: active|achieved|
                                            -- abandoned (D33)
+  note_kind TEXT, topic TEXT,              -- typed-sticky taxonomy (§15.3,
+  importance TEXT, applies_to TEXT,        -- wp-144) layered on `kind`
+  note_status TEXT, rationale TEXT,
+  provenance TEXT,                         -- inferred|source-backed|
+                                           -- stakeholder-verified (wp-139)
   consumed_by TEXT,                        -- synthesis ticket/run that
                                            -- consumed the card
   created_at TEXT, updated_at TEXT);
@@ -352,7 +367,7 @@ release_outcomes(
   PRIMARY KEY(workspace, release_id, kpi));
 
 -- --- changesets (PRD §15.5, wp-140) ---
-changesets(workspace, org, changeset_id,
+changesets(workspace, org, changeset_id,    -- CS-NNNN (next_changeset_seq)
   title, request,                         -- verbatim request text
   baseline,                               -- json {subject,doc,version}
   classification,                         -- clarification|correction|addition|modification|removal

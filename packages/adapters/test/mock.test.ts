@@ -31,9 +31,9 @@ function makeCtx(): { prepare: PrepareContext; collect: CollectContext } {
       tokens: {
         TICKET_MD: '# ticket',
         REPO_CARDS: '',
-        PRD_MD: '',
+        RS_MD: '',
         TDD_MD: '',
-        TEST_MD: '',
+        VS_MD: '',
         BRANCH: 'SR-0001',
         DEPTH: 'light',
       },

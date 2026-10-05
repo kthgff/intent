@@ -67,7 +67,7 @@ payload shapes come from `SCHEMAS.md`/`DB-SCHEMA.md`.
 | `/repositories/<repo>/index` | GET, POST | D37 code-index head/status; POST requests incremental index of the authorized current default-branch SHA (never accepts arbitrary filesystem paths) |
 | `/alignment/<scope>` | GET, POST | Phase B (D37): list current `alignment-findings.json`; POST requests a fresh intended/implemented/verified comparison |
 | `/telemetry/sources`, `/incidents` | — | Phase C (D37), deferred: sanitized connector administration, error-signature list, incident investigation, and human-approved draft-ticket proposal; raw telemetry is queried in its source backend, not returned by default |
-| `/metrics` | GET | S-12 — dashboard aggregates from `events`/`usage_calls` |
+| `/metrics` | GET | S-12 — dashboard aggregates from `events`/`usage_calls`; includes `accepted_outcomes` + `cost_per_accepted_outcome` (wp-155, PRD §15.12: total inference+retry+execution+remediation spend over outcomes that reached `merged`/`released` — never per-call price; `null` when no outcome has landed) |
 | `/gate-items/<id>/claim` `/release` | POST, DELETE | shared-queue claiming |
 
 ## Live channel — `GET /api/v1/stream` (SSE)

@@ -300,6 +300,16 @@ export const EVENT_NAMES = [
   'changeset_verified',
   'baseline_reconciled',
   'model_transition',
+  /** Test-environment request lifecycle (PRD §15.10, wp-157). */
+  'test_env_requested',
+  'test_env_fulfilled',
+  'test_env_waived',
+  'test_env_expired',
+  /** Import reconciliation (wp-139) — `import_reconciled` records the
+   *  provenance trail for a resolved finding; `import_drift_detected`
+   *  flags drift between an imported artifact and its source. */
+  'import_reconciled',
+  'import_drift_detected',
 ] as const;
 export type EventName = (typeof EVENT_NAMES)[number];
 
@@ -333,6 +343,9 @@ export const FINDING_CATEGORIES = [
   'style',
   'test-gap',
   'spec-deviation',
+  /** Post-merge implementation-vs-approved-design comparison (§15.4,
+   *  wp-149) — advisory, human-verdicted. */
+  'design-drift',
 ] as const;
 export type FindingCategory = (typeof FINDING_CATEGORIES)[number];
 
@@ -425,6 +438,9 @@ export const GATE_NAMES = [
    *  + a `rebase` run, never a silent force-push). Verbatim spec
    *  spelling: underscore, matching the `merge_conflict` event. */
   'merge_conflict',
+  /** Test-environment provisioning gate (PRD §15.10, wp-157): the
+   *  stage blocks until the human fulfils or waives the request. */
+  'test-env',
 ] as const;
 export type GateName = (typeof GATE_NAMES)[number];
 
@@ -470,12 +486,16 @@ export const FEATURE_STATUSES = [
 ] as const;
 export type FeatureStatus = (typeof FEATURE_STATUSES)[number];
 
-/** doc_versions.doc — every persisted doc kind (DB-SCHEMA doc_versions). */
+/** doc_versions.doc — every persisted doc kind (DB-SCHEMA doc_versions).
+ *  Addendum naming (wp-132, PRD §15.2): `rs.md` = Requirements
+ *  Specification (was `prd.md`), `vs.md` = Verification Specification
+ *  (was `test.md`); the 0001 migration renames existing rows. The old
+ *  doc kinds are retired — nothing may write them. */
 export const DOC_KINDS = [
   'ticket.md',
-  'prd.md',
+  'rs.md',
   'tdd.md',
-  'test.md',
+  'vs.md',
   'feature.md',
   'ac.md',
   'provenance.json',
@@ -486,20 +506,17 @@ export const DOC_KINDS = [
   /** Human DoD attestations for `manual` rows (was
    *  dod-attestations.json in the ticket dir). */
   'dod-attestations.json',
-  /** Addendum doc kinds (wp-131 freeze; adopted naming PRD §15.2):
-   *  `rs.md`/`vs.md` are the renamed prd.md/test.md (wp-132 migrates
-   *  rows), `solution-brief.md` sits between charter and RS,
-   *  `retro.md` is the release retrospective on a release subject,
-   *  `notes-<audience>.md` carries release-note content per
+  /** Addendum doc kinds (adopted naming PRD §15.2):
+   *  `solution-brief.md` sits between charter and RS on the Solution
+   *  subject, `retro.md` is the release retrospective on a release
+   *  subject, `notes-<audience>.md` carries release-note content per
    *  RELEASE_NOTE_AUDIENCES (DELIVERY §3), `mockup.json` is the
    *  structured component tree (§15.4), `briefing.json` is the
    *  knowledge-version diff briefing on session resume (§15.9),
    *  `contract.json` is the approved interface contract pinned in
    *  runs.request.baseline (wp-154), `adr.md` is a first-class
    *  versioned decision doc (§15.2). */
-  'rs.md',
   'solution-brief.md',
-  'vs.md',
   'retro.md',
   'notes-customer.md',
   'notes-stakeholder.md',
@@ -526,9 +543,11 @@ export const RUN_ARTIFACT_KINDS = [
   /** Addendum run output (wp-131): `contract.json` is the decompose
    *  run's interface-contract output (promoted to doc_versions on
    *  approval, wp-154); `design-system.json` is the ingestion run's
-   *  extracted component-token bundle (wp-149). */
+   *  extracted component-token bundle (wp-149); `statements.json` is
+   *  the `extract` stage's statement batch (wp-143, SCHEMAS §22). */
   'contract.json',
   'design-system.json',
+  'statements.json',
 ] as const;
 export type RunArtifactKind = (typeof RUN_ARTIFACT_KINDS)[number];
 
@@ -869,6 +888,63 @@ export const PROVENANCE_STATES = [
 ] as const;
 export type ProvenanceState = (typeof PROVENANCE_STATES)[number];
 
+/** Provenance states that may auto-approve (wp-139): only evidence the
+ *  system can trace (`source-backed`) or a human vouched for
+ *  (`stakeholder-verified`). `inferred` ALWAYS needs a human. */
+export const PROVENANCE_AUTO_APPROVABLE = [
+  'source-backed',
+  'stakeholder-verified',
+] as const satisfies readonly ProvenanceState[];
+
+/** True iff `provenance` may clear a gate without a human (§15.3,
+ *  wp-139 — "inferred never auto-approves"). */
+export function provenanceAllowsAutoApproval(
+  provenance: ProvenanceState | null | undefined,
+): boolean {
+  return (
+    provenance != null &&
+    (PROVENANCE_AUTO_APPROVABLE as readonly string[]).includes(provenance)
+  );
+}
+
+/** Import reconciliation review-item kinds (wp-139, PRD §15.3). Drift
+ *  between an imported artifact and its source of record is never
+ *  silently overwritten — it surfaces as one of these reviewable
+ *  findings on the import board. */
+export const RECONCILIATION_KINDS = [
+  'duplicate',
+  'conflict',
+  'drift',
+  'completed',
+  'clarification',
+] as const;
+export type ReconciliationKind = (typeof RECONCILIATION_KINDS)[number];
+
+/** Human decision recorded against a reconciliation finding (wp-139).
+ *  `open` = awaiting review; the rest close it. */
+export const RECONCILIATION_DECISIONS = [
+  'open',
+  'merged',
+  'kept-both',
+  'superseded',
+  'source-accepted',
+  'imported-kept',
+  'dismissed',
+] as const;
+export type ReconciliationDecision = (typeof RECONCILIATION_DECISIONS)[number];
+
+/** semantic_statements.source_ref.kind — the evidence kind a statement
+ *  was extracted from (wp-143). `manual` = directly authored (no
+ *  extraction run). */
+export const STATEMENT_SOURCE_KINDS = [
+  'board-item',
+  'interview-message',
+  'import',
+  'doc',
+  'manual',
+] as const;
+export type StatementSourceKind = (typeof STATEMENT_SOURCE_KINDS)[number];
+
 // ---------- interview orchestrator (PRD §15.9, wp-145) ----------
 
 /** knowledge_slots.state — versioned wizard defs declare required
@@ -1173,6 +1249,59 @@ export const DESIGN_APPROVAL_STATUSES = [
 ] as const;
 export type DesignApprovalStatus = (typeof DESIGN_APPROVAL_STATUSES)[number];
 
+// ---------- design artifacts / mockups (PRD §15.4, wp-149) ----------
+
+/** mockup.json fidelity tiers — cheapest that answers the current
+ *  question (§15.4): `wireframe` → `hi-fi` → `prototype`. */
+export const MOCKUP_FIDELITIES = ['wireframe', 'hi-fi', 'prototype'] as const;
+export type MockupFidelity = (typeof MOCKUP_FIDELITIES)[number];
+
+/** Screen states a mockup covers. `default` is the resting screen; the
+ *  rest are the state-generator variants (§15.4) — `loading`, `empty`,
+ *  `success`, `error`, `permission`. */
+export const MOCKUP_STATES = [
+  'default',
+  'loading',
+  'empty',
+  'success',
+  'error',
+  'permission',
+] as const;
+export type MockupState = (typeof MOCKUP_STATES)[number];
+
+/** Responsive variants a component tree can carry (§15.4). */
+export const MOCKUP_BREAKPOINTS = ['mobile', 'tablet', 'desktop'] as const;
+export type MockupBreakpoint = (typeof MOCKUP_BREAKPOINTS)[number];
+
+/** Design-approval checklist items (§15.4): desktop, mobile, flows,
+ *  error/empty states, accessibility, linked ACs. */
+export const DESIGN_CHECKLIST_ITEMS = [
+  'desktop',
+  'mobile',
+  'flows',
+  'error-empty',
+  'a11y',
+  'linked-acs',
+] as const;
+export type DesignChecklistItem = (typeof DESIGN_CHECKLIST_ITEMS)[number];
+
+/** Generator modes for the `mockup` stage (§15.4): author a tree from
+ *  scratch, ingest a screenshot, ingest a sketch, or expand a screen
+ *  into state variants. */
+export const MOCKUP_GENERATOR_MODES = [
+  'compose',
+  'screenshot',
+  'sketch',
+  'states',
+] as const;
+export type MockupGeneratorMode = (typeof MOCKUP_GENERATOR_MODES)[number];
+
+/** Design-drift finding category (§15.4) — post-merge implementation
+ *  vs approved-mockup comparison. Advisory only: a machine never
+ *  resolves it; a human verdict (the normal finding lifecycle) is
+ *  required. */
+export const DESIGN_DRIFT_CATEGORY = 'design-drift' as const;
+
 // ---------- model routing (PRD §15.12, wp-155) ----------
 
 /** Latency classes drive provider sort + prompt budgets (§15.12):
@@ -1184,3 +1313,39 @@ export const LATENCY_CLASSES = [
   'background',
 ] as const;
 export type LatencyClass = (typeof LATENCY_CLASSES)[number];
+
+/** Which precedence layer supplied a run's pinned model (SCHEMAS §21
+ *  RouteDecision.source) — audit field persisted on `runs.request`
+ *  and surfaced in `model_transition` events (wp-155). */
+export const ROUTE_DECISION_SOURCES = [
+  'request',
+  'ticket',
+  'registry',
+  'legacy',
+  'default',
+  'backend',
+] as const;
+export type RouteDecisionSource = (typeof ROUTE_DECISION_SOURCES)[number];
+
+// ---------- test-environment requests (PRD §15.10, wp-157) ----------
+
+/**
+ * `test_env_requests.status` lifecycle (wp-157):
+ *
+ *   pending → fulfilled | waived | expired
+ *
+ * A stage that needs a declared test environment raises a `pending`
+ * request; the run blocks (never fabricates an environment) until a
+ * human either fulfils it (provisioning evidence recorded) or
+ * explicitly waives it (rationale recorded). `expired` = the request's
+ * `expires_at` passed while still pending — the next tick re-raises it.
+ * All four states are durable: the request row is the audit trail and
+ * provisioning evidence links back to the requesting run.
+ */
+export const TEST_ENV_REQUEST_STATUSES = [
+  'pending',
+  'fulfilled',
+  'waived',
+  'expired',
+] as const;
+export type TestEnvRequestStatus = (typeof TEST_ENV_REQUEST_STATUSES)[number];

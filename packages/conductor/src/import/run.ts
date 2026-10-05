@@ -19,6 +19,7 @@ import { fetchIssues } from './github.js';
 import type { FetchIssuesOptions } from './github.js';
 import { IMPORT_FAILURE_GATE, materialize } from './materialize.js';
 import type { MaterializeResult } from './materialize.js';
+import { type ReconcileImportResult, reconcileImport } from './reconcile.js';
 import type { FetchIssuesResult } from './types.js';
 import type { ImportOutcome } from './types.js';
 
@@ -44,6 +45,12 @@ export interface RunImportOptions {
    *   this wrote the rows directly and the SSE stream never saw them.
    */
   notify?: ((event: StreamEvent) => void) | undefined;
+  /** Import board slug (wp-139; default `import`). */
+  board?: string;
+  /** Embedding model for reconciliation clustering (wp-139). */
+  embeddingModel?: string;
+  /** Run reconciliation after materialize (default true, wp-139). */
+  reconcile?: boolean;
 }
 
 export interface RunImportResult {
@@ -51,6 +58,8 @@ export interface RunImportResult {
   /** Sentinel line exactly as the run's last output line. */
   sentinelLine: string;
   materialize?: MaterializeResult;
+  /** Reconciliation rollup (wp-139) — import board + findings. */
+  reconcile?: ReconcileImportResult;
 }
 
 async function surfaceFailure(
@@ -109,6 +118,32 @@ export async function runImport(
       repoMap: opts.repoMap,
       ...(opts.actor ? { actor: opts.actor } : {}),
     });
+
+    // wp-139: reconcile — cluster, detect drift vs source of record,
+    // surface reviewable findings on the import board, and set the
+    // per-ticket reconciled flag. A reconcile failure never loses the
+    // import: it surfaces its own gate item and IMPORTED still lands.
+    let rec: ReconcileImportResult | undefined;
+    if (opts.reconcile !== false) {
+      try {
+        rec = await reconcileImport({
+          workspace: opts.workspace,
+          store: opts.store,
+          issues: fetched.issues,
+          ...(opts.board ? { board: opts.board } : {}),
+          ...(opts.embeddingModel
+            ? { embeddingModel: opts.embeddingModel }
+            : {}),
+          ...(opts.actor ? { actor: opts.actor } : {}),
+        });
+      } catch (e) {
+        await surfaceFailure(
+          opts,
+          `reconcile-failed: ${(e as Error).message.split('\n')[0]}`,
+        );
+      }
+    }
+
     const n = mat.imported.length;
     // Sentinel shape is exactly `IMPORTED: <n>` (CONDUCTOR table) —
     // collisions already surfaced as their own failure gate items.
@@ -120,6 +155,7 @@ export async function runImport(
       },
       sentinelLine: `IMPORTED: ${n}`,
       materialize: mat,
+      ...(rec ? { reconcile: rec } : {}),
     };
   } catch (e) {
     const reason = `materialize-failed: ${(e as Error).message.split('\n')[0]}`;

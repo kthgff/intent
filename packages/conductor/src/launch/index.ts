@@ -18,27 +18,41 @@ import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
+  type Adapter,
   PROMPT_TOKENS,
   REPO_EXECUTING_STAGES,
+  type RouteDecision,
+  type RunBaseline,
   type RunRow,
   type Stage,
   type TicketRow,
   type TokenValues,
 } from '@sprint-runner/core';
 import { createWorktree } from '@sprint-runner/gitops';
+import { assertRouteProvider, resolveRunRoute } from '@sprint-runner/prompts';
 import type { RunRequest } from '../contracts.js';
+import { ensureSubjectContainer } from '../envops/index.js';
+import { materializeTestEnvForRun } from '../envops/testenv.js';
 import { capExceeded } from '../loop/caps.js';
 import {
   type ConductorDeps,
   type ConductorWorkspace,
   actorOf,
   adapterFor,
+  backendRuntime,
+  containerRuntimeDeps,
   nowIso,
   resolveRepoPath,
   saveHandle,
   stageTimeout,
 } from '../loop/deps.js';
 import type { LeaseManager } from '../loop/lease.js';
+import {
+  gitHead,
+  pinnedBaselineOf,
+  resolveRunBaseline,
+  withBaseSha,
+} from './baseline.js';
 import { blockTicketForCap } from './caps-action.js';
 import { runRunnerTask, taskForStage } from './runner.js';
 
@@ -111,6 +125,15 @@ export async function queuePendingRun(
   const attempt = await nextAttempt(ctx, req.subject, req.stage);
   const id = formatRunId(ctx.ws.name, req.subject, attempt, req.stage);
   const ts = nowIso(ctx.deps);
+  // wp-141: pin the baseline at QUEUE time — the spec versions the run
+  // will implement are resolved to concrete doc_versions now. The
+  // pending row carries the pin across queue→claim; launch reuses it
+  // (no retro-edit) and only adds the branch point (base_sha).
+  const baseline = await resolveRunBaseline({
+    store: ctx.deps.store,
+    workspace: ctx.ws.name,
+    subject: req.ticketId ?? req.subject,
+  });
   await ctx.deps.store.createRun({
     id,
     workspace: ctx.ws.name,
@@ -124,14 +147,12 @@ export async function queuePendingRun(
     pid: null,
     worktree: null,
     container_id: null,
-    request:
-      req.tokens || req.model || req.task
-        ? {
-            ...(req.tokens ? { tokens: req.tokens } : {}),
-            ...(req.model ? { model: req.model } : {}),
-            ...(req.task ? { task: req.task } : {}),
-          }
-        : null,
+    request: {
+      ...(req.tokens ? { tokens: req.tokens } : {}),
+      ...(req.model ? { model: req.model } : {}),
+      ...(req.task ? { task: req.task } : {}),
+      baseline,
+    },
     status: 'pending',
     started_at: null,
     heartbeat_at: null,
@@ -227,17 +248,25 @@ async function buildTokens(
 
 /**
  * Merge a pending row's saved `runs.request` with what this launch
- * computed — tokens (NEW_ID, FEEDBACK, …), the runner-task spec, model.
- * Returns null when there is nothing to persist.
+ * computed — tokens (NEW_ID, FEEDBACK, …), the runner-task spec, model,
+ * the resolved route decision (wp-155 pinning — a re-launched pending
+ * row carries the same audit trail), and the pinned baseline (wp-141 —
+ * the doc pins are immutable; only `base_sha` is (re)set at launch).
+ * The pinned baseline from the pending row always wins over a fresh
+ * resolve, so a relaunch never adopts a newer spec.
  */
 function persistedRequest(
   pendingRow: RunRow | undefined,
   tokens: Record<string, string>,
   task: RunRequest['task'],
   model: string | undefined,
+  baseline: RunBaseline,
+  route?: RouteDecision,
 ): RunRow['request'] {
   const prev = (pendingRow?.request ?? {}) as Record<string, unknown>;
-  const { tokens: prevTokensRaw, ...prevRest } = prev;
+  // Drop the previously stored tokens/baseline — both are re-merged
+  // explicitly below (tokens merge; baseline is the chosen pin).
+  const { tokens: prevTokensRaw, baseline: _prevBaseline, ...prevRest } = prev;
   const merged = {
     ...((prevTokensRaw ?? {}) as Record<string, string>),
     ...tokens,
@@ -247,8 +276,58 @@ function persistedRequest(
     ...(Object.keys(merged).length ? { tokens: merged } : {}),
     ...(task ? { task } : {}),
     ...(model ? { model } : {}),
+    ...(route ? { route } : {}),
+    baseline,
   };
   return Object.keys(out).length ? out : null;
+}
+
+/**
+ * Container ensure (CONDUCTOR LAUNCH step 3, D30) — for a
+ * repo-executing stage on a `runtime: container` backend, create the
+ * subject's persistent container if absent (bind-mounting every current
+ * `ticket_repos` worktree) or `docker start` it if stopped; the wp-095
+ * lifecycle recreates it when the mount set grew. Returns the container
+ * id to hand to `adapter.run(opts.container_id)`, or `undefined` when
+ * this run stays host-side.
+ *
+ * Lazy-create rule: cardless doc stages (triage/prd/design/testplan/
+ * interview) run on the host — no container exists until the first
+ * repo-executing stage has code to execute against.
+ */
+async function ensureRunContainer(
+  ctx: LaunchContext,
+  args: {
+    req: RunRequest;
+    ticket: TicketRow | null;
+    adapter: Adapter;
+  },
+): Promise<string | undefined> {
+  const { deps, ws } = ctx;
+  const { req, ticket, adapter } = args;
+  if (!ticket) return undefined;
+  if (!(REPO_EXECUTING_STAGES as readonly string[]).includes(req.stage)) {
+    return undefined; // cardless stage → host process
+  }
+  if (backendRuntime(deps, adapter.name, adapter) !== 'container') {
+    return undefined; // process backend
+  }
+  // Mounts = every worktree on the ticket (one container, N mounts for
+  // multi-repo — never N containers). Worktrees were created above.
+  const ticketRepos = await deps.store.listTicketRepos({
+    workspace: ws.name,
+    ticket_id: ticket.ticket_id,
+  });
+  const mounts = ticketRepos
+    .map((r) => r.worktree)
+    .filter((w): w is string => typeof w === 'string' && w.length > 0);
+  if (mounts.length === 0) return undefined; // nothing to execute against
+  const ensured = await ensureSubjectContainer(containerRuntimeDeps(deps), {
+    workspace: ws.name,
+    subject: req.subject,
+    mounts,
+  });
+  return ensured?.row.container_id;
 }
 
 /**
@@ -296,7 +375,23 @@ export async function launch(
   const task = req.task ?? taskForStage(req.stage);
 
   const backend = (ticket?.backend ?? deps.config.backend) as string;
-  const model = req.model ?? ticket?.model ?? deps.config.main_model ?? null;
+  // wp-155: model resolution goes through the routing registry —
+  // runs.request pin > ticket pin > models.<stage> > models.default >
+  // legacy knobs > backend default. No stage hardcodes a model.
+  const route = resolveRunRoute({
+    config: deps.config,
+    kind: req.stage,
+    requestModel: req.model ?? null,
+    ticketModel: ticket?.model ?? null,
+  });
+  const model = route.model;
+  // SCHEMAS §21 `providers` is an allowlist, not a preference: when the
+  // resolved model names a provider the route excludes, launch fails
+  // closed rather than quietly routing around the registry.
+  const modelProvider = model?.includes('/')
+    ? model.slice(0, model.indexOf('/'))
+    : null;
+  if (modelProvider) assertRouteProvider(route, modelProvider);
   const depth = (ticket?.depth ?? deps.config.spec_depth) as RunRow['depth'];
   const ts = nowIso(deps);
   const runDir = join(deps.runsDir, ...runId.split('/'));
@@ -340,6 +435,67 @@ export async function launch(
     }
   }
 
+  // --- test-environment materialization (PRD §15.10, wp-157) ---
+  // A declared `test_env` spec materializes before the run executes.
+  // Best-effort + fail-safe: no spec → no env step; a pending/expired
+  // request never fabricates an environment (the claim path blocks
+  // first); a failed materialization is surfaced, never silent.
+  if (ticket && req.stage !== 'probe') {
+    try {
+      const cardSeed =
+        ticket.repos
+          .map((r) => deps.config.repos[r]?.card?.seed)
+          .find((s) => typeof s === 'string') ?? null;
+      const materialized = await materializeTestEnvForRun({
+        ctx: {
+          workspace: ws.name,
+          store,
+          actor: actorOf(deps),
+          now: () => deps.now?.() ?? new Date(),
+          notify: deps.notify,
+        },
+        ticket,
+        stage: req.stage,
+        runId,
+        worktree,
+        runDir,
+        workspaceRoot: ws.rootPath,
+        cardSeed,
+      });
+      if (materialized && !materialized.ok) {
+        await store.insertNotification({
+          workspace: ws.name,
+          subject: ticket.ticket_id,
+          kind: 'test-env-materialize-failed',
+          payload: JSON.stringify({
+            run_id: runId,
+            error: materialized.error,
+            env_dir: materialized.envDir,
+          }),
+          created_at: ts,
+          read_at: null,
+        });
+      }
+    } catch (e) {
+      deps.onError?.(e);
+    }
+  }
+
+  // --- wp-141: pin the run baseline (never "latest") ---
+  // A pending row already carries its pin from queue time — reuse it
+  // verbatim (no retro-edit) and only stamp the branch point. A
+  // ticket-driven claim (no pending row) resolves the doc heads NOW.
+  const pinnedBaseline = pinnedBaselineOf(req.pendingRow);
+  const baseline =
+    pinnedBaseline !== null
+      ? withBaseSha(pinnedBaseline, await gitHead(worktree))
+      : await resolveRunBaseline({
+          store,
+          workspace: ws.name,
+          subject: req.ticketId ?? req.subject,
+          worktree,
+        });
+
   // --- runner-task lane (CONDUCTOR "Runner tasks") ---
   // `verify`/`import` carry a stage but no agent: register a
   // `backend: 'runner'` row, run the conductor-side task, settle it
@@ -358,7 +514,13 @@ export async function launch(
       pid: null,
       worktree,
       container_id: null,
-      request: persistedRequest(req.pendingRow, reqTokens, task, req.model),
+      request: persistedRequest(
+        req.pendingRow,
+        reqTokens,
+        task,
+        req.model,
+        baseline,
+      ),
       status: 'running',
       started_at: ts,
       heartbeat_at: ts,
@@ -421,6 +583,7 @@ export async function launch(
     run_id: runId,
     backend: adapter.name,
     ...(model ? { model } : {}),
+    route,
     ...(depth ? { depth } : {}),
     ...(ticketDir ? { ticket_dir: ticketDir } : {}),
     tokens: await buildTokens(
@@ -431,10 +594,17 @@ export async function launch(
       runDir,
     ),
   });
+  // Container ensure BEFORE the exec (CONDUCTOR LAUNCH step 3, D30) —
+  // the adapter's `docker exec -w <worktree>` targets this container.
+  const containerId = await ensureRunContainer(ctx, { req, ticket, adapter });
   const handle = await adapter.run(
     worktree,
     rendered,
     stageTimeout(deps, req.stage),
+    {
+      run_dir: runDir,
+      ...(containerId !== undefined ? { container_id: containerId } : {}),
+    },
   );
   await saveHandle(runDir, handle);
   ctx.handles.set(runId, handle);
@@ -452,8 +622,15 @@ export async function launch(
     depth,
     pid: handle.pid,
     worktree,
-    container_id: null,
-    request: persistedRequest(req.pendingRow, reqTokens, undefined, req.model),
+    container_id: containerId ?? null,
+    request: persistedRequest(
+      req.pendingRow,
+      reqTokens,
+      undefined,
+      req.model,
+      baseline,
+      route,
+    ),
     status: 'running',
     started_at: ts,
     heartbeat_at: ts,
@@ -484,7 +661,12 @@ export async function launch(
     event: 'run_started',
     run: runId,
     refs: [],
-    data: { attempt, pid: handle.pid, worktree },
+    data: {
+      attempt,
+      pid: handle.pid,
+      worktree,
+      ...(containerId !== undefined ? { container_id: containerId } : {}),
+    },
     cost_usd: null,
     tokens_in: null,
     tokens_out: null,
@@ -514,3 +696,6 @@ export async function launch(
 
   return runId;
 }
+
+// wp-141 baseline pinning helpers (resolve + pinnedBaselineOf + gitHead).
+export * from './baseline.js';

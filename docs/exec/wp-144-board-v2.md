@@ -2,7 +2,7 @@
 schema: 1
 id: wp-144
 title: Board v2 — typed notes, board types, multi-board + org boards, deferred-idea retention
-status: todo
+status: done
 priority: high
 depth: standard
 repos: []

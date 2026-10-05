@@ -39,7 +39,7 @@ only genuine judgment calls.
    emit `escalate` with your findings instead.
 4. Readiness checklist (report pass/fail per item): ACs verifiable ·
    scope boundary stated · out-of-scope stated · target repos correct ·
-   context sufficient for a PRD · environment/test command known.
+   context sufficient for an RS · environment/test command known.
    If the ticket is multi-headed/oversized, say so — end with
    `ESCALATE: needs split` rather than questions.
 5. Also output: suggested `backend`/`model`/`priority`/`depth`

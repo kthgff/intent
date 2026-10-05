@@ -1,8 +1,8 @@
 /**
  * Coverage lint — SCHEMAS §4: every TDD file-plan row maps to ≥1
- * case_id in the test.md coverage matrix, or carries an `untestable:`
+ * case_id in the vs.md coverage matrix, or carries an `untestable:`
  * exemption; every case_id cited in the matrix must exist in the
- * test.md cases table (fake coverage can't be manufactured).
+ * vs.md cases table (fake coverage can't be manufactured).
  * Fail-closed: unparseable tables are violations, never skipped.
  */
 import { COVERAGE_KINDS } from '@sprint-runner/core';
@@ -104,14 +104,14 @@ export function filePlanRows(tddMd: string): {
   };
 }
 
-export function coverageLint(tddMd: string, testMd: string): LintViolation[] {
+export function coverageLint(tddMd: string, vsMd: string): LintViolation[] {
   const violations: LintViolation[] = [];
 
   const plan = filePlanRows(tddMd);
   if (plan.violation) violations.push(plan.violation);
 
   const cases = pinnedTable(
-    testMd,
+    vsMd,
     'Cases',
     CASES_COLUMNS,
     'coverage.cases-unparseable',
@@ -122,7 +122,7 @@ export function coverageLint(tddMd: string, testMd: string): LintViolation[] {
   );
 
   const matrix = pinnedTable(
-    testMd,
+    vsMd,
     'Coverage matrix',
     COVERAGE_COLUMNS,
     'coverage.matrix-unparseable',

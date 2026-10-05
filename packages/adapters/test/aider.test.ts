@@ -210,7 +210,7 @@ describe('AiderAdapter.run + collect', () => {
       model: 'anthropic/claude-sonnet-4',
       openrouterApiKey: 'sk-or-test',
     });
-    const handle = adapter.run(worktree, rendered, 60, runDir);
+    const handle = adapter.run(worktree, rendered, 60, { run_dir: runDir });
     expect(handle.pid).toBeGreaterThan(0);
     expect(handle.log_path).toBe(join(runDir, 'aider.log'));
 
@@ -234,7 +234,7 @@ describe('AiderAdapter.run + collect', () => {
   it('preserves an explicit openrouter/ model prefix; omits --model when unset', async () => {
     const bin = makeFakeAider();
     const adapter = new AiderAdapter({ binary: bin });
-    const handle = adapter.run(worktree, rendered, 60, runDir);
+    const handle = adapter.run(worktree, rendered, 60, { run_dir: runDir });
     await adapter.collect(handle, collectCtx());
     expect(argvLog()).not.toContain('--model');
   });
@@ -247,7 +247,7 @@ describe('AiderAdapter.run + collect', () => {
     process.env.FAKE_SCRATCH_DIR = '.sprint-runner/run';
     process.env.FAKE_SCRATCH_FILE = 'deviations.md';
     const adapter = new AiderAdapter({ binary: bin });
-    const handle = adapter.run(worktree, rendered, 60, runDir);
+    const handle = adapter.run(worktree, rendered, 60, { run_dir: runDir });
     const result = await adapter.collect(handle, collectCtx());
     expect(result.artifacts).toContain('deviations.md');
     expect(existsSync(join(runDir, 'deviations.md'))).toBe(true);
@@ -266,7 +266,7 @@ describe('AiderAdapter.run + collect', () => {
       model: 'openai/gpt-4o',
       ticket: 'ABC-1',
     });
-    const handle = adapter.run(worktree, rendered, 60, runDir);
+    const handle = adapter.run(worktree, rendered, 60, { run_dir: runDir });
     const result = await adapter.collect(handle, collectCtx());
     const usage = result.usage;
     expect(usage).not.toBeNull();
@@ -290,7 +290,7 @@ describe('AiderAdapter.run + collect', () => {
       binary: bin,
       model: 'acme/fictional-1',
     });
-    const handle = adapter.run(worktree, rendered, 60, runDir);
+    const handle = adapter.run(worktree, rendered, 60, { run_dir: runDir });
     const result = await adapter.collect(handle, collectCtx());
     expect(result.usage?.totals.cost_usd).toBeNull();
     expect(result.usage?.notes).toMatch(/missing from OpenRouter price table/);
@@ -300,7 +300,7 @@ describe('AiderAdapter.run + collect', () => {
     const bin = makeFakeAider();
     process.env.FAKE_LAST = 'DONE';
     const adapter = new AiderAdapter({ binary: bin });
-    const handle = adapter.run(worktree, rendered, 60, runDir);
+    const handle = adapter.run(worktree, rendered, 60, { run_dir: runDir });
     const result = await adapter.collect(handle, collectCtx());
     expect(result.sentinel).toBe('DONE');
     expect(result.usage?.source).toBe('estimated');
@@ -315,7 +315,7 @@ describe('AiderAdapter.run + collect', () => {
     ]);
     process.env.FAKE_LAST = 'DONE';
     const adapter = new AiderAdapter({ binary: bin, usagePollMs: 10 });
-    const handle = adapter.run(worktree, rendered, 60, runDir);
+    const handle = adapter.run(worktree, rendered, 60, { run_dir: runDir });
     const partials: number[] = [];
     adapter.on_usage(handle, (p) => partials.push(p.tokens_in));
     await adapter.collect(handle, collectCtx());

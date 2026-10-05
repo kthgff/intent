@@ -19,6 +19,10 @@ export interface RawIssue {
   state: string;
   /** `owner/repo` the issue was fetched from. */
   repo: string;
+  /** Tracker item kind (wp-139) — GitHub issues ≠ PRs. Optional: the
+   *  fetcher may set it, otherwise {@link issueKind} infers it from the
+   *  URL (`/pull/<n>` = pull request). */
+  kind?: 'issue' | 'pull-request';
 }
 
 export type ImportSource = 'github';

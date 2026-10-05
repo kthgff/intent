@@ -68,6 +68,7 @@ import type {
   StatementRelationRow,
   StatementRow,
   StatementVersionRow,
+  TestEnvRequestRow,
   TicketRepoRow,
   TicketRow,
   UsageCallRow,
@@ -363,7 +364,12 @@ export interface Store {
 
   // ---- projects (DB-SCHEMA projects; workspace is the key) ----
 
-  upsertProject(row: ProjectRow): Promise<void>;
+  /** Only `workspace` is required — the `next_*_seq` counters and
+   *  `settings` carry zod defaults, so callers may omit them (a new
+   *  counter never breaks existing call sites). */
+  upsertProject(
+    row: Pick<ProjectRow, 'workspace'> & Partial<ProjectRow>,
+  ): Promise<void>;
   getProject(workspace: string): Promise<ProjectRow | null>;
   listProjects(): Promise<ProjectRow[]>;
   /**
@@ -563,6 +569,9 @@ export interface Store {
   }): Promise<ReleaseOutcomeRow[]>;
 
   // ---- changesets (PRD §15.5, wp-140) ----
+
+  /** CS-NNNN allocator — same transactional seq-bump as tickets. */
+  allocChangesetId(workspace: string): Promise<string>;
 
   upsertChangeset(row: ChangesetRow): Promise<void>;
   getChangeset(key: {
@@ -929,4 +938,25 @@ export interface Store {
     workspace: string;
     eval_run_id: string;
   }): Promise<EvalResultRow[]>;
+
+  // ---- test-environment requests (PRD §15.10, wp-157) ----
+
+  /** `TE-NNNN` allocator — same transactional seq-bump as tickets. */
+  allocTestEnvRequestId(workspace: string): Promise<string>;
+  /**
+   * Upsert a `test_env_requests` row (DB-SCHEMA). The row is the
+   * durable request/audit trail: `pending → fulfilled|waived|expired`.
+   * Provisioning evidence + the requesting `run_id` live on it.
+   */
+  upsertTestEnvRequest(row: TestEnvRequestRow): Promise<void>;
+  getTestEnvRequest(key: {
+    workspace: string;
+    request_id: string;
+  }): Promise<TestEnvRequestRow | null>;
+  /** Requests scoped by workspace/subject/status (open-request lookup). */
+  listTestEnvRequests(filter?: {
+    workspace?: string;
+    subject?: string;
+    status?: string;
+  }): Promise<TestEnvRequestRow[]>;
 }

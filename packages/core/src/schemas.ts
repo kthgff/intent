@@ -25,6 +25,7 @@ import {
   DEPLOY_EVIDENCE_TYPES,
   DEPTH_TIERS,
   DESIGN_APPROVAL_STATUSES,
+  DESIGN_CHECKLIST_ITEMS,
   DEVIATION_REASON_KINDS,
   DOC_KINDS,
   DOSSIER_SCOPES,
@@ -50,6 +51,10 @@ import {
   INTERVIEW_SESSION_STATUSES,
   KNOWLEDGE_SLOT_STATES,
   LATENCY_CLASSES,
+  MOCKUP_BREAKPOINTS,
+  MOCKUP_FIDELITIES,
+  MOCKUP_GENERATOR_MODES,
+  MOCKUP_STATES,
   NOTE_IMPORTANCES,
   NOTE_KINDS,
   NOTE_STATUSES,
@@ -61,6 +66,8 @@ import {
   QUESTION_CANDIDATE_STATUSES,
   QUESTION_FORMATS,
   QUESTION_STATUSES,
+  RECONCILIATION_DECISIONS,
+  RECONCILIATION_KINDS,
   RELATION_PREDICATES,
   RELATION_SOURCES,
   RELATION_VERIFICATIONS,
@@ -74,6 +81,7 @@ import {
   REVIEW_COMMENT_TYPES,
   REVIEW_FINDING_STATUSES,
   REVIEW_SESSION_STATUSES,
+  ROUTE_DECISION_SOURCES,
   RUN_STATUSES,
   SECURITY_CATEGORIES,
   SENTINELS,
@@ -82,9 +90,11 @@ import {
   STATEMENT_POLARITIES,
   STATEMENT_RELATIONS,
   STATEMENT_SCOPES,
+  STATEMENT_SOURCE_KINDS,
   STATEMENT_STATUSES,
   STATEMENT_STRENGTHS,
   TEST_CASE_TYPES,
+  TEST_ENV_REQUEST_STATUSES,
   TEST_RESULTS,
   TICKET_ORIGINS,
   TICKET_PRIORITIES,
@@ -107,6 +117,57 @@ export type Timestamp = z.infer<typeof TimestampSchema>;
 
 /** `schema: 1` pinned on every structured doc (SCHEMAS conventions). */
 export const SchemaVersionSchema = z.literal(1);
+
+// ---------- declarative test environment (PRD §15.10, wp-157) ----------
+
+/** A service a declared test environment stands up (managed
+ *  multi-service envs stay deferred — §15.10 follow-up). */
+export const TestEnvServiceSchema = z.object({
+  name: z.string().min(1),
+  image: z.string().nullish(),
+  port: z.number().int().nullish(),
+});
+export type TestEnvService = z.infer<typeof TestEnvServiceSchema>;
+
+/**
+ * Declarative test-environment spec (PRD §15.10, wp-157) — carried on
+ * a ticket (`tickets.test_env`, overriding) or a feature
+ * (`features.test_env`, inherited by member tickets). The conductor
+ * materializes a *fulfilled* request's spec before a verify/implement
+ * run executes; a missing spec means no env step (existing behavior).
+ *
+ * NEVER production data: fixture refs are workspace-relative and MUST
+ * resolve under `fixtures/`; seed commands come from the repo card.
+ */
+export const TestEnvSpecSchema = z.object({
+  /** Free-form env flavour — `temp-db` | `seed` | `mock-externals` |
+   *  `fixtures` (richer taxonomy deferred). */
+  kind: z.string().nullish(),
+  /** Services the environment provides. */
+  services: z.array(TestEnvServiceSchema).default([]),
+  /** Temp DB to stand up — engine + optional schema/seed ref. */
+  db: z
+    .object({
+      engine: z.string().min(1),
+      schema: z.string().nullish(),
+      seed: z.string().nullish(),
+    })
+    .nullish(),
+  /** Repo-relative seed commands (overrides the repo card's `seed`). */
+  seed: z.array(z.string()).default([]),
+  /** Workspace-relative fixture refs — MUST live under `fixtures/`. */
+  fixtures: z.array(z.string()).default([]),
+  /** External services to mock rather than call. */
+  mocks: z.array(z.string()).default([]),
+  /** Who may provision this environment (actor/role) — surfaced on the
+   *  request so the right human sees it. */
+  provisioner: z.string().nullish(),
+  /** Request expiry in minutes from creation; absent = no expiry. */
+  expires_in_minutes: z.number().int().positive().nullish(),
+  /** Free-form guidance for the human fulfilling the request. */
+  notes: z.string().nullish(),
+});
+export type TestEnvSpec = z.infer<typeof TestEnvSpecSchema>;
 
 // ---------- §1 ticket.md frontmatter ----------
 
@@ -131,6 +192,9 @@ export const TicketFrontmatterSchema = z.object({
   forced: z.boolean().default(false),
   /** `env | agent | <short text>` — set with status: blocked (§1). */
   blocked_reason: z.string().nullish(),
+  /** Declarative test-environment spec (wp-157) — carried into the
+   *  `tickets` row at materialization. */
+  test_env: TestEnvSpecSchema.nullish(),
 });
 export type TicketFrontmatter = z.infer<typeof TicketFrontmatterSchema>;
 
@@ -498,7 +562,7 @@ export const AddendumRowSchema = z.object({
 });
 export type AddendumRow = z.infer<typeof AddendumRowSchema>;
 
-/** test.md case row (§4). */
+/** vs.md (Verification Specification) case row (§4). */
 export const TestCaseRowSchema = z.object({
   case_id: z.string().min(1),
   title: z.string(),
@@ -508,7 +572,7 @@ export const TestCaseRowSchema = z.object({
 });
 export type TestCaseRow = z.infer<typeof TestCaseRowSchema>;
 
-/** test.md coverage-matrix row (§4); `case_ids` may be `n/a` for
+/** vs.md coverage-matrix row (§4); `case_ids` may be `n/a` for
  *  `untestable:` file-plan rows. */
 export const CoverageRowSchema = z.object({
   item: z.string().min(1),
@@ -587,6 +651,63 @@ export const ContainerRowSchema = z.object({
 });
 export type ContainerRow = z.infer<typeof ContainerRowSchema>;
 
+// ---------- declarative test environment (PRD §15.10, wp-157) ----------
+
+/**
+ * A durable test-environment request (DB-SCHEMA `test_env_requests`,
+ * wp-157). Raised when a stage that declares a `test_env` spec is about
+ * to run; surfaced as the `test-env` gate item. The run blocks until
+ * `status` leaves `pending`. `evidence` is the provisioning evidence
+ * and `run_id` links it back to the run that needed the environment.
+ */
+export const TestEnvRequestRowSchema = z.object({
+  workspace: z.string().min(1),
+  org: z.string().nullish(),
+  /** `TE-NNNN` (projects.next_test_env_seq allocator). */
+  request_id: z.string().min(1),
+  /** Requesting subject — a ticket id (or other subject). */
+  subject: z.string().min(1),
+  ticket_id: z.string().nullish(),
+  /** Parent feature whose `test_env` was inherited, when applicable. */
+  feature: z.string().nullish(),
+  /** Stage that raised the request (`implement` | `verify` | …). */
+  stage: z.string().min(1),
+  /** Run that needed the environment — provisioning evidence links
+   *  back to it (set at launch). */
+  run_id: z.string().nullish(),
+  /** The declared spec (snapshot at request time — versioned). */
+  spec: TestEnvSpecSchema,
+  status: enumOf(TEST_ENV_REQUEST_STATUSES),
+  requested_by: z.string().nullish(),
+  requested_at: z.string(),
+  /** Who can provision (from `spec.provisioner`). */
+  provisioner: z.string().nullish(),
+  expires_at: z.string().nullish(),
+  fulfilled_by: z.string().nullish(),
+  fulfilled_at: z.string().nullish(),
+  /** Provisioning evidence — a URL/ref/note; never fabricated. */
+  evidence: z.string().nullish(),
+  waived_by: z.string().nullish(),
+  waived_at: z.string().nullish(),
+  /** Mandatory rationale on waive (fail-closed). */
+  waiver_rationale: z.string().nullish(),
+  expired_at: z.string().nullish(),
+  updated_at: z.string(),
+});
+export type TestEnvRequestRow = z.infer<typeof TestEnvRequestRowSchema>;
+
+/** Import provenance (wp-139): preserves the original tracker identity
+ *  of an imported artifact. `kind` distinguishes a GitHub issue from a
+ *  pull request (§15.3 "GitHub issues ≠ PRs distinguished"). */
+export const SourceRefSchema = z.object({
+  system: z.string(),
+  kind: z.enum(['issue', 'pull-request']).nullish(),
+  url: z.string().nullish(),
+  imported_at: z.string().nullish(),
+  original_status: z.string().nullish(),
+});
+export type SourceRef = z.infer<typeof SourceRefSchema>;
+
 export const TicketRowSchema = z.object({
   workspace: z.string().min(1),
   /** Nullable tenancy partition — reserved for the SaaS pivot
@@ -616,19 +737,12 @@ export const TicketRowSchema = z.object({
   /** DoR/decomposition verdicts (wp-153/154). */
   execution_readiness: enumOf(EXECUTION_READINESSES).nullish(),
   parallel_safety: enumOf(PARALLEL_SAFETIES).nullish(),
-  /** Import provenance (wp-139): {system, url, imported_at,
+  /** Import provenance (wp-139): {system, kind, url, imported_at,
    *  original_status} — preserves the original tracker identity. */
-  source_ref: z
-    .object({
-      system: z.string(),
-      url: z.string().nullish(),
-      imported_at: z.string().nullish(),
-      original_status: z.string().nullish(),
-    })
-    .nullish(),
+  source_ref: SourceRefSchema.nullish(),
   /** Declarative test-environment spec (wp-157); materialized
    *  in-container before verify/implement. */
-  test_env: z.record(z.unknown()).nullish(),
+  test_env: TestEnvSpecSchema.nullish(),
   forced: z.boolean().default(false),
   spec_score: z.number().nullish(),
   spec_hash: z.string().nullish(),
@@ -637,6 +751,30 @@ export const TicketRowSchema = z.object({
   updated_at: z.string(),
 });
 export type TicketRow = z.infer<typeof TicketRowSchema>;
+
+/** A reviewable import-reconciliation finding (wp-139). Detected drift
+ *  / duplicates / conflicts / completed-work / clarification needs are
+ *  surfaced here — never silently overwritten. Persisted as an
+ *  `import`-board `board_item` + an `import-reconcile` gate item; the
+ *  `provenance` gate (`inferred` never auto-approves) decides whether a
+ *  finding may be resolved without a human. */
+export const ReconciliationFindingSchema = z.object({
+  /** Deterministic id (`recon-<kind>-<key>`) — idempotent upserts. */
+  id: z.string().min(1),
+  workspace: z.string().min(1),
+  kind: enumOf(RECONCILIATION_KINDS),
+  decision: enumOf(RECONCILIATION_DECISIONS).default('open'),
+  provenance: enumOf(PROVENANCE_STATES),
+  /** Imported ticket the finding is anchored to (null = board-level). */
+  subject: z.string().nullish(),
+  /** Other imported tickets the finding relates (dupes/conflicts). */
+  related: z.array(z.string()).default([]),
+  detail: z.string(),
+  source_ref: SourceRefSchema.nullish(),
+  created_at: z.string(),
+  resolved_at: z.string().nullish(),
+});
+export type ReconciliationFinding = z.infer<typeof ReconciliationFindingSchema>;
 
 // ---------- hierarchy + boards (D26/D27, DB-SCHEMA) ----------
 
@@ -650,6 +788,10 @@ export const ProjectRowSchema = z.object({
   next_initiative_seq: z.number().int().default(1),
   /** REL-NNNN allocator (DELIVERY §3). */
   next_release_seq: z.number().int().default(1),
+  /** CS-NNNN allocator (PRD §15.5, wp-140). */
+  next_changeset_seq: z.number().int().default(1),
+  /** TE-NNNN allocator (PRD §15.10, wp-157). */
+  next_test_env_seq: z.number().int().default(1),
   settings: z.record(z.unknown()).default({}),
   created_at: z.string().nullish(),
 });
@@ -736,7 +878,7 @@ export const FeatureRowSchema = z.object({
   serves: z.array(z.string()).nullish(),
   /** Declarative test-environment spec (wp-157) — inherited by
    *  member tickets unless overridden. */
-  test_env: z.record(z.unknown()).nullish(),
+  test_env: TestEnvSpecSchema.nullish(),
   created_at: z.string().nullish(),
   updated_at: z.string().nullish(),
 });
@@ -873,7 +1015,7 @@ export type SentinelValue = z.infer<typeof SentinelSchema>;
  *  agent resolves THIS, never "latest" (§15.5; wp-141). Shape only:
  *  `runs.request` stays a json column — no DDL. */
 export const RunBaselineSchema = z.object({
-  /** doc_versions version of the RS/prd doc the run pins. */
+  /** doc_versions version of the rs.md doc the run pins. */
   rs_version: z.number().int().nullish(),
   /** doc_versions version of ticket.md. */
   ticket_rev: z.number().int().nullish(),
@@ -1261,6 +1403,72 @@ export const ExtractionRunRowSchema = z.object({
 });
 export type ExtractionRunRow = z.infer<typeof ExtractionRunRowSchema>;
 
+/** semantic_statements.source_ref — where the verbatim source_text
+ *  came from (§15.3: "recovers exactly where the words came from").
+ *  `span` is [start, end) char offsets into the source's text; absent
+ *  = the engine located `source_text` verbatim itself (whole-quote
+ *  match). */
+export const StatementSourceRefSchema = z.object({
+  kind: enumOf(STATEMENT_SOURCE_KINDS),
+  /** board item id / `<session>#<seq>` / import key / `<subject>:<doc>`. */
+  id: z.string().min(1),
+  span: z
+    .tuple([z.number().int().nonnegative(), z.number().int().nonnegative()])
+    .nullish(),
+});
+export type StatementSourceRef = z.infer<typeof StatementSourceRefSchema>;
+
+// ---------- extraction output — `statements.json` (SCHEMAS §22, wp-143) ----------
+
+/** One typed edge proposed inside an extraction batch. `target` is
+ *  either another extracted statement's `key` in the same output or an
+ *  existing `statement_id` already in the ledger (fail-closed —
+ *  unknown targets abort the batch). */
+export const ExtractionRelationSchema = z.object({
+  predicate: enumOf(STATEMENT_RELATIONS),
+  target: z.string().min(1),
+});
+export type ExtractionRelation = z.infer<typeof ExtractionRelationSchema>;
+
+/** One atomic statement in an extraction batch. `source_text` MUST be
+ *  a verbatim substring of the referenced source's text (never
+ *  paraphrased — §15.3/§15.9); `span` pins the [start,end) offsets and
+ *  is verified against the source when present. */
+export const ExtractedStatementSchema = z.object({
+  /** Batch-local key — unique within this output; combined with the
+   *  extraction_run id to form the stored `statement_id`. */
+  key: z.string().min(1),
+  /** The atomic assertion, normalized wording. */
+  text: z.string().min(1),
+  /** Index into the batch's `sources` array (0-based). */
+  source: z.number().int().nonnegative().default(0),
+  /** Verbatim quote from the source — becomes `source_text`. */
+  source_text: z.string().min(1),
+  span: z
+    .tuple([z.number().int().nonnegative(), z.number().int().nonnegative()])
+    .nullish(),
+  intent: enumOf(STATEMENT_INTENTS).nullish(),
+  polarity: enumOf(STATEMENT_POLARITIES).nullish(),
+  subject: z.string().nullish(),
+  strength: enumOf(STATEMENT_STRENGTHS).nullish(),
+  scope: enumOf(STATEMENT_SCOPES).nullish(),
+  scope_ref: z.string().nullish(),
+  confidence: z.number().min(0).max(1).nullish(),
+  relations: z.array(ExtractionRelationSchema).default([]),
+  /** Ambiguity the extractor could not self-resolve — becomes a
+   *  statement_clarifications row (a question, never a guess). */
+  clarification: z.string().nullish(),
+});
+export type ExtractedStatement = z.infer<typeof ExtractedStatementSchema>;
+
+/** `statements.json` — the `extract` stage's / LLM-assist structured
+ *  output. Malformed output aborts the whole batch (fail-closed). */
+export const ExtractionOutputSchema = z.object({
+  schema: SchemaVersionSchema,
+  statements: z.array(ExtractedStatementSchema).min(1),
+});
+export type ExtractionOutput = z.infer<typeof ExtractionOutputSchema>;
+
 // ---------- interview orchestrator (PRD §15.9, wp-145) ----------
 
 export const WizardDefinitionRowSchema = z.object({
@@ -1565,6 +1773,138 @@ export const DesignApprovalRowSchema = z.object({
 });
 export type DesignApprovalRow = z.infer<typeof DesignApprovalRowSchema>;
 
+// ---------- design artifacts (PRD §15.4, wp-149) ----------
+
+/** Design-approval checklist results (§15.4): one entry per item
+ *  (desktop/mobile/flows/error-empty/a11y/linked-acs), true = passed,
+ *  false = failed, null/absent = not yet reviewed. */
+export const DesignChecklistSchema = z.record(
+  enumOf(DESIGN_CHECKLIST_ITEMS),
+  z.boolean().nullish(),
+);
+export type DesignChecklist = z.infer<typeof DesignChecklistSchema>;
+
+/**
+ * The `mockup.json` structured-artifact contract. The component tree is
+ * the SOURCE OF TRUTH — rendered previews and PNG/export are output,
+ * never source (§15.4). `screens` reference components by id; the
+ * component list is flat (parent/children refs) so structural diffs are
+ * stable and per-component edits are addressable. `visual_acs` records
+ * the AC→component+state edges that back Visual Acceptance Criteria
+ * (projected into `statement_artifact_links`/`relations` by wp-143).
+ */
+export const MockupLayoutSchema = z
+  .object({
+    /** flex | grid | stack | absolute. */
+    direction: z.string().nullish(),
+    gap: z.number().nullish(),
+    align: z.string().nullish(),
+    justify: z.string().nullish(),
+    columns: z.number().int().nullish(),
+    /** Free-form layout hints (padding, max-width, …). */
+    props: z.record(z.unknown()).nullish(),
+  })
+  .nullish();
+export type MockupLayout = z.infer<typeof MockupLayoutSchema>;
+
+export const MockupComponentSchema = z.object({
+  component_id: z.string().min(1),
+  /** Design-system component name this maps to (native look, §15.4). */
+  name: z.string().min(1),
+  /** semantic | form | nav | list | card | input | button | text | … */
+  kind: z.string().nullish(),
+  parent: z.string().nullish(),
+  children: z.array(z.string()).default([]),
+  props: z.record(z.unknown()).default({}),
+  layout: MockupLayoutSchema,
+  /** The `requirement:` link — the AC this component satisfies. */
+  requirement: z.string().nullish(),
+  /** Which screen state this node is drawn for (§15.4). */
+  state: enumOf(MOCKUP_STATES).nullish(),
+  breakpoint: enumOf(MOCKUP_BREAKPOINTS).nullish(),
+  /** Per-breakpoint structural overrides (responsive variants). */
+  responsive: z.record(z.unknown()).nullish(),
+  notes: z.string().nullish(),
+});
+export type MockupComponent = z.infer<typeof MockupComponentSchema>;
+
+export const MockupScreenSchema = z.object({
+  screen_id: z.string().min(1),
+  title: z.string().min(1),
+  route: z.string().nullish(),
+  /** Screen-level requirement link (the primary AC it serves). */
+  requirement: z.string().nullish(),
+  /** Root component id of the tree for this screen. */
+  root: z.string().nullish(),
+  /** States this screen carries (§15.4 state generator). */
+  states: z.array(enumOf(MOCKUP_STATES)).default(['default']),
+  /** Breakpoint → root component id (responsive variant). */
+  responsive: z.record(z.string()).nullish(),
+  notes: z.string().nullish(),
+});
+export type MockupScreen = z.infer<typeof MockupScreenSchema>;
+
+/** A Visual Acceptance Criterion edge: AC → component (+ state). */
+export const MockupVisualAcSchema = z.object({
+  ac_id: z.string().min(1),
+  statement: z.string().nullish(),
+  screen_id: z.string().nullish(),
+  component_id: z.string().min(1),
+  state: enumOf(MOCKUP_STATES).nullish(),
+  breakpoint: enumOf(MOCKUP_BREAKPOINTS).nullish(),
+});
+export type MockupVisualAc = z.infer<typeof MockupVisualAcSchema>;
+
+export const MockupSchema = z.object({
+  schema: SchemaVersionSchema,
+  subject: z.string().min(1),
+  title: z.string().min(1),
+  fidelity: enumOf(MOCKUP_FIDELITIES),
+  /** How the tree was produced (compose | screenshot | sketch | states). */
+  generator: z
+    .object({
+      mode: enumOf(MOCKUP_GENERATOR_MODES),
+      source: z.string().nullish(),
+      model: z.string().nullish(),
+      design_system: z.string().nullish(),
+    })
+    .nullish(),
+  screens: z.array(MockupScreenSchema).default([]),
+  components: z.array(MockupComponentSchema).default([]),
+  /** Visual ACs — AC → component+state edges (§15.4). */
+  visual_acs: z.array(MockupVisualAcSchema).default([]),
+  created_at: z.string().nullish(),
+  updated_at: z.string().nullish(),
+});
+export type Mockup = z.infer<typeof MockupSchema>;
+
+/** Design-system component-token bundle the mockup generator consumes
+ *  (`design-system.json` run artifact, §15.4). Mined from the app's UI
+ *  library so generated screens look native, not generic-AI. */
+export const DesignSystemComponentSchema = z.object({
+  name: z.string().min(1),
+  /** Import path / module the component lives in. */
+  import: z.string().nullish(),
+  /** Prop names (with types where known) the component accepts. */
+  props: z.record(z.unknown()).default({}),
+  variants: z.array(z.string()).default([]),
+  notes: z.string().nullish(),
+});
+export type DesignSystemComponent = z.infer<typeof DesignSystemComponentSchema>;
+
+export const DesignSystemSchema = z.object({
+  schema: SchemaVersionSchema,
+  /** Repo the tokens were mined from. */
+  source: z.string().min(1),
+  /** Token groups — colors, spacing, typography, radius, shadow, … */
+  tokens: z.record(z.unknown()).default({}),
+  components: z.array(DesignSystemComponentSchema).default([]),
+  /** Styling system detected (tailwind | css-modules | styled-components…). */
+  styling: z.string().nullish(),
+  extracted_at: z.string().nullish(),
+});
+export type DesignSystem = z.infer<typeof DesignSystemSchema>;
+
 // ---------- process machinery (PRD §15.10, wp-153) ----------
 
 /** Assumption Register — auto-captured when a stage depends on
@@ -1704,3 +2044,31 @@ export const ModelRouteSchema = z.object({
   latency_class: enumOf(LATENCY_CLASSES).nullish(),
 });
 export type ModelRoute = z.infer<typeof ModelRouteSchema>;
+
+/** `models:` registry entries may be sparse — unset fields inherit
+ *  `models.default`, then the legacy knobs (main_model/review_model/
+ *  escalation_model) at resolution time (wp-155). */
+export const ModelRouteEntrySchema = ModelRouteSchema.partial();
+export type ModelRouteEntry = z.infer<typeof ModelRouteEntrySchema>;
+
+/** The registry RESOLUTION for one run — `model` is the pinned value
+ *  after request/ticket overrides (`primary` is the registry's own
+ *  pick before pins). Persisted on `runs.request.route` so a queued
+ *  row's launch resolves identically (§15.12 run pinning). */
+export const RouteDecisionSchema = z.object({
+  /** The registry kind that resolved (stage name or reserved key). */
+  kind: z.string().min(1),
+  /** Effective model pinned for this run; null = backend default. */
+  model: z.string().nullish(),
+  /** Registry-resolved primary before request/ticket pins. */
+  primary: z.string().nullish(),
+  fallback: z.array(z.string()).default([]),
+  max_output_tokens: z.number().int().nullish(),
+  schema_required: z.boolean().default(false),
+  providers: z.array(z.string()).default([]),
+  eval_threshold: z.number().min(0).max(1).nullish(),
+  latency_class: enumOf(LATENCY_CLASSES),
+  /** Which precedence layer supplied `model` (audit). */
+  source: enumOf(ROUTE_DECISION_SOURCES),
+});
+export type RouteDecision = z.infer<typeof RouteDecisionSchema>;

@@ -17,15 +17,30 @@
  * drives it until then.
  */
 import type { ControlOp, RunHandle } from '@sprint-runner/core';
+import {
+  type ChangesetSweepReport,
+  sweepChangesetExpiry,
+} from '../changes/index.js';
 import { type ClaimReport, claim } from '../claim/index.js';
 import { controlRun } from '../control/index.js';
+import {
+  type ContainerRuntimeReport,
+  prepareContainerRuntime,
+} from '../envops/containers.js';
+import { expireTestEnvRequests } from '../envops/testenv.js';
 import { type ReconcileReport, reconcile } from '../reconcile/index.js';
 import {
   ShellGhClient,
   type ShepherdReport,
   pollOpenPrs,
 } from '../shepherd/index.js';
-import type { ConductorDeps, ConductorWorkspace } from './deps.js';
+import {
+  type ConductorDeps,
+  type ConductorWorkspace,
+  actorOf,
+  containerRuntimeDeps,
+  nowOf,
+} from './deps.js';
 import { LeaseManager } from './lease.js';
 import { type TailState, newTailState, tailRunOutputs } from './tail.js';
 import type { ToolCtx } from './tools.js';
@@ -35,6 +50,8 @@ export interface TickReport {
   claim: ClaimReport[];
   /** Shepherd pass per workspace (empty between poll intervals). */
   shepherd: ShepherdReport[];
+  /** ChangeSet approval-expiry sweep per workspace (wp-140). */
+  changes: ChangesetSweepReport[];
 }
 
 export class Conductor {
@@ -50,6 +67,10 @@ export class Conductor {
   /** run_output tail offsets per workspace (wp-160). */
   readonly #tailStates = new Map<string, TailState>();
   #gh: import('../shepherd/index.js').GhClient | null = null;
+  /** Memoized container-runtime bootstrap (success only — a failed
+   *  start is retried on the next tick, still fail-closed). */
+  #containerReport: ContainerRuntimeReport | null = null;
+  #containerStarting: Promise<ContainerRuntimeReport> | null = null;
 
   #tailState(name: string): TailState {
     let st = this.#tailStates.get(name);
@@ -65,9 +86,47 @@ export class Conductor {
     this.leases = new LeaseManager(deps);
   }
 
+  /**
+   * Container-runtime bootstrap (D30, CONDUCTOR "Container lifecycle",
+   * wp-097): resolve which registered backends need `runtime: container`
+   * (none → no-op, the daemon is never contacted), `docker info`
+   * (unreachable daemon → hard error naming the backends that need it),
+   * build/pull the base image, then sweep orphaned managed containers.
+   *
+   * Called lazily by `tick()`; callers that want a clean startup error
+   * (the `veto daemon` entrypoint) may await it directly before the
+   * loop. Memoized on success; a failed start throws on every tick
+   * until the daemon/image is available (no container run launches).
+   */
+  async start(): Promise<ContainerRuntimeReport> {
+    if (this.#containerReport !== null) return this.#containerReport;
+    if (this.#containerStarting === null) {
+      this.#containerStarting = prepareContainerRuntime(
+        containerRuntimeDeps(this.deps),
+        { adapters: this.deps.adapters },
+      )
+        .then((report) => {
+          this.#containerReport = report;
+          return report;
+        })
+        .finally(() => {
+          this.#containerStarting = null;
+        });
+    }
+    return this.#containerStarting;
+  }
+
   /** One RECONCILE → CLAIM (+ shepherd poll when due) per workspace. */
   async tick(): Promise<TickReport> {
-    const report: TickReport = { reconcile: [], claim: [], shepherd: [] };
+    // Container bootstrap runs once (first tick) before any launch — a
+    // container backend with an absent daemon fails closed here.
+    await this.start();
+    const report: TickReport = {
+      reconcile: [],
+      claim: [],
+      shepherd: [],
+      changes: [],
+    };
     for (const ws of this.deps.workspaces) {
       const ctx = this.#ctx(ws);
       const rr: ReconcileReport = {
@@ -80,6 +139,35 @@ export class Conductor {
       report.reconcile.push(rr);
       report.claim.push(await claim(ctx));
       report.shepherd.push(await this.shepherdTick(ctx));
+      // wp-140: park expired changeset approvals back at
+      // awaiting-decision (revalidate only what's invalidated).
+      try {
+        report.changes.push(
+          await sweepChangesetExpiry({
+            workspace: ws.name,
+            store: this.deps.store,
+            actor: actorOf(this.deps),
+            now: () => nowOf(this.deps),
+            notify: this.deps.notify,
+          }),
+        );
+      } catch (e) {
+        report.changes.push({ expired: [] });
+        rr.warnings.push(`changeset-sweep: ${(e as Error).message}`);
+      }
+      // wp-157: expire pending test-environment requests past their
+      // `expires_at` (the next stage check re-raises a fresh request).
+      try {
+        await expireTestEnvRequests({
+          workspace: ws.name,
+          store: this.deps.store,
+          actor: actorOf(this.deps),
+          now: () => nowOf(this.deps),
+          notify: this.deps.notify,
+        });
+      } catch (e) {
+        rr.warnings.push(`test-env-sweep: ${(e as Error).message}`);
+      }
       // wp-160: stream bounded run.log tails over the SSE channel
       // (best-effort — the durable log is the truth, the stream is a
       // latency optimization the UI may drop).

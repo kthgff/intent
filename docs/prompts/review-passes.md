@@ -13,7 +13,7 @@ boundaries, overly broad permissions, dependency risks.
 ## spec-compliance
 The runner already diffed the TDD file-plan vs `git diff --name-only`
 mechanically — you don't recheck file lists. YOUR job is judgment:
-is every PRD AC actually satisfied by the code (not just mapped)? Is
+is every RS AC actually satisfied by the code (not just mapped)? Is
 each agent deviation in DEVIATIONS.md justified and minimal — or is a
 logged "deviation" really spec drift? Is a file-plan mismatch the
 runner flagged a real problem or noise?

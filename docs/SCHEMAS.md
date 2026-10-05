@@ -37,6 +37,10 @@ backend: aider               # optional; default from config
 model: openrouter/anthropic/claude-sonnet-4   # optional
 source: jira:PROJ-123        # optional: jira: | github:org/repo#N |
                              #   manual | capture | synthesis
+source_ref:                  # optional import provenance (wp-139) —
+                             #   {system, kind, url, imported_at,
+                             #    original_status}; kind ∈ issue |
+                             #   pull-request (GitHub issues ≠ PRs)
 parent: null                 # set on children produced by a split run
 depends_on: []               # ticket ids that must merge before this
                              # one can implement (topological ordering)
@@ -86,6 +90,11 @@ feature/initiative status, never a ticket status.)
 #  a row for a non-code file may start its `change` cell with
 #  "untestable:" — exempts that row from coverage; see §4
 ## Risks / open items
+## Threat model              (required for sensitive-scope changes, §15.8)
+#  assets at risk · trust boundaries · threats (STRIDE) · mitigations.
+#  The design-time security gate (wp-150) fails closed when a change
+#  touching auth/secrets/crypto/input-parsing/network/payments/PII has
+#  no `## Threat model` section.
 ## Addenda                   (appended ONLY by implement agent on deviation)
 | ts | planned | did | reason |
 ```
@@ -237,7 +246,7 @@ split_proposed, split_approved, split_materialized, survey_started,
 survey_completed, dossier_updated, dossier_edited, gap_reported,
 provenance_amended, item_captured, board_synthesized,
 initiative_planned, replanned, reparented, released, verify_failed,
-discarded`
+discarded, import_reconciled, import_drift_detected`
 
 (The last nine are the D27/D29 additions — emitters for the capture,
 synthesis, re-plan, verify, and discard flows land with the wp-09x+
@@ -649,6 +658,119 @@ entry — never a hardcoded model in a stage:
 `latency_class`: `instant` (no LLM on path) | `interactive` (streamed
 ~1s TTFT) | `background` (quality-adjusted cost). Registry entries are
 versioned config — eval results (wp-156) feed route changes.
+
+## 22. statements.json — the `extract` stage's structured output (wp-143)
+
+The statement-extraction batch. **Fail-closed**: malformed output
+aborts the whole batch (nothing is written) — a partial ledger is worse
+than no ledger.
+
+```json
+{
+  "schema": 1,
+  "statements": [{
+    "key": "problem",
+    "text": "Password resets take 3 days",
+    "source": 0,
+    "source_text": "Password resets currently take 3 days.",
+    "span": [0, 39],
+    "intent": "problem",
+    "polarity": null,
+    "subject": "password-reset",
+    "strength": null,
+    "scope": null,
+    "scope_ref": null,
+    "confidence": 0.9,
+    "relations": [{"predicate": "derived-from", "target": "problem"}],
+    "clarification": null
+  }]
+}
+```
+
+Rules the ingest enforces (§15.3, wp-143):
+
+- `source_text` MUST be a verbatim substring of `sources[source].text`;
+  a paraphrase aborts the batch. When `span` is present it must slice
+  to exactly `source_text`.
+- `source` indexes the batch's source array (`board:<slug>`,
+  `session:<id>`, `import:<key>`, `doc:<subject>:<doc>`).
+- `relations[].target` is another statement's `key` in the same batch
+  or an existing `statement_id`; an unknown target aborts the batch.
+- `clarification` opens a `statement_clarifications` row — a question,
+  never a guess.
+- Provenance: extracted statements land `proposed` + `inferred`;
+  `stakeholder-verified` only ever comes from a human confirm.
+- The preservation lint (`packages/lints/src/extraction.ts`) flags a
+  negation/qualifier cue in the source that no covering statement
+  preserved — a dropped "not" silently inverts a requirement.
+## 23. Import reconciliation — findings + provenance (PRD §15.3, wp-139)
+
+Imported items land on an `import`-type board and never enter
+autonomous development until reconciled. Provenance is a tri-state on
+requirements/items — `inferred | source-backed | stakeholder-verified`;
+**`inferred` never auto-approves** (`PROVENANCE_AUTO_APPROVABLE` in
+`packages/core/src/enums.ts`).
+
+`ReconciliationFinding` (persisted as an `import`-board `board_item`
+note + a `gate_items` row `gate: import-reconcile`, kind `review`):
+
+```json
+{
+  "id": "recon-drift-SR-0042",
+  "kind": "drift",
+  "decision": "open",
+  "provenance": "inferred",
+  "subject": "SR-0042",
+  "related": [],
+  "detail": "title: imported \"…\" ≠ source \"…\"",
+  "source_ref": { "system": "github", "kind": "issue", "url": "…" },
+  "created_at": "…",
+  "resolved_at": null
+}
+```
+
+- `kind` ∈ `duplicate | conflict | drift | completed | clarification`
+  (`RECONCILIATION_KINDS`); `decision` ∈ `open | merged | kept-both |
+  superseded | source-accepted | imported-kept | dismissed`
+  (`RECONCILIATION_DECISIONS`).
+- Clustering signals: metadata (title token Jaccard) + explicit
+  relations (`parent`/`depends_on`) + embeddings (cosine) — vector
+  similarity *retrieves*, the human decides authority.
+- Drift between an imported artifact and its source of record is
+  **surfaced, never silently overwritten**.
+- The reconciled flag is the `import-reconcile` gate; a clean import
+  auto-clears it (provenance `source-backed`), a finding holds it
+  (`inferred`). Resolution by a human re-proves the item
+  (`stakeholder-verified`).
+- Post-reconciliation the board converts to an ordinary board
+  (`convertImportBoard`) with import history preserved.
+
+## Appendix A. Vocabulary mapping — old → new (wp-132)
+
+The addendum adopts the shared-chat vocabulary (PRD §15.2). Storage
+keeps the `workspace` partition key; stage ids and sentinels keep
+their internal wire names (low churn) — only doc kinds, prompt tokens,
+and user-facing labels switch. Migration of pre-existing
+`doc_versions` rows happens in `0001_init.sql` (pre-release).
+
+| Old (internal / user-facing) | New | Where |
+|---|---|---|
+| `prd.md` (doc kind) | `rs.md` | DOC_KINDS, doc_versions, templates, lints |
+| `test.md` (doc kind) | `vs.md` | DOC_KINDS, doc_versions, templates, lints |
+| `PRD_MD` (prompt token) | `RS_MD` | PROMPT_TOKENS |
+| `TEST_MD` (prompt token) | `VS_MD` | PROMPT_TOKENS |
+| — (new) | `solution-brief.md` | Solution-scope brief (wp-131 doc kind) |
+| — (new) | `retro.md` | Retrospective document (retro stage) |
+| "PRD" (UI label) | "RS" / "Requirements Specification" | UI strings, docs |
+| "Test plan" (UI label) | "Verification spec" | UI strings, docs |
+| `project` (user-facing noun) | `Solution` | UI strings, docs, prompts |
+| `workspace` (storage key) | *unchanged* | DB columns, APIs, config |
+| stage id `prd` | *unchanged* (internal) | transitions, sentinels |
+| stage id `testplan` | *unchanged* (internal) | transitions, sentinels |
+| `PRD-WRITTEN` / `TESTPLAN-WRITTEN` (sentinels) | *unchanged* | wire contract |
+
+Binding internals may keep old names where the churn isn't worth it —
+this table is the authoritative mapping.
 
 ---
 

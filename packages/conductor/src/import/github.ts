@@ -8,6 +8,7 @@
  * run turns into `IMPORT-FAILED: <reason>`.
  */
 import { execFile } from 'node:child_process';
+import { issueKind } from './source-ref.js';
 import type { FetchError, FetchIssuesResult, RawIssue } from './types.js';
 
 export interface FetchIssuesOptions {
@@ -146,16 +147,21 @@ export async function fetchIssues(
         }
         resolvePromise({
           ok: true,
-          issues: rows.map((r) => ({
-            number: r.number,
-            title: r.title ?? '',
-            body: r.body ?? '',
-            labels: (r.labels ?? []).map((l) => l.name),
-            url: r.url ?? '',
-            milestone: r.milestone?.title ?? null,
-            state: r.state ?? '',
-            repo: opts.repo,
-          })),
+          issues: rows.map((r) => {
+            const issue: RawIssue = {
+              number: r.number,
+              title: r.title ?? '',
+              body: r.body ?? '',
+              labels: (r.labels ?? []).map((l) => l.name),
+              url: r.url ?? '',
+              milestone: r.milestone?.title ?? null,
+              state: r.state ?? '',
+              repo: opts.repo,
+            };
+            // wp-139: distinguish issues from PRs (a `/pull/<n>` URL).
+            issue.kind = issueKind(issue);
+            return issue;
+          }),
         });
       },
     );
