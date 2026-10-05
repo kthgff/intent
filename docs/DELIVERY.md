@@ -105,6 +105,37 @@ publication metadata.
 7. Correction tickets do not alter the merged ticket's history or
    its original AC verdicts; they carry their own ACs.
 
+### 4.1 Implementation notes (wp-134 — resolved spec gaps, binding)
+
+- **Scope change mechanics**: an item add/remove on a frozen release
+  (`ready|approved`) appends a NEW `release_manifests` version
+  immediately and reverts `approved` → `ready`. Approvals bind to the
+  version they approved — "reset pending approvals" is by binding,
+  the old rows stay append-only audit. Re-freezing an unchanged scope
+  is idempotent (same digest → same version, no new row).
+- **Approval quorum**: a manifest version is approved iff it carries
+  ≥1 `approved` and zero `rejected` decisions. A `rejected` decision
+  returns the release to `draft` (re-scope → re-cut → re-approve).
+- **"Material" correction**: severity `blocker|critical|major` — and
+  UNGRADED (`null`) corrections count as material (fail-closed: an
+  unassessed defect is never assumed shippable). `minor|trivial` never
+  block. "Open" = the correction ticket is non-terminal.
+- **Release gates** (`release_gate_results.gate`): `manifest`,
+  `approved`, `merged`, `partial-ac`, `corrections`. Every release
+  attempt appends all five verdicts with `evidence.manifest_version`
+  binding the row to the cut it evaluated. A `waived` row bound to the
+  CURRENT version counts as pass — waiving requires `by` + `rationale`
+  and only a failing gate is waivable; a re-cut invalidates waivers.
+- **Manifest item shape**: `{item_kind, item_id, partial_ac?, repos:
+  [{repo, ticket?, merged_sha}]}` — one repo entry per member ticket
+  per repo (a feature touching a repo via two members produces two
+  entries). `partial_ac` is part of the digested scope.
+- **Events**: `release_approved` fires on BOTH decisions
+  (`data.decision` disambiguates). Abandon emits `discarded`; `close`
+  is silent (the `retro_completed` event lands with wp-135). Release
+  events carry `ticket_id = REL-NNNN` (the events table has no
+  generic subject column; `listEvents({subject})` resolves it).
+
 ## 5. New stage + events
 
 - Stage: `release-notes` (agent stage — drafts the three-audience
