@@ -1181,6 +1181,36 @@ export class PostgresStore implements Store {
     }));
   }
 
+  async decideRelation(
+    key: { subject: string; predicate: string; object: string },
+    expected: Relation['verification'],
+    next: NonNullable<Relation['verification']>,
+  ) {
+    // wp-111 OCC: the expected state rides in the WHERE clause, so two
+    // racing decisions resolve atomically — the loser updates 0 rows
+    // and re-reads to classify (never a check-then-write gap).
+    const rows = await this.db.query(
+      `UPDATE relations SET verification=$4
+       WHERE subject=$1 AND predicate=$2 AND object=$3
+         AND verification IS NOT DISTINCT FROM $5
+       RETURNING verification`,
+      [key.subject, key.predicate, key.object, next, expected ?? null],
+    );
+    if (rows.length > 0) {
+      return { state: 'updated' as const, prior: expected };
+    }
+    const cur = await this.db.query(
+      `SELECT verification FROM relations
+       WHERE subject=$1 AND predicate=$2 AND object=$3`,
+      [key.subject, key.predicate, key.object],
+    );
+    if (cur.length === 0) return { state: 'missing' as const };
+    const current =
+      (cur[0]?.verification as Relation['verification']) ?? undefined;
+    if (current === next) return { state: 'noop' as const };
+    return { state: 'conflict' as const, current };
+  }
+
   async deleteRelation(r: Relation): Promise<void> {
     await this.db.query(
       `DELETE FROM relations

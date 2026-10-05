@@ -86,6 +86,7 @@ import {
   parseUnifiedDiff,
 } from './diff.js';
 import { registerEvidenceRoutes } from './evidence.js';
+import { registerLinkRoutes } from './links.js';
 import { deviationMetrics, gateDwell } from './metrics.js';
 import { registerReviewRoutes } from './review.js';
 import { StreamHub } from './sse.js';
@@ -3253,6 +3254,19 @@ export function createServer(opts: ServerOptions): ApiServer {
         payload: e.payload,
       }),
     now,
+  });
+
+  // /links — wp-111 traceability edges (D37): propose/record +
+  // idempotent evented human verify/reject (OCC → 409 stale writes).
+  registerLinkRoutes(app, {
+    store,
+    config,
+    actor,
+    notify: (e) =>
+      conductor.deps.notify?.({
+        type: 'link_decided',
+        payload: e.payload,
+      }),
   });
 
   return app;
