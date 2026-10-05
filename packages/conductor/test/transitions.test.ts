@@ -708,11 +708,7 @@ describe('events table (D29 ledger — no events.jsonl, no LOG.md)', () => {
       'verify_failed',
       'discarded',
       // wp-131 addendum events — emitters land with their wps
-<<<<<<< HEAD
       // (wp-133/134/135 delivery, wp-140 changesets, wp-155 routing).
-=======
-      // (wp-140…wp-155 per the EVENT_NAMES enum note).
->>>>>>> main
       'merge_ready',
       'merge_attempted',
       'merge_conflict',

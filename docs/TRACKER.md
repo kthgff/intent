@@ -95,12 +95,7 @@ Program plan for W16+ (PRD §14+§15): `docs/DEV-PLAN.md` + `docs/DELIVERY.md`.
 | W15 | wp-120 | Telemetry/incident intelligence: sanitized connector, fingerprint/dedupe, investigation, validated resolution, draft-ticket gate | wp-112 | todo |
 | W16 | wp-130 | Finish conductor test-layer migration (wp-094 fold-in) + full regreen | — | done |
 | W16 | wp-131 | Contracts v3: enums/schemas/0001 amendments/Store sigs for the whole addendum program | wp-130 | done |
-<<<<<<< HEAD
->>>>>>> wp/131
 | W16 | wp-132 | Vocabulary rename: project→Solution, prd→rs, +Solution Brief, +Verification Spec | wp-131 | done |
-=======
-| W16 | wp-132 | Vocabulary rename: project→Solution, prd→rs, +Solution Brief, +Verification Spec | wp-131 | todo |
->>>>>>> main
 | W17 | wp-133 | Merge Center: readiness checklist + Veto-executed `gh pr merge` + post-merge bookkeeping | wp-131 | todo |
 | W17 | wp-134 | Release Center core: entities, lifecycle, manifest freeze, approvals | wp-131, wp-133 | todo |
 | W17 | wp-135 | Deployments, feature exposure, release notes (3 audiences), outcomes, retrospectives | wp-134 | todo |
