@@ -25,7 +25,11 @@ import { ConfigError, parsePartialConfig } from './validate.js';
  * or nested keys are rejected by the caller's parsePartialConfig pass,
  * never here (setIn itself is schema-blind).
  */
-function setDeep(doc: YAML.Document, path: (string | number)[], value: unknown) {
+function setDeep(
+  doc: YAML.Document,
+  path: (string | number)[],
+  value: unknown,
+) {
   if (isPlainObject(value)) {
     for (const [k, v] of Object.entries(value)) {
       setDeep(doc, [...path, k], v);
@@ -58,7 +62,9 @@ export function mergeConfigFile(
       contents !== null &&
       !(YAML.isMap(contents) || isPlainObject(doc.toJS()))
     ) {
-      throw new ConfigError(`Config file ${configPath} must contain a YAML mapping`);
+      throw new ConfigError(
+        `Config file ${configPath} must contain a YAML mapping`,
+      );
     }
   } else {
     doc = new YAML.Document({});

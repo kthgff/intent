@@ -26,7 +26,8 @@ export const TAIL_WINDOW = 256 * 1024;
 /** Max payload bytes per `run_output` event (8 KiB). */
 export const CHUNK_SIZE = 8 * 1024;
 
-const TRUNCATION_MARKER = '\n… [run_output: output truncated — see run.log] …\n';
+const TRUNCATION_MARKER =
+  '\n… [run_output: output truncated — see run.log] …\n';
 
 /** Per-workspace tail state: run id → byte offset already emitted. */
 export interface TailState {
@@ -46,11 +47,7 @@ function runLogPath(deps: ConductorDeps, runId: string): string {
  * already memory-bounded by the read window; notify is fire-and-forget
  * per the deps contract.
  */
-function emitChunks(
-  deps: ConductorDeps,
-  runId: string,
-  buf: Buffer,
-): void {
+function emitChunks(deps: ConductorDeps, runId: string, buf: Buffer): void {
   for (let off = 0; off < buf.length; off += CHUNK_SIZE) {
     deps.notify?.({
       type: 'run_output',

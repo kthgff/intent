@@ -74,6 +74,7 @@ import Fastify, {
   type FastifyReply,
   type FastifyRequest,
 } from 'fastify';
+import YAML from 'yaml';
 import { z } from 'zod';
 import { registerBoardRoutes } from './board.js';
 import { registerDesignRoutes } from './design.js';

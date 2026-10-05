@@ -123,7 +123,7 @@ Program plan for W16+ (PRD §14+§15): `docs/DEV-PLAN.md` + `docs/DELIVERY.md`.
 | W22 | wp-157 | Test-environment requests: declarative env spec + conductor provisioning | wp-131 | done |
 | W23 | wp-158 | Discovery E2E: board→statements→interview→RS→approve→tickets vertical | wp-143–146 | todo |
 | W23 | wp-159 | Wave close-out: docs reconciliation + full suite green + TRACKER update | wp-138,142,147,150,152–158 | todo |
-| W23 | wp-160 | API/store backlog sweep: review route, notify path, workspace persist, metrics, snooze, run_output SSE | wp-131 | todo |
+| W23 | wp-160 | API/store backlog sweep: review route, notify path, workspace persist, metrics, snooze, run_output SSE | wp-131 | done |
 ## Parallel-agent rules
 
 1. One agent = one `wp-*.md` at a time, on branch `wp/<id>` off `main`.
@@ -142,15 +142,15 @@ Program plan for W16+ (PRD §14+§15): `docs/DEV-PLAN.md` + `docs/DELIVERY.md`.
 | --- | --- |
 | ~~D26/D27 contract migration~~ → promoted to wp-090–094 wave (D29). DB-SCHEMA.md rewritten; SCHEMAS/CONDUCTOR/SETTINGS/API get surgical edits in wp-090. | D29 |
 | S-19 Quick Capture + Project Tray: coded mockup plus `/capture`/tray list+mutation, attachment ingest, optimistic conflict, and tray-synthesis contracts | D27/D28 |
-| `GET /tickets/<ref>/review` route missing — S-08 fails soft reading findings from event payloads | wp-080 |
-| `run_output` SSE event has no producer (conductor doesn't stream log chunks) | wp-060 |
-| `import/run.ts` `surfaceFailure` writes gate rows directly, bypasses `deps.notify` | wp-060 |
-| POST `/workspaces` registers in-memory only — not persisted to config.yaml | wp-060 |
+| ~~`GET /tickets/<ref>/review` route missing~~ → wp-160 | wp-080 |
+| ~~`run_output` SSE event has no producer~~ → wp-160 (`loop/tail.ts`) | wp-060 |
+| ~~`import/run.ts` `surfaceFailure` bypasses `deps.notify`~~ → wp-160 | wp-060 |
+| ~~POST `/workspaces` in-memory only~~ → wp-160 (persists `projects` row per D29; config.yaml is for settings) | wp-060 |
 | `devin auth` absent on this machine → real `--export` schema + aider flag set unverified (D16; verify on first real run) | wp-022/052 |
 | Light-mode mockup variants for S-01–S-14 renders (PNGs are dark-only) + `theme-color` meta swap per theme | D34 theming |
-| Compute `deviation_rate` + `human_minutes` (gate dwell) in `/metrics` — formulas spec'd in PRD; both schema-ready, unimplemented | PRODUCT-MISSION review |
+| ~~Compute `deviation_rate` + `human_minutes` (gate dwell) in `/metrics`~~ → wp-160 | PRODUCT-MISSION review |
 | ~~`packages/cli` commands still stubs~~ → wp-099 (launch wave W12) | — |
-| `gate_items.snoozed_until` column + `/inbox` field needed for S-01 snooze (D20) | design review |
+| ~~`gate_items.snoozed_until` column + `/inbox` field + snooze endpoint~~ → wp-160 | design review |
 | `GET /board` + derived `phase` + `drop_targets` per card; `/interview` edit mode (`subject_ref`/`target`/`session_id`) + `/interview/<session>/approve` + `doc_edited` event — API additions for board+focus (D21/D24/D27, SCHEMAS §16) | wp-081 |
 | Addendum deferreds (PRD §15.10/§15.11): real-time collaborative whiteboarding, Figma-grade editing, interactive prototypes beyond rendered mockups, unrestricted agent swarms, full Test-Env/Data Studio (managed multi-service envs), Acceptance Lab guided UAT, Process Learning Engine, project/feature simulation, competing-solution branches, feature memory packages, "don't build it" recommendation, knowledge-expiry sweeps, voice capture (transcript upload ships instead), bidirectional tracker sync (Jira), plugin/connector marketplace, all billing/RBAC/cloud-sandbox machinery | D41/D43 |
 
