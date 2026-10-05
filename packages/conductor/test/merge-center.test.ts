@@ -10,13 +10,7 @@
  * note append).
  */
 import { execFileSync } from 'node:child_process';
-import {
-  cpSync,
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -248,9 +242,9 @@ function makeCtx(gh: GhClient): ShepherdCtx {
 }
 
 async function eventsFor(id: string): Promise<string[]> {
-  return (
-    await store.listEvents({ workspace: WS, ticket_id: id })
-  ).map((e) => e.event);
+  return (await store.listEvents({ workspace: WS, ticket_id: id })).map(
+    (e) => e.event,
+  );
 }
 
 beforeEach(async () => {
@@ -281,7 +275,10 @@ describe('merge center — checklist', () => {
 
     const readiness = await evaluateReadiness(
       ctx,
-      await store.getTicket({ workspace: WS, ticket_id: 'SR-1001' }) as TicketRow,
+      (await store.getTicket({
+        workspace: WS,
+        ticket_id: 'SR-1001',
+      })) as TicketRow,
       await store.listTicketRepos({ workspace: WS, ticket_id: 'SR-1001' }),
     );
     expect(readiness.ready).toBe(true);
@@ -349,7 +346,10 @@ describe('merge center — checklist', () => {
 
     const readiness = await evaluateReadiness(
       ctx,
-      await store.getTicket({ workspace: WS, ticket_id: 'SR-1002' }) as TicketRow,
+      (await store.getTicket({
+        workspace: WS,
+        ticket_id: 'SR-1002',
+      })) as TicketRow,
       await store.listTicketRepos({ workspace: WS, ticket_id: 'SR-1002' }),
     );
     expect(readiness.ready).toBe(false);
@@ -389,9 +389,9 @@ describe('merge center — branch protection (never bypass)', () => {
     expect(gate?.cleared_at).toBeNull();
     expect(gate?.kind).toBe('escalation');
     const notes = await store.listNotifications({ workspace: WS });
-    expect(notes.some((n) => (n.payload ?? '').includes('branch protection'))).toBe(
-      true,
-    );
+    expect(
+      notes.some((n) => (n.payload ?? '').includes('branch protection')),
+    ).toBe(true);
   });
 });
 
@@ -429,9 +429,9 @@ describe('merge center — conflict', () => {
     });
     expect(gate?.cleared_at).toBeNull();
     const runs = await store.listRuns({ workspace: WS, subject: 'SR-3001' });
-    expect(runs.some((r) => r.stage === 'rebase' && r.status === 'pending')).toBe(
-      true,
-    );
+    expect(
+      runs.some((r) => r.stage === 'rebase' && r.status === 'pending'),
+    ).toBe(true);
     expect(await eventsFor('SR-3001')).toContain('merge_conflict');
   });
 });

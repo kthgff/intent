@@ -30,8 +30,8 @@ import type {
   TicketRepoRow,
   TicketRow,
 } from '@sprint-runner/core';
-import { parseDodRows } from '../shepherd/dod.js';
 import { checksGreen } from '../shepherd/checks.js';
+import { parseDodRows } from '../shepherd/dod.js';
 import type { PrInfo } from '../shepherd/gh.js';
 import { type GitRunner, probeConflict } from './exec.js';
 import type { ChecklistItem, MergeCtx, MergeReadiness } from './types.js';
@@ -89,8 +89,7 @@ function approvalVerdict(
   );
   const current = latest.some(
     (d) =>
-      d.action === 'approve' &&
-      (headSha === null || d.head_sha === headSha),
+      d.action === 'approve' && (headSha === null || d.head_sha === headSha),
   );
   const stale = latest.filter((d) => d.action === 'approve');
   if (requested) {
@@ -226,9 +225,7 @@ export async function evaluateReadiness(
       })
     : [];
   items.push(findingsItem('scope', 'No unresolved deviations', findings));
-  items.push(
-    findingsItem('security', 'Security findings resolved', findings),
-  );
+  items.push(findingsItem('security', 'Security findings resolved', findings));
 
   // ---- AC evidence (vs.md cases or a verify test-report) ----
   const vsDoc = await store.getDoc({
@@ -297,7 +294,9 @@ export async function evaluateReadiness(
     id: 'checks',
     label: 'Checks green',
     ok: checksOk,
-    detail: checksOk ? `${openRows.length} PR(s) green` : checkDetails.join('; '),
+    detail: checksOk
+      ? `${openRows.length} PR(s) green`
+      : checkDetails.join('; '),
   });
   items.push({
     id: 'branch-protection',
@@ -324,7 +323,8 @@ export async function evaluateReadiness(
     id: 'depends-on',
     label: 'Dependencies delivered',
     ok: unmet.length === 0,
-    detail: unmet.length === 0 ? 'all delivered' : `waiting on ${unmet.join(', ')}`,
+    detail:
+      unmet.length === 0 ? 'all delivered' : `waiting on ${unmet.join(', ')}`,
   });
 
   // ---- git merge-tree conflict probe ----
@@ -359,7 +359,9 @@ export async function evaluateReadiness(
     dodOk = false;
     if (flagDoc) {
       try {
-        dodOk = (JSON.parse(flagDoc.content) as { enabled?: boolean }).enabled === true;
+        dodOk =
+          (JSON.parse(flagDoc.content) as { enabled?: boolean }).enabled ===
+          true;
       } catch {
         dodOk = false;
       }

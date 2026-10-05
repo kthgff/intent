@@ -40,18 +40,18 @@ import { git } from '@sprint-runner/gitops';
 import type { TransitionTools } from '../contracts.js';
 import { runVerifyTask } from '../envops/index.js';
 import { hasLiveRun } from '../launch/index.js';
-import { recordMerged } from '../merge/bookkeeping.js';
-import { runMergeCenter } from '../merge/center.js';
 import { nowIso, resolveRepoPath } from '../loop/deps.js';
 import { makeTransitionTools } from '../loop/tools.js';
 import type { ToolCtx } from '../loop/tools.js';
+import { recordMerged } from '../merge/bookkeeping.js';
+import { runMergeCenter } from '../merge/center.js';
+import { checksGreen, isFailing } from './checks.js';
 import {
   type DodRowClassified,
   manualRowsAttested,
   parseDodRows,
   readDodAttestations,
 } from './dod.js';
-import { checksGreen, isFailing } from './checks.js';
 import type { GhClient, PrCheck } from './gh.js';
 import { loadShepherdFile, prState, saveShepherdFile } from './state.js';
 

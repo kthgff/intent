@@ -15,15 +15,26 @@
  * feature-evidence recalc runs after the transaction (best-effort: a
  * missing feature row is not a merge failure).
  */
-import type { FeatureStatus, TicketRepoRow, TicketRow } from '@sprint-runner/core';
-import { type TransitionTools, rewriteFrontmatterStatus } from '../contracts.js';
+import type {
+  FeatureStatus,
+  TicketRepoRow,
+  TicketRow,
+} from '@sprint-runner/core';
+import {
+  type TransitionTools,
+  rewriteFrontmatterStatus,
+} from '../contracts.js';
 import type { MergeCtx } from './types.js';
 
 /** The implementation-note doc kind (`notes.md`, DOC_KINDS). */
 export const IMPLEMENTATION_NOTE_DOC = 'notes.md' as const;
 
 /** Feature statuses a recalc may advance (never downgrades `done`). */
-const FEATURE_ADVANCE_FROM = new Set<FeatureStatus>(['draft', 'ready', 'active']);
+const FEATURE_ADVANCE_FROM = new Set<FeatureStatus>([
+  'draft',
+  'ready',
+  'active',
+]);
 
 /** Build the markdown section appended to the implementation note. */
 export function mergeNoteSection(
@@ -101,7 +112,7 @@ export async function recordMerged(
         subject: id,
         doc: 'ticket.md',
       });
-      if (ticketDoc && ticketDoc.content.startsWith('---')) {
+      if (ticketDoc?.content.startsWith('---')) {
         try {
           const next = rewriteFrontmatterStatus(
             ticketDoc.content,
@@ -209,15 +220,19 @@ export async function recalcFeatureEvidence(
   const store = deps.store;
   const feature = await store.getFeature(ws.name, featureId);
   if (!feature) return null;
-  const tickets = (
-    await store.listTickets({ workspace: ws.name })
-  ).filter((t) => t.feature === featureId);
+  const tickets = (await store.listTickets({ workspace: ws.name })).filter(
+    (t) => t.feature === featureId,
+  );
   const delivered = tickets.filter((t) =>
     ['merged', 'verifying', 'released'].includes(t.status),
   ).length;
   const allDelivered = tickets.length > 0 && delivered === tickets.length;
   let next: FeatureStatus | null = null;
-  if (allDelivered && feature.status !== 'done' && feature.status !== 'discarded') {
+  if (
+    allDelivered &&
+    feature.status !== 'done' &&
+    feature.status !== 'discarded'
+  ) {
     next = 'done';
   } else if (
     delivered > 0 &&

@@ -14,8 +14,12 @@
  *      The rebase run is the ONLY path that rewrites the branch (it
  *      owns the force-push policy); the Merge Center never force-pushes.
  */
-import type { MergeStrategy, TicketRepoRow, TicketRow } from '@sprint-runner/core';
-import { GitError, git } from '@sprint-runner/gitops';
+import type {
+  MergeStrategy,
+  TicketRepoRow,
+  TicketRow,
+} from '@sprint-runner/core';
+import { type GitError, git } from '@sprint-runner/gitops';
 import type { TransitionTools } from '../contracts.js';
 import type { MergeCtx, MergeRowOutcome } from './types.js';
 
@@ -23,7 +27,12 @@ import type { MergeCtx, MergeRowOutcome } from './types.js';
 export type GitRunner = (
   args: string[],
   cwd: string,
-) => Promise<{ ok: boolean; stdout: string; stderr: string; exitCode: number | null }>;
+) => Promise<{
+  ok: boolean;
+  stdout: string;
+  stderr: string;
+  exitCode: number | null;
+}>;
 
 /** Default git runner — shells the real `git` (AGENTS.md: never
  *  isomorphic-git); a failure is returned, not thrown. */
@@ -167,7 +176,11 @@ export async function executeMerge(
     // ---- branch protection (never bypass) ----
     const status = (info?.mergeStateStatus ?? '').toUpperCase();
     const mergeable = (info?.mergeable ?? '').toUpperCase();
-    if (status === 'BLOCKED' || status === 'DIRTY' || mergeable === 'CONFLICTING') {
+    if (
+      status === 'BLOCKED' ||
+      status === 'DIRTY' ||
+      mergeable === 'CONFLICTING'
+    ) {
       await tools.surfaceGateItem({
         subject: id,
         gate: 'merge',

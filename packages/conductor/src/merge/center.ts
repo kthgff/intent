@@ -19,10 +19,15 @@
  * conductor-side compute, so the row is created already-terminal and
  * is never handed to the sentinel transition table.
  */
-import type { MergeStrategy, RunRow, TicketRepoRow, TicketRow } from '@sprint-runner/core';
+import type {
+  MergeStrategy,
+  RunRow,
+  TicketRepoRow,
+  TicketRow,
+} from '@sprint-runner/core';
 import type { TransitionTools } from '../contracts.js';
-import { makeTransitionTools } from '../loop/tools.js';
 import { nowIso } from '../loop/deps.js';
+import { makeTransitionTools } from '../loop/tools.js';
 import { loadShepherdFile } from '../shepherd/state.js';
 import { evaluateReadiness } from './checklist.js';
 import { type GitRunner, executeMerge } from './exec.js';
@@ -57,9 +62,11 @@ export async function evaluateMergeCenter(
   opts: { gitRun?: GitRunner } = {},
 ): Promise<Map<string, MergeReadiness>> {
   const out = new Map<string, MergeReadiness>();
-  const tickets = (await ctx.deps.store.listTickets({
-    workspace: ctx.ws.name,
-  })).filter((t) => t.status === 'ci-watch');
+  const tickets = (
+    await ctx.deps.store.listTickets({
+      workspace: ctx.ws.name,
+    })
+  ).filter((t) => t.status === 'ci-watch');
   for (const ticket of tickets) {
     const rows = await ctx.deps.store.listTicketRepos({
       workspace: ctx.ws.name,
@@ -124,7 +131,10 @@ async function surfaceBlockers(
         gate: 'merge',
         kind: 'escalation',
         blockedAgent: true,
-        payload: { reason: 'branch protection blocks the merge', detail: item.detail },
+        payload: {
+          reason: 'branch protection blocks the merge',
+          detail: item.detail,
+        },
       });
       report.blocked.push(id);
       report.actions.push(`${id}: branch protection → merge gate`);
@@ -197,8 +207,7 @@ export async function runMergeCenter(
   };
   const tools = makeTransitionTools(ctx);
 
-  const readiness =
-    opts.readiness ?? (await evaluateMergeCenter(ctx, opts));
+  const readiness = opts.readiness ?? (await evaluateMergeCenter(ctx, opts));
 
   // ---- 0. surface gate items for blocking checklist rows ----
   for (const [id, r] of readiness) {
@@ -223,7 +232,10 @@ export async function runMergeCenter(
     let readyAt = await mergeReadyAt(ctx, id);
     if (!readyAt) {
       readyAt = r.at;
-      const ticket = await store.getTicket({ workspace: ws.name, ticket_id: id });
+      const ticket = await store.getTicket({
+        workspace: ws.name,
+        ticket_id: id,
+      });
       await tools.appendEvent({
         ticketId: id,
         event: 'merge_ready',

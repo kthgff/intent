@@ -10,8 +10,8 @@
  * bookkeeping, and the poll wiring.
  */
 import type { GateName } from '@sprint-runner/core';
-import type { GhClient } from '../shepherd/gh.js';
 import type { ToolCtx } from '../loop/tools.js';
+import type { GhClient } from '../shepherd/gh.js';
 
 /** Context the Merge Center needs: the shepherd's tool context plus the
  *  injectable `gh` client. `ShepherdCtx` (poll.ts) satisfies it
