@@ -104,7 +104,7 @@ Program plan for W16+ (PRD §14+§15): `docs/DEV-PLAN.md` + `docs/DELIVERY.md`.
 | W17 | wp-138 | Delivery E2E: merge→release→deploy→retro vertical (mock adapter) | wp-133–136 | todo |
 | W19 | wp-139 | Import reconciliation: provenance tri-state, clustering, reconciled-before-autonomy | wp-131, wp-144 | todo |
 | W18 | wp-140 | ChangeSets: lifecycle, versioned spec diffs, apply/reconcile | wp-131 | done |
-| W18 | wp-141 | Run baseline pinning + mid-run reconciliation policy | wp-131, wp-140 | todo |
+| W18 | wp-141 | Run baseline pinning + mid-run reconciliation policy | wp-131, wp-140 | done |
 | W18 | wp-142 | Scope Creep Radar: metrics, budgets, escalation | wp-140, wp-134 | todo |
 | W19 | wp-143 | Statement Ledger: semantic_statements, extraction pipeline, typed relations | wp-131 | todo |
 | W19 | wp-144 | Board v2: typed notes, board types, multi-board + org boards, deferred retention | wp-131, wp-143 | todo |

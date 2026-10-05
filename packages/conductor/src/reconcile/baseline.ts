@@ -21,13 +21,12 @@
  * human and a `baseline_reconciled` event recording old → new versions —
  * never a silent re-baseline. Detection is idempotent per open gate.
  */
-import {
-  type EventName,
-  type RunBaseline,
-  type RunRow,
-  type Store,
+import type {
+  EventName,
+  RunBaseline,
+  RunRow,
+  Store,
 } from '@sprint-runner/core';
-import type { StreamEvent } from '../loop/deps.js';
 import {
   CONTRACT_DOC,
   DESIGN_DOCS,
@@ -36,6 +35,7 @@ import {
   firstDocHead,
   pinnedBaselineOf,
 } from '../launch/baseline.js';
+import type { StreamEvent } from '../loop/deps.js';
 
 /** Gate instance name surfaced while a run's baseline has drifted. */
 export const BASELINE_DRIFT_GATE = 'baseline-drift';
@@ -160,7 +160,9 @@ export async function detectBaselineDrift(args: {
  * ChangeSets reconcile as one coordinated set — the caller fans this
  * out per affected run and a single decision is taken per run.
  */
-export function classifyBaselineDrift(drift: BaselineDrift[]): BaselineDecision {
+export function classifyBaselineDrift(
+  drift: BaselineDrift[],
+): BaselineDecision {
   if (drift.length === 0) return 'continue';
   const substantial = drift.some(
     (d) => d.field === 'rs_version' || d.field === 'contract_ver',
@@ -267,7 +269,8 @@ export async function reconcileRunBaseline(
     gate: BASELINE_DRIFT_GATE,
   };
   const existing = await ctx.store.getGateItem(key);
-  if (existing && !existing.cleared_at) return { decision, drift, surfaced: false };
+  if (existing && !existing.cleared_at)
+    return { decision, drift, surfaced: false };
 
   await surfaceBaselineDrift(ctx, run, subject, pinned, drift, decision);
   return { decision, drift, surfaced: true };

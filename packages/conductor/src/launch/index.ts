@@ -30,12 +30,6 @@ import {
 import { createWorktree } from '@sprint-runner/gitops';
 import { assertRouteProvider, resolveRunRoute } from '@sprint-runner/prompts';
 import type { RunRequest } from '../contracts.js';
-import {
-  gitHead,
-  pinnedBaselineOf,
-  resolveRunBaseline,
-  withBaseSha,
-} from './baseline.js';
 import { capExceeded } from '../loop/caps.js';
 import {
   type ConductorDeps,
@@ -48,6 +42,12 @@ import {
   stageTimeout,
 } from '../loop/deps.js';
 import type { LeaseManager } from '../loop/lease.js';
+import {
+  gitHead,
+  pinnedBaselineOf,
+  resolveRunBaseline,
+  withBaseSha,
+} from './baseline.js';
 import { blockTicketForCap } from './caps-action.js';
 import { runRunnerTask, taskForStage } from './runner.js';
 
