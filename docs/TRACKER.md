@@ -118,7 +118,7 @@ Program plan for W16+ (PRD §14+§15): `docs/DEV-PLAN.md` + `docs/DELIVERY.md`.
 | W21 | wp-152 | Feature Workspace: tabs, health rollup, acceptance package, scoped assistant | wp-131, wp-134, wp-146 | todo |
 | W21 | wp-153 | Process machinery: DoR/DoD engines, Assumption Register, Quality Debt, Delivery Commitments | wp-131, wp-134 | todo |
 | W21 | wp-154 | Work Decomposition Engine + contract-first tickets + integration coordination | wp-131, wp-143 | todo |
-| W22 | wp-155 | Model Routing Registry: versioned task→model config, latency classes, cost-per-accepted | wp-131 | todo |
+| W22 | wp-155 | Model Routing Registry: versioned task→model config, latency classes, cost-per-accepted | wp-131 | done |
 | W22 | wp-156 | AI Evaluation Lab: golden sets, bake-off harness, promotion gates | wp-155, wp-143 | todo |
 | W22 | wp-157 | Test-environment requests: declarative env spec + conductor provisioning | wp-131 | todo |
 | W23 | wp-158 | Discovery E2E: board→statements→interview→RS→approve→tickets vertical | wp-143–146 | todo |

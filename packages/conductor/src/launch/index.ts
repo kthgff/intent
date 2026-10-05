@@ -27,7 +27,7 @@ import {
   type TokenValues,
 } from '@sprint-runner/core';
 import { createWorktree } from '@sprint-runner/gitops';
-import { resolveRunRoute } from '@sprint-runner/prompts';
+import { assertRouteProvider, resolveRunRoute } from '@sprint-runner/prompts';
 import type { RunRequest } from '../contracts.js';
 import { capExceeded } from '../loop/caps.js';
 import {
@@ -312,6 +312,12 @@ export async function launch(
     ticketModel: ticket?.model ?? null,
   });
   const model = route.model;
+  // SCHEMAS §21 `providers` is an allowlist, not a preference: when the
+  // resolved model names a provider the route excludes, launch fails
+  // closed rather than quietly routing around the registry.
+  const modelProvider =
+    model && model.includes('/') ? model.slice(0, model.indexOf('/')) : null;
+  if (modelProvider) assertRouteProvider(route, modelProvider);
   const depth = (ticket?.depth ?? deps.config.spec_depth) as RunRow['depth'];
   const ts = nowIso(deps);
   const runDir = join(deps.runsDir, ...runId.split('/'));

@@ -727,7 +727,6 @@ describe('events table (D29 ledger — no events.jsonl, no LOG.md)', () => {
       'changeset_applied',
       'changeset_verified',
       'baseline_reconciled',
-      'model_transition',
     ]);
     const missing = EVENT_NAMES.filter(
       (n: EventName) =>

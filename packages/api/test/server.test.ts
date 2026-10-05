@@ -528,3 +528,37 @@ describe('settings', () => {
     await app.close();
   });
 });
+
+describe('metrics — wp-155 cost per accepted outcome', () => {
+  it('reports accepted_outcomes + cost_per_accepted_outcome (null when none)', async () => {
+    const app = makeServer();
+    await store.upsertTicket(
+      ticketRow({ ticket_id: 'SR-0001', status: 'in-progress' }),
+    );
+    const none = await app.inject({
+      method: 'GET',
+      url: '/api/v1/metrics',
+      headers: AUTH,
+    });
+    expect(none.statusCode).toBe(200);
+    expect(none.json().accepted_outcomes).toBe(0);
+    expect(none.json().cost_per_accepted_outcome).toBeNull();
+
+    // merged + released count as verified accepted outcomes.
+    await store.upsertTicket(
+      ticketRow({ ticket_id: 'SR-0002', status: 'merged' }),
+    );
+    await store.upsertTicket(
+      ticketRow({ ticket_id: 'SR-0003', status: 'released' }),
+    );
+    const some = await app.inject({
+      method: 'GET',
+      url: '/api/v1/metrics',
+      headers: AUTH,
+    });
+    expect(some.json().accepted_outcomes).toBe(2);
+    // No spend in the fixture → 0 / 2, still a number (not null).
+    expect(some.json().cost_per_accepted_outcome).toBe(0);
+    await app.close();
+  });
+});
