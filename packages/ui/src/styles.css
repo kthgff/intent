@@ -504,3 +504,198 @@ th {
   padding: 8px 12px;
   margin-bottom: 10px;
 }
+
+/* ---- board (S-01 pipeline kanban) ---- */
+.board {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+.board-col {
+  flex: 0 0 280px;
+  min-width: 260px;
+  border-radius: 8px;
+}
+.board-col-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px 8px;
+}
+.board-col-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  font-weight: 600;
+}
+.badge.wip-over {
+  color: var(--yellow);
+  border-color: var(--yellow);
+}
+.board-col-empty {
+  color: var(--text-dim);
+  text-align: center;
+  padding: 14px 0;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+.board-card {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  min-height: 64px;
+}
+.board-card.flag-failed,
+.board-card.flag-blocked {
+  border-left: 3px solid var(--red);
+}
+.board-card.dim {
+  opacity: 0.45;
+}
+.board-card-head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+}
+.board-card-title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-weight: 600;
+  margin: 4px 0;
+  color: var(--text);
+}
+.board-card-title:hover {
+  color: var(--accent);
+}
+.board-card-meta {
+  color: var(--text-dim);
+  font-size: 11.5px;
+}
+.board-card-badges {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+.attn i {
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 700;
+  margin-left: -2px;
+  vertical-align: super;
+}
+/* loud emphasis — failure/escalation badges render solid */
+.attn.loud .badge {
+  background: var(--red);
+  color: #fff;
+  border-color: var(--red);
+}
+.board-snooze {
+  padding: 0 6px;
+  line-height: 1.4;
+}
+.board-more {
+  width: 100%;
+}
+.board-card-overflow {
+  padding: 6px 10px;
+  min-height: 0;
+  font-size: 12px;
+}
+.ops-strip {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  font-size: 12px;
+}
+.ops-chip {
+  text-decoration: none;
+}
+.kind-verify {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+/* drag-drop — valid targets get the accent outline; invalid stay muted */
+.board-col.drop-ok {
+  outline: 1px dashed var(--accent);
+  outline-offset: 2px;
+}
+.board-col.drop-no {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+.board-col.drop-hover {
+  background: var(--bg-hover);
+}
+.modal-back {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+}
+.modal {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  width: 380px;
+  max-width: 90vw;
+}
+.card.snoozed {
+  opacity: 0.55;
+}
+
+/* ---- ticket focus rail + chat-to-edit ---- */
+.next-action {
+  border-color: var(--accent);
+}
+.roadmap {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+.roadmap li {
+  font-size: 12px;
+  padding: 3px 0;
+  color: var(--text-dim);
+}
+.roadmap li.done {
+  color: var(--green);
+}
+.roadmap li.current {
+  color: var(--text);
+  font-weight: 600;
+}
+.chat-edit {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 10px;
+  background: var(--bg-raised);
+}
+.chat-log {
+  max-height: 180px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+  font-size: 12.5px;
+}

@@ -397,6 +397,33 @@ export default function Settings() {
               <option value="true">true</option>
             </select>
           </Field>
+          <h3 className="group-title">Board WIP soft limits</h3>
+          <p className="muted">
+            Per-column soft caps — the board column count renders amber when
+            exceeded. Empty = no limit.
+          </p>
+          <div className="row">
+            {(['backlog', 'spec', 'build', 'review', 'done'] as const).map(
+              (phase) => (
+                <Field key={phase} label={phase}>
+                  <input
+                    type="number"
+                    min={1}
+                    style={{ width: 90 }}
+                    value={String(get(config, `ui.wip_limits.${phase}`) ?? '')}
+                    onChange={(e) =>
+                      onChange(
+                        `ui.wip_limits.${phase}`,
+                        e.target.value === ''
+                          ? undefined
+                          : Number(e.target.value),
+                      )
+                    }
+                  />
+                </Field>
+              ),
+            )}
+          </div>
           <TextField
             label="shepherd poll interval (s)"
             path="shepherd.poll_interval_s"

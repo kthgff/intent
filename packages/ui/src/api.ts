@@ -8,6 +8,7 @@
  * cannot set headers; it sends the cookie same-origin).
  */
 import type {
+  BoardItem,
   Claim,
   DossierEntry,
   EventRow,
@@ -145,13 +146,110 @@ export interface InboxResponse {
   items: InboxItem[];
 }
 
+// ---- /board — S-01 pipeline board (API.md) ----
+
+/** The five phase columns collapsing the status enum (s-01-board §4). */
+export type BoardPhase = 'backlog' | 'spec' | 'build' | 'review' | 'done';
+
+/**
+ * Server-computed valid drop for a card (s-01 DnD table). The board is
+ * authoritative — the UI highlights `drop_targets` columns only and
+ * never infers transitions.
+ */
+export interface DropTarget {
+  /** The column this card may be dropped onto. */
+  column: BoardPhase;
+  /** 'wont_do'|'abort'|'retry' → POST …/actions; 'claim' → claim gate. */
+  action: 'wont_do' | 'abort' | 'retry' | 'claim';
+  /** For claim — the gate item name to claim. */
+  gate?: string;
+  /** Whether the UI must confirm before posting. */
+  confirm: boolean;
+  /** Human copy for the confirm modal / column hint. */
+  label: string;
+}
+
+/** A gate_item riding a board card, with its claim (badge initials). */
+export interface BoardAttention extends GateItem {
+  claim: Claim | null;
+}
+
+export interface BoardCard {
+  ticket: TicketRow;
+  /** `${workspace}/${ticket_id}` — the ref used in routes/actions. */
+  ref: string;
+  /** Derived column — for failed/blocked, the phase it died in. */
+  phase: BoardPhase;
+  flagged: 'failed' | 'blocked' | null;
+  /** Every open gate snoozed → the card leaves the board (D20/D22). */
+  snoozed: boolean;
+  snoozed_until: string | null;
+  /** Open gate items, ranked human-anxiety-first server-side. */
+  attention: BoardAttention[];
+  live_run: { id: string; stage: string; status: string } | null;
+  drop_targets: DropTarget[];
+}
+
+export interface BoardResponse {
+  cards: BoardCard[];
+  /** Non-ticket open gate items (survey/import/interview subjects). */
+  ops: BoardAttention[];
+  /** Configured per-column soft limits (ui.wip_limits — S-02). */
+  wip_limits: Partial<Record<BoardPhase, number>>;
+  generated_at: string;
+}
+
+export interface TicketDocMeta {
+  doc: string;
+  version: number;
+  edited_by: string | null;
+  created_at: string | null;
+}
+
 export interface TicketDetail {
   ticket: TicketRow;
   ticket_md: string | null;
   triage: Triage | null;
   repos: TicketRepoRow[];
+  /** Latest doc_versions metadata per doc on the subject (D29). */
+  docs: TicketDocMeta[];
+  /** Derived board phase — same rule as /board (wp-081). */
+  phase: BoardPhase;
+  flagged: 'failed' | 'blocked' | null;
   open_gates: GateItem[];
   family: TicketRow[];
+}
+
+/** Chat-to-edit session (GET /interview/<session> — API.md §16). */
+export interface EditSessionTurn {
+  ts: string;
+  kind: 'session' | 'turn' | 'applied' | 'discarded';
+  subject?: string;
+  target?: string;
+  message?: string;
+  run?: string | null;
+  outcome?: string;
+  doc?: string;
+  version?: number;
+}
+
+export interface InterviewSession {
+  session: string;
+  workspace: string;
+  subject: string;
+  /** Target doc kind (ticket.md | prd.md | tdd.md | test.md). */
+  target: string;
+  status:
+    | 'queued'
+    | 'running'
+    | 'proposal'
+    | 'clarify'
+    | 'refused'
+    | 'applied'
+    | 'discarded';
+  turns: EditSessionTurn[];
+  proposal: { run: string; diff: string } | null;
+  gate: { kind: string; surfaced_at: string } | null;
 }
 
 export interface DocResponse {
@@ -205,6 +303,8 @@ const ticketPath = (ws: string, id: string) =>
 export const client = {
   inbox: (workspace?: string) =>
     api<InboxResponse>(`/api/v1/inbox${qs({ workspace })}`),
+  board: (workspace?: string) =>
+    api<BoardResponse>(`/api/v1/board${qs({ workspace })}`),
   tickets: (f?: { workspace?: string; status?: string; repo?: string }) =>
     api<{ tickets: TicketRow[] }>(
       `/api/v1/tickets${qs({
@@ -340,4 +440,60 @@ export const client = {
       )}/${encodeURIComponent(gate)}/claim`,
       { method: 'DELETE' },
     ),
+  /** D20 — snooze an open gate item until `until` (or ttl_s, default
+   *  24h server-side). Snoozed items leave badges and the board. */
+  snooze: (
+    ws: string,
+    subject: string,
+    gate: string,
+    body?: { until?: string; ttl_s?: number },
+  ) =>
+    post<{ item: GateItem }>(
+      `/api/v1/gate-items/${encodeURIComponent(ws)}/${encodeURIComponent(
+        subject,
+      )}/${encodeURIComponent(gate)}/snooze`,
+      body ?? {},
+    ),
+  unsnooze: (ws: string, subject: string, gate: string) =>
+    api<{ item: GateItem }>(
+      `/api/v1/gate-items/${encodeURIComponent(ws)}/${encodeURIComponent(
+        subject,
+      )}/${encodeURIComponent(gate)}/snooze`,
+      { method: 'DELETE' },
+    ),
+  /** Chat-to-edit (SCHEMAS §16): a multi-turn interview run that
+   *  proposes a unified diff against one of the ticket's docs. */
+  interviewEdit: (body: {
+    workspace: string;
+    ticket_ref: string;
+    message: string;
+    target?: 'ticket' | 'prd' | 'tdd' | 'test';
+    session_id?: string;
+  }) =>
+    post<{ session: string; run: string; subject: string; target: string }>(
+      '/api/v1/interview',
+      body,
+    ),
+  interviewSession: (session: string, workspace?: string) =>
+    api<InterviewSession>(
+      `/api/v1/interview/${encodeURIComponent(session)}${qs({ workspace })}`,
+    ),
+  interviewApprove: (session: string, expected_status?: string) =>
+    post<{ applied: boolean; session: string; doc: string; version: number }>(
+      `/api/v1/interview/${encodeURIComponent(session)}/approve`,
+      expected_status === undefined ? {} : { expected_status },
+    ),
+  interviewDiscard: (session: string) =>
+    api<{ discarded: boolean; session: string }>(
+      `/api/v1/interview/${encodeURIComponent(session)}`,
+      { method: 'DELETE' },
+    ),
+  /** D27 capture tray ingress — creates a `board: null` board_item. */
+  capture: (body: {
+    workspace: string;
+    title: string;
+    kind?: string;
+    body?: string;
+    serves?: string | string[];
+  }) => post<{ item: BoardItem }>('/api/v1/capture', body),
 };

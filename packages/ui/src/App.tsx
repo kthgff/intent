@@ -10,6 +10,7 @@ import CodeReview from './screens/CodeReview';
 import CreateImport from './screens/CreateImport';
 import DocReview from './screens/DocReview';
 import Escalations from './screens/Escalations';
+import Home from './screens/Home';
 import Inbox from './screens/Inbox';
 import KnowledgeBase from './screens/KnowledgeBase';
 import Ledger from './screens/Ledger';
@@ -17,7 +18,7 @@ import Metrics from './screens/Metrics';
 import PrPanel from './screens/PrPanel';
 import RunMonitor, { RunsList } from './screens/RunMonitor';
 import Settings from './screens/Settings';
-import TicketDetail from './screens/TicketDetail';
+import TicketFocus from './screens/TicketFocus';
 import Wizard from './screens/Wizard';
 import Workspaces from './screens/Workspaces';
 import type { StreamEventMap } from './sse';
@@ -37,7 +38,14 @@ function ProductionApp() {
   const refreshBadge = useCallback(() => {
     client
       .inbox()
-      .then((r) => setOpenCount(r.items.length))
+      .then((r) => {
+        // D20: snoozed items stay open but leave the badge count.
+        const now = new Date().toISOString();
+        setOpenCount(
+          r.items.filter((i) => !i.snoozed_until || i.snoozed_until <= now)
+            .length,
+        );
+      })
       .catch(() => setOpenCount(null));
   }, []);
 
@@ -67,7 +75,7 @@ function ProductionApp() {
       <nav className="nav" aria-label="primary">
         <div className="brand">veto</div>
         <NavLink to="/" end>
-          Inbox
+          Home
           {openCount !== null && openCount > 0 && (
             <span className="count" aria-label="open items">
               {openCount}
@@ -85,10 +93,10 @@ function ProductionApp() {
       </nav>
       <main className="main" key={location.key}>
         <Routes>
-          <Route path="/" element={<Inbox />} />
+          <Route path="/" element={<Home />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/new" element={<CreateImport />} />
-          <Route path="/tickets/:ws/:id" element={<TicketDetail />} />
+          <Route path="/tickets/:ws/:id" element={<TicketFocus />} />
           <Route path="/tickets/:ws/:id/wizard" element={<Wizard />} />
           <Route path="/tickets/:ws/:id/docs/:name" element={<DocReview />} />
           <Route path="/tickets/:ws/:id/review" element={<CodeReview />} />
@@ -101,7 +109,7 @@ function ProductionApp() {
           <Route path="/metrics" element={<Metrics />} />
           <Route path="/workspaces" element={<Workspaces />} />
           <Route path="/kb" element={<KnowledgeBase />} />
-          <Route path="*" element={<Inbox />} />
+          <Route path="*" element={<Home />} />
         </Routes>
       </main>
       <div className="toasts" aria-live="polite">

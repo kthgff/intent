@@ -26,7 +26,9 @@ interface ReviewLike {
   passes?: string[];
 }
 
-export default function CodeReview() {
+export default function CodeReview({
+  embedded = false,
+}: { embedded?: boolean }) {
   const { ws = '', id = '' } = useParams();
   const navigate = useNavigate();
   const detail = useLoad(() => client.ticket(ws, id), [ws, id]);
@@ -95,12 +97,23 @@ export default function CodeReview() {
 
   return (
     <section>
-      <h1 className="page-title">Code review — {id}</h1>
-      <p className="page-sub">
-        <Link to={`/tickets/${ws}/${id}`}>← ticket</Link> ·{' '}
-        <StatusBadge status={t.status} /> ·{' '}
-        {review?.round != null ? `round ${review.round}` : 'round —'}
-      </p>
+      {!embedded && (
+        <>
+          <h1 className="page-title">Code review — {id}</h1>
+          <p className="page-sub">
+            <Link to={`/tickets/${ws}/${id}`}>← ticket</Link> ·{' '}
+            <StatusBadge status={t.status} /> ·{' '}
+            {review?.round != null ? `round ${review.round}` : 'round —'}
+          </p>
+        </>
+      )}
+      {embedded && (
+        <p className="page-sub">
+          <StatusBadge status={t.status} /> ·{' '}
+          {review?.round != null ? `round ${review.round}` : 'round —'} ·{' '}
+          <Link to={`/tickets/${ws}/${id}/review`}>full view →</Link>
+        </p>
+      )}
       {error != null && <ErrorBox error={error} />}
 
       <div className="counters" style={{ marginBottom: 12 }}>

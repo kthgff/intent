@@ -308,7 +308,13 @@ function rankInbox(items: GateItem[]): GateItem[] {
 // status_changed events back to the last meaningful status.
 // ---------------------------------------------------------------------------
 
-export const BOARD_PHASES = ['backlog', 'spec', 'build', 'review', 'done'] as const;
+export const BOARD_PHASES = [
+  'backlog',
+  'spec',
+  'build',
+  'review',
+  'done',
+] as const;
 export type BoardPhase = (typeof BOARD_PHASES)[number];
 
 /** TicketStatus → column; failed/blocked map to null — they retain the
@@ -422,9 +428,7 @@ function dropTargetsFor(
       label: 'Retry the last run',
     });
   }
-  if (
-    attention.some((g) => g.gate === 'escalated' && !g.cleared_at)
-  ) {
+  if (attention.some((g) => g.gate === 'escalated' && !g.cleared_at)) {
     targets.push({
       column: phase,
       action: 'claim',
@@ -990,9 +994,15 @@ export function createServer(opts: ServerOptions): ApiServer {
     // the payload's stable baseline.
     cards.sort(
       (a, b) =>
-        Number(b.attention.some((g) => !g.snoozed_until || g.snoozed_until <= nowIso)) -
+        Number(
+          b.attention.some(
+            (g) => !g.snoozed_until || g.snoozed_until <= nowIso,
+          ),
+        ) -
           Number(
-            a.attention.some((g) => !g.snoozed_until || g.snoozed_until <= nowIso),
+            a.attention.some(
+              (g) => !g.snoozed_until || g.snoozed_until <= nowIso,
+            ),
           ) ||
         prank(a.ticket.priority) - prank(b.ticket.priority) ||
         (a.ticket.created_at ?? '').localeCompare(b.ticket.created_at ?? ''),
@@ -1078,12 +1088,26 @@ export function createServer(opts: ServerOptions): ApiServer {
       edited_by: d.edited_by,
       created_at: d.created_at,
     }));
+    // Derived board phase for the focus page rail (same rule as
+    // /board — failed/blocked retain the phase they died in).
+    const flagged = flagOf(row.status);
+    const phase = derivePhase(
+      row.status,
+      flagged !== null
+        ? await store.listEvents({
+            workspace: wsName,
+            ticket_id: ticket,
+          })
+        : [],
+    );
     return {
       ticket: row,
       ticket_md: ticketMd,
       triage: triageRaw ? JSON.parse(triageRaw) : null,
       repos,
       docs,
+      phase,
+      flagged,
       open_gates: gates.filter((g) => g.subject === ticket),
       family: [...family, ...children],
     };
@@ -1862,7 +1886,11 @@ export function createServer(opts: ServerOptions): ApiServer {
   ): Promise<void> {
     const content = `${prior ?? ''}${JSON.stringify(line)}\n`;
     await store.appendDocVersion(
-      { workspace: wsName, subject: editSessionSubject(session), doc: 'notes.md' },
+      {
+        workspace: wsName,
+        subject: editSessionSubject(session),
+        doc: 'notes.md',
+      },
       content,
       actor,
     );
@@ -1910,12 +1938,12 @@ export function createServer(opts: ServerOptions): ApiServer {
       const doc = docKindFor(body.target ?? 'ticket');
       if (doc === null || !EDITABLE_TICKET_DOCS.has(doc)) {
         throw badRequest(
-          `interview edit: target must be one of ticket|prd|tdd|test ` +
-            `(got '${body.target ?? 'ticket'}')`,
+          `interview edit: target must be one of ticket|prd|tdd|test (got '${body.target ?? 'ticket'}')`,
         );
       }
       const session =
-        body.session_id ?? `cs_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+        body.session_id ??
+        `cs_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
       if (!SESSION_ID_RE.test(session)) {
         throw badRequest(`interview edit: malformed session_id '${session}'`);
       }
@@ -2119,11 +2147,14 @@ export function createServer(opts: ServerOptions): ApiServer {
     const item = await store.getGateItem({ workspace: wsName, subject, gate });
     if (!item) throw notFound(`no open proposal for session '${session}'`);
     if (item.cleared_at) {
-      throw conflict(`stale write: proposal gate already cleared`);
+      throw conflict('stale write: proposal gate already cleared');
     }
     // Newest completed session run's proposed-diff.md is THE proposal.
     const runs = (
-      await store.listRuns({ workspace: wsName, subject: editSessionSubject(session) })
+      await store.listRuns({
+        workspace: wsName,
+        subject: editSessionSubject(session),
+      })
     ).sort((a, b) => b.id.localeCompare(a.id));
     let art: { runId: string; content: string } | null = null;
     for (const r of runs) {
@@ -2153,7 +2184,11 @@ export function createServer(opts: ServerOptions): ApiServer {
         `proposal targets '${diffFile}', session target is '${target}'`,
       );
     }
-    const current = await store.getDoc({ workspace: wsName, subject, doc: target });
+    const current = await store.getDoc({
+      workspace: wsName,
+      subject,
+      doc: target,
+    });
     if (!current) throw notFound(`no ${target} on ${wsName}/${subject}`);
     let next: string;
     try {

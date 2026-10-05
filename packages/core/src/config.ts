@@ -155,7 +155,10 @@ export const UiConfigSchema = z.object({
    *  warnings") — `{backlog|spec|build|review|done}: n`. Exceeding a
    *  limit tints the column header amber; it never blocks drops. */
   wip_limits: z
-    .record(z.enum(['backlog', 'spec', 'build', 'review', 'done']), z.number().int().positive())
+    .record(
+      z.enum(['backlog', 'spec', 'build', 'review', 'done']),
+      z.number().int().positive(),
+    )
     .default({}),
 });
 export type UiConfig = z.infer<typeof UiConfigSchema>;

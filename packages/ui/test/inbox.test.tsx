@@ -41,13 +41,22 @@ describe('S-01 inbox ordering', () => {
     ]);
   });
 
-  it('groups by kind for sectioned render', () => {
+  it('groups by kind for sectioned render (anxiety-first: failures on top)', () => {
     const groups = groupByKind([
       item({ kind: 'failure', subject: 'f' }),
       item({ kind: 'question', subject: 'q' }),
     ]);
-    expect(groups[0]?.[0]).toBe('question');
-    expect(groups[1]?.[0]).toBe('failure');
+    expect(groups[0]?.[0]).toBe('failure');
+    expect(groups[1]?.[0]).toBe('question');
+  });
+
+  it('ranks failures/escalations above routine questions (D21)', () => {
+    const ranked = rankInbox([
+      item({ subject: 'q', kind: 'question', priority: 'high' }),
+      item({ subject: 'f', kind: 'failure', priority: 'low' }),
+      item({ subject: 'e', kind: 'escalation' }),
+    ]);
+    expect(ranked.map((i) => i.subject)).toEqual(['f', 'e', 'q']);
   });
 
   it('renders blocking items before non-blocking', () => {

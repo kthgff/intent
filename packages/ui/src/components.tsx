@@ -38,6 +38,7 @@ const KIND_LABEL: Record<string, string> = {
   escalation: 'Escalation',
   'split-plan': 'Split plan',
   repair: 'Repair',
+  verify: 'Verify',
 };
 
 export function KindBadge({ kind }: { kind: GateKind | string }) {

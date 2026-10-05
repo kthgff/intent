@@ -1,7 +1,8 @@
 /**
- * S-01 — needs-attention inbox (home). Grouped gate_items ranked
- * blocking-first → priority → age; kind badges; claim/release;
- * workspace filter.
+ * S-01 — needs-attention inbox (home tab 2). Grouped gate_items ranked
+ * human-anxiety-first (failures/escalations before routine Q&A — D21),
+ * then priority → age; kind badges; claim/release/snooze; workspace
+ * filter.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -9,14 +10,16 @@ import { type InboxItem, client } from '../api';
 import { Empty, ErrorBox, KindBadge, Loading, fmtAge } from '../components';
 import { useStreamRefresh } from '../hooks';
 
+/** Human-anxiety-first kind order (D21 — failures/escalations first). */
 const KIND_ORDER = [
-  'question',
-  'escalation',
   'failure',
-  'approval',
-  'review',
-  'split-plan',
+  'escalation',
   'repair',
+  'question',
+  'review',
+  'approval',
+  'split-plan',
+  'verify',
 ];
 
 const KIND_HEADING: Record<string, string> = {
@@ -27,6 +30,7 @@ const KIND_HEADING: Record<string, string> = {
   escalation: 'Escalations',
   'split-plan': 'Split plans',
   repair: 'Repairs',
+  verify: 'Verifications',
 };
 
 /** Where an inbox item lands when opened. */
@@ -43,12 +47,19 @@ export function itemTarget(item: InboxItem): string {
   return base;
 }
 
-/** Blocking-first → priority → age (mirrors server ranking — items
- *  arrive pre-sorted, this keeps render order explicit/testable). */
+/** Human-anxiety-first (D21): failure/escalation/repair before routine
+ *  question/approval rows; within a class, a blocked agent breaks ties
+ *  ahead of priority → age. Mirrors the server's ANXIETY_RANK — items
+ *  arrive pre-sorted, this keeps render order explicit/testable. */
+const ANXIETY_RANK: Record<string, number> = Object.fromEntries(
+  KIND_ORDER.map((k, i) => [k, i]),
+);
+
 export function rankInbox(items: InboxItem[]): InboxItem[] {
   const prank = (p?: string | null) => (p === 'high' ? 0 : p === 'low' ? 2 : 1);
   return [...items].sort(
     (a, b) =>
+      (ANXIETY_RANK[a.kind] ?? 8) - (ANXIETY_RANK[b.kind] ?? 8) ||
       Number(b.blocked_agent ?? false) - Number(a.blocked_agent ?? false) ||
       prank(a.priority) - prank(b.priority) ||
       a.surfaced_at.localeCompare(b.surfaced_at),
@@ -154,8 +165,15 @@ export default function Inbox() {
           </h2>
           {list.map((item) => {
             const key = `${item.workspace}/${item.subject}/${item.gate}`;
+            const snoozed =
+              typeof item.snoozed_until === 'string' &&
+              item.snoozed_until > new Date().toISOString();
             return (
-              <div className="card" key={key} data-blocked={item.blocked_agent}>
+              <div
+                className={`card${snoozed ? ' snoozed' : ''}`}
+                key={key}
+                data-blocked={item.blocked_agent}
+              >
                 <div className="card-title">
                   <KindBadge kind={item.kind} />
                   <Link to={itemTarget(item)}>
@@ -167,8 +185,50 @@ export default function Inbox() {
                   {item.priority && (
                     <span className="badge">p:{item.priority}</span>
                   )}
+                  {snoozed && (
+                    <span className="badge">
+                      snoozed → {item.snoozed_until?.slice(0, 16)}
+                    </span>
+                  )}
                   <span className="muted">{fmtAge(item.surfaced_at)}</span>
                   <span className="spacer" />
+                  {snoozed ? (
+                    <button
+                      type="button"
+                      className="small"
+                      disabled={busy === key}
+                      onClick={() =>
+                        void act(key, () =>
+                          client.unsnooze(
+                            item.workspace,
+                            item.subject,
+                            item.gate,
+                          ),
+                        )
+                      }
+                    >
+                      unsnooze
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="small"
+                      disabled={busy === key}
+                      title="snooze 24h — leaves the board until then"
+                      onClick={() =>
+                        void act(key, () =>
+                          client.snooze(
+                            item.workspace,
+                            item.subject,
+                            item.gate,
+                            {},
+                          ),
+                        )
+                      }
+                    >
+                      snooze
+                    </button>
+                  )}
                   {item.claim ? (
                     <button
                       type="button"

@@ -119,7 +119,6 @@ export function parseUnifiedDiff(diff: string): ParsedUnifiedDiff {
   while (i < lines.length && lines[i]?.startsWith('diff --git ')) i++;
   // Optional index/mode preamble (reject rename/binary outright below).
   let from: string | undefined;
-  let to: string | undefined;
   while (i < lines.length) {
     const l = lines[i] ?? '';
     if (l.startsWith('--- ')) {
@@ -137,7 +136,7 @@ export function parseUnifiedDiff(diff: string): ParsedUnifiedDiff {
   if (i >= lines.length || !lines[i]?.startsWith('+++ ')) {
     throw new DiffApplyError('missing +++ header');
   }
-  to = stripPrefix((lines[i] ?? '').slice(4).trim());
+  const to = stripPrefix((lines[i] ?? '').slice(4).trim());
   i++;
 
   const hunks: Hunk[] = [];
@@ -231,12 +230,11 @@ export function applyUnifiedDiff(original: string, diff: string): string {
       const actual = src[cursor];
       if (actual === undefined || actual !== l.text) {
         throw new DiffApplyError(
-          `context mismatch at doc line ${cursor + 1}: expected ` +
-            `'${l.text}', found '${actual ?? '<eof>'}' — the doc has ` +
-            'drifted since this diff was proposed',
+          `context mismatch at doc line ${cursor + 1}: expected '${l.text}', found '${actual ?? '<eof>'}' — the doc has drifted since this diff was proposed`,
         );
       }
-      if (l.op === '-') cursor++; // consumed, not emitted
+      if (l.op === '-')
+        cursor++; // consumed, not emitted
       else {
         out.push(actual);
         cursor++;
@@ -263,9 +261,7 @@ export function extractUnifiedDiff(md: string): string {
     if (/^(diff --git |--- |@@ )/m.test(body)) return `${body}\n`;
   }
   const lines = md.split('\n');
-  const start = lines.findIndex((l) =>
-    /^(diff --git |--- |@@ )/.test(l),
-  );
+  const start = lines.findIndex((l) => /^(diff --git |--- |@@ )/.test(l));
   if (start === -1) {
     throw new DiffApplyError('no unified diff found in proposed-diff.md');
   }
