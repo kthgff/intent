@@ -23,6 +23,7 @@ import type { MergeStrategy, RunRow, TicketRepoRow, TicketRow } from '@sprint-ru
 import type { TransitionTools } from '../contracts.js';
 import { makeTransitionTools } from '../loop/tools.js';
 import { nowIso } from '../loop/deps.js';
+import { loadShepherdFile } from '../shepherd/state.js';
 import { evaluateReadiness } from './checklist.js';
 import { type GitRunner, executeMerge } from './exec.js';
 import type { MergeCtx, MergeReadiness, MergeRowOutcome } from './types.js';
