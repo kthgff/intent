@@ -85,7 +85,7 @@ Program plan for W16+ (PRD §14+§15): `docs/DEV-PLAN.md` + `docs/DELIVERY.md`.
 | W10 | wp-094 | E2E re-green: fixtures become seed rows not a git tickets repo; all tests pass | wp-093 | done |
 | W11 | wp-095 | Container runtime: docker client (CLI or Engine API), `containers` table + `runs.container_id`, lifecycle (lazy create/start/stop/rm/orphan sweep), base image build, caps | wp-091 | done |
 | W11 | wp-096 | Aider-in-container: `docker exec` run/control (`kill`/`pause`/`unpause`), usage stream-parse over exec stdout, env injection, `runtime` flag + `containers:` settings | wp-095,wp-092 | done |
-| W11 | wp-097 | Conductor rewire: LAUNCH container-ensure + gate-sleep + terminal teardown hooks; heartbeats via docker inspect; multi-mount recreate on repo-set growth | wp-096 | todo |
+| W11 | wp-097 | Conductor rewire: LAUNCH container-ensure + gate-sleep + terminal teardown hooks; heartbeats via docker inspect; multi-mount recreate on repo-set growth | wp-096 | done |
 | W11 | wp-098 | Container E2E: fixture repo + mock-in-container (or aider image), full stage chain in-container, orphan-sweep + kill/pause coverage; `pnpm test` green | wp-097 | todo |
 | W12 | wp-099 | Launch: `veto` CLI wires conductor + serves UI dist; init/daemon/tick/status/doctor | wp-092 | done |
 | W12 | wp-100 | Rename sprint-runner→veto (D31/D35): binary, config dir, package scopes, container names/labels, UI strings, docs sweep | wp-095,wp-099 | todo |
@@ -104,16 +104,16 @@ Program plan for W16+ (PRD §14+§15): `docs/DEV-PLAN.md` + `docs/DELIVERY.md`.
 | W17 | wp-138 | Delivery E2E: merge→release→deploy→retro vertical (mock adapter) | wp-133–136 | todo |
 | W19 | wp-139 | Import reconciliation: provenance tri-state, clustering, reconciled-before-autonomy | wp-131, wp-144 | todo |
 | W18 | wp-140 | ChangeSets: lifecycle, versioned spec diffs, apply/reconcile | wp-131 | done |
-| W18 | wp-141 | Run baseline pinning + mid-run reconciliation policy | wp-131, wp-140 | todo |
+| W18 | wp-141 | Run baseline pinning + mid-run reconciliation policy | wp-131, wp-140 | done |
 | W18 | wp-142 | Scope Creep Radar: metrics, budgets, escalation | wp-140, wp-134 | todo |
-| W19 | wp-143 | Statement Ledger: semantic_statements, extraction pipeline, typed relations | wp-131 | todo |
+| W19 | wp-143 | Statement Ledger: semantic_statements, extraction pipeline, typed relations | wp-131 | done |
 | W19 | wp-144 | Board v2: typed notes, board types, multi-board + org boards, deferred retention | wp-131, wp-143 | todo |
 | W19 | wp-145 | Interview Orchestrator: wizard defs, knowledge slots, question planner, snapshots | wp-131, wp-143 | todo |
 | W19 | wp-146 | Discovery readiness + Understanding Panel API + findings→revise loop | wp-145 | todo |
 | W19 | wp-147 | Discovery UI: board canvas v2, Understanding Panel, wizard surface | wp-131, wp-136, wp-146 | todo |
 | W20 | wp-148 | Review Studio: findings lifecycle, semantic comments, commit-bound approval | wp-131 | done |
 | W20 | wp-149 | Design artifacts: structured mockups, visual ACs, design approvals + Mockups UI | wp-131, wp-132 | todo |
-| W20 | wp-150 | Security review dimension: categories, finding fields, risk-tiered enforcement | wp-148 | todo |
+| W20 | wp-150 | Security review dimension: categories, finding fields, risk-tiered enforcement | wp-148 | done |
 | W21 | wp-151 | Ticket taxonomy: work types/origins, per-type intake, Ticket Workbench | wp-131 | todo |
 | W21 | wp-152 | Feature Workspace: tabs, health rollup, acceptance package, scoped assistant | wp-131, wp-134, wp-146 | todo |
 | W21 | wp-153 | Process machinery: DoR/DoD engines, Assumption Register, Quality Debt, Delivery Commitments | wp-131, wp-134 | todo |

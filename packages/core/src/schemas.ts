@@ -88,6 +88,7 @@ import {
   STATEMENT_POLARITIES,
   STATEMENT_RELATIONS,
   STATEMENT_SCOPES,
+  STATEMENT_SOURCE_KINDS,
   STATEMENT_STATUSES,
   STATEMENT_STRENGTHS,
   TEST_CASE_TYPES,
@@ -1268,6 +1269,72 @@ export const ExtractionRunRowSchema = z.object({
   created_at: z.string().nullish(),
 });
 export type ExtractionRunRow = z.infer<typeof ExtractionRunRowSchema>;
+
+/** semantic_statements.source_ref — where the verbatim source_text
+ *  came from (§15.3: "recovers exactly where the words came from").
+ *  `span` is [start, end) char offsets into the source's text; absent
+ *  = the engine located `source_text` verbatim itself (whole-quote
+ *  match). */
+export const StatementSourceRefSchema = z.object({
+  kind: enumOf(STATEMENT_SOURCE_KINDS),
+  /** board item id / `<session>#<seq>` / import key / `<subject>:<doc>`. */
+  id: z.string().min(1),
+  span: z
+    .tuple([z.number().int().nonnegative(), z.number().int().nonnegative()])
+    .nullish(),
+});
+export type StatementSourceRef = z.infer<typeof StatementSourceRefSchema>;
+
+// ---------- extraction output — `statements.json` (SCHEMAS §22, wp-143) ----------
+
+/** One typed edge proposed inside an extraction batch. `target` is
+ *  either another extracted statement's `key` in the same output or an
+ *  existing `statement_id` already in the ledger (fail-closed —
+ *  unknown targets abort the batch). */
+export const ExtractionRelationSchema = z.object({
+  predicate: enumOf(STATEMENT_RELATIONS),
+  target: z.string().min(1),
+});
+export type ExtractionRelation = z.infer<typeof ExtractionRelationSchema>;
+
+/** One atomic statement in an extraction batch. `source_text` MUST be
+ *  a verbatim substring of the referenced source's text (never
+ *  paraphrased — §15.3/§15.9); `span` pins the [start,end) offsets and
+ *  is verified against the source when present. */
+export const ExtractedStatementSchema = z.object({
+  /** Batch-local key — unique within this output; combined with the
+   *  extraction_run id to form the stored `statement_id`. */
+  key: z.string().min(1),
+  /** The atomic assertion, normalized wording. */
+  text: z.string().min(1),
+  /** Index into the batch's `sources` array (0-based). */
+  source: z.number().int().nonnegative().default(0),
+  /** Verbatim quote from the source — becomes `source_text`. */
+  source_text: z.string().min(1),
+  span: z
+    .tuple([z.number().int().nonnegative(), z.number().int().nonnegative()])
+    .nullish(),
+  intent: enumOf(STATEMENT_INTENTS).nullish(),
+  polarity: enumOf(STATEMENT_POLARITIES).nullish(),
+  subject: z.string().nullish(),
+  strength: enumOf(STATEMENT_STRENGTHS).nullish(),
+  scope: enumOf(STATEMENT_SCOPES).nullish(),
+  scope_ref: z.string().nullish(),
+  confidence: z.number().min(0).max(1).nullish(),
+  relations: z.array(ExtractionRelationSchema).default([]),
+  /** Ambiguity the extractor could not self-resolve — becomes a
+   *  statement_clarifications row (a question, never a guess). */
+  clarification: z.string().nullish(),
+});
+export type ExtractedStatement = z.infer<typeof ExtractedStatementSchema>;
+
+/** `statements.json` — the `extract` stage's / LLM-assist structured
+ *  output. Malformed output aborts the whole batch (fail-closed). */
+export const ExtractionOutputSchema = z.object({
+  schema: SchemaVersionSchema,
+  statements: z.array(ExtractedStatementSchema).min(1),
+});
+export type ExtractionOutput = z.infer<typeof ExtractionOutputSchema>;
 
 // ---------- interview orchestrator (PRD §15.9, wp-145) ----------
 

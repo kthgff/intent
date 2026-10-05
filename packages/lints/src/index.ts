@@ -16,6 +16,13 @@ export {
   pinnedTable,
 } from './coverage.js';
 export { structuredDocLint } from './doc-lint.js';
+export {
+  type ExtractedStatementLike,
+  type PreservationViolation,
+  extractionPreservationLint,
+  locateQuote,
+  sourceSentences,
+} from './extraction.js';
 export { type FilePlanDiffResult, filePlanVsDiff } from './file-plan.js';
 export {
   type FindingInput,
@@ -29,3 +36,4 @@ export {
   threadIdFor,
 } from './fingerprint.js';
 export { type SpecLintResult, renderSpecLint, specLint } from './spec-lint.js';
+export { securityFindingLint } from './security-findings.js';

@@ -49,9 +49,11 @@ export const STAGE_TEMPLATES = {
   survey: 'survey',
   verify: null,
   /** wp-131 addendum stages — prompt templates land with their owning
-   *  wps (release-notes → DELIVERY, extract → wp-143);
-   *  `retro` is wired by wp-132, `mockup`/`design-ingest` by wp-149;
-   *  renderPrompt throws for the rest until then. */
+   *  wps: `retro` (wp-132), `mockup`/`design-ingest` (wp-149). `extract`
+   *  is wp-143's statement-extraction stage — its LLM surface runs
+   *  through conductor/semantics `runExtraction` (prompt builder +
+   *  EXTRACT_PROMPT_VERSION), not a core template, so it maps null
+   *  here; renderPrompt throws for the rest until their wps land. */
   'release-notes': null,
   retro: 'retro',
   extract: null,
