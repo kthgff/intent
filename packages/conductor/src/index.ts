@@ -18,3 +18,4 @@ export * from './shepherd/index.js';
 export * from './launch/index.js';
 export * from './launch/caps-action.js';
 export * from './control/index.js';
+export * from './design/index.js';

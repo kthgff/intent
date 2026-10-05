@@ -49,14 +49,14 @@ export const STAGE_TEMPLATES = {
   survey: 'survey',
   verify: null,
   /** wp-131 addendum stages — prompt templates land with their owning
-   *  wps (release-notes → DELIVERY, extract → wp-143,
-   *  mockup/design-ingest → wp-149); `retro` is wired by wp-132,
+   *  wps (release-notes → DELIVERY, extract → wp-143);
+   *  `retro` is wired by wp-132, `mockup`/`design-ingest` by wp-149;
    *  renderPrompt throws for the rest until then. */
   'release-notes': null,
   retro: 'retro',
   extract: null,
-  mockup: null,
-  'design-ingest': null,
+  mockup: 'mockup',
+  'design-ingest': 'design-ingest',
 } as const satisfies Record<Stage, string | null>;
 
 /** Context handed to {@link renderPrompt} / {@link renderTemplate}. */

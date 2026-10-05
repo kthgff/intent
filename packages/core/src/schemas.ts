@@ -25,6 +25,7 @@ import {
   DEPLOY_EVIDENCE_TYPES,
   DEPTH_TIERS,
   DESIGN_APPROVAL_STATUSES,
+  DESIGN_CHECKLIST_ITEMS,
   DEVIATION_REASON_KINDS,
   DOC_KINDS,
   DOSSIER_SCOPES,
@@ -50,6 +51,10 @@ import {
   INTERVIEW_SESSION_STATUSES,
   KNOWLEDGE_SLOT_STATES,
   LATENCY_CLASSES,
+  MOCKUP_BREAKPOINTS,
+  MOCKUP_FIDELITIES,
+  MOCKUP_GENERATOR_MODES,
+  MOCKUP_STATES,
   NOTE_IMPORTANCES,
   NOTE_KINDS,
   NOTE_STATUSES,
@@ -1567,6 +1572,138 @@ export const DesignApprovalRowSchema = z.object({
   invalidated_at: z.string().nullish(),
 });
 export type DesignApprovalRow = z.infer<typeof DesignApprovalRowSchema>;
+
+// ---------- design artifacts (PRD §15.4, wp-149) ----------
+
+/** Design-approval checklist results (§15.4): one entry per item
+ *  (desktop/mobile/flows/error-empty/a11y/linked-acs), true = passed,
+ *  false = failed, null/absent = not yet reviewed. */
+export const DesignChecklistSchema = z.record(
+  enumOf(DESIGN_CHECKLIST_ITEMS),
+  z.boolean().nullish(),
+);
+export type DesignChecklist = z.infer<typeof DesignChecklistSchema>;
+
+/**
+ * The `mockup.json` structured-artifact contract. The component tree is
+ * the SOURCE OF TRUTH — rendered previews and PNG/export are output,
+ * never source (§15.4). `screens` reference components by id; the
+ * component list is flat (parent/children refs) so structural diffs are
+ * stable and per-component edits are addressable. `visual_acs` records
+ * the AC→component+state edges that back Visual Acceptance Criteria
+ * (projected into `statement_artifact_links`/`relations` by wp-143).
+ */
+export const MockupLayoutSchema = z
+  .object({
+    /** flex | grid | stack | absolute. */
+    direction: z.string().nullish(),
+    gap: z.number().nullish(),
+    align: z.string().nullish(),
+    justify: z.string().nullish(),
+    columns: z.number().int().nullish(),
+    /** Free-form layout hints (padding, max-width, …). */
+    props: z.record(z.unknown()).nullish(),
+  })
+  .nullish();
+export type MockupLayout = z.infer<typeof MockupLayoutSchema>;
+
+export const MockupComponentSchema = z.object({
+  component_id: z.string().min(1),
+  /** Design-system component name this maps to (native look, §15.4). */
+  name: z.string().min(1),
+  /** semantic | form | nav | list | card | input | button | text | … */
+  kind: z.string().nullish(),
+  parent: z.string().nullish(),
+  children: z.array(z.string()).default([]),
+  props: z.record(z.unknown()).default({}),
+  layout: MockupLayoutSchema,
+  /** The `requirement:` link — the AC this component satisfies. */
+  requirement: z.string().nullish(),
+  /** Which screen state this node is drawn for (§15.4). */
+  state: enumOf(MOCKUP_STATES).nullish(),
+  breakpoint: enumOf(MOCKUP_BREAKPOINTS).nullish(),
+  /** Per-breakpoint structural overrides (responsive variants). */
+  responsive: z.record(z.unknown()).nullish(),
+  notes: z.string().nullish(),
+});
+export type MockupComponent = z.infer<typeof MockupComponentSchema>;
+
+export const MockupScreenSchema = z.object({
+  screen_id: z.string().min(1),
+  title: z.string().min(1),
+  route: z.string().nullish(),
+  /** Screen-level requirement link (the primary AC it serves). */
+  requirement: z.string().nullish(),
+  /** Root component id of the tree for this screen. */
+  root: z.string().nullish(),
+  /** States this screen carries (§15.4 state generator). */
+  states: z.array(enumOf(MOCKUP_STATES)).default(['default']),
+  /** Breakpoint → root component id (responsive variant). */
+  responsive: z.record(z.string()).nullish(),
+  notes: z.string().nullish(),
+});
+export type MockupScreen = z.infer<typeof MockupScreenSchema>;
+
+/** A Visual Acceptance Criterion edge: AC → component (+ state). */
+export const MockupVisualAcSchema = z.object({
+  ac_id: z.string().min(1),
+  statement: z.string().nullish(),
+  screen_id: z.string().nullish(),
+  component_id: z.string().min(1),
+  state: enumOf(MOCKUP_STATES).nullish(),
+  breakpoint: enumOf(MOCKUP_BREAKPOINTS).nullish(),
+});
+export type MockupVisualAc = z.infer<typeof MockupVisualAcSchema>;
+
+export const MockupSchema = z.object({
+  schema: SchemaVersionSchema,
+  subject: z.string().min(1),
+  title: z.string().min(1),
+  fidelity: enumOf(MOCKUP_FIDELITIES),
+  /** How the tree was produced (compose | screenshot | sketch | states). */
+  generator: z
+    .object({
+      mode: enumOf(MOCKUP_GENERATOR_MODES),
+      source: z.string().nullish(),
+      model: z.string().nullish(),
+      design_system: z.string().nullish(),
+    })
+    .nullish(),
+  screens: z.array(MockupScreenSchema).default([]),
+  components: z.array(MockupComponentSchema).default([]),
+  /** Visual ACs — AC → component+state edges (§15.4). */
+  visual_acs: z.array(MockupVisualAcSchema).default([]),
+  created_at: z.string().nullish(),
+  updated_at: z.string().nullish(),
+});
+export type Mockup = z.infer<typeof MockupSchema>;
+
+/** Design-system component-token bundle the mockup generator consumes
+ *  (`design-system.json` run artifact, §15.4). Mined from the app's UI
+ *  library so generated screens look native, not generic-AI. */
+export const DesignSystemComponentSchema = z.object({
+  name: z.string().min(1),
+  /** Import path / module the component lives in. */
+  import: z.string().nullish(),
+  /** Prop names (with types where known) the component accepts. */
+  props: z.record(z.unknown()).default({}),
+  variants: z.array(z.string()).default([]),
+  notes: z.string().nullish(),
+});
+export type DesignSystemComponent = z.infer<typeof DesignSystemComponentSchema>;
+
+export const DesignSystemSchema = z.object({
+  schema: SchemaVersionSchema,
+  /** Repo the tokens were mined from. */
+  source: z.string().min(1),
+  /** Token groups — colors, spacing, typography, radius, shadow, … */
+  tokens: z.record(z.unknown()).default({}),
+  components: z.array(DesignSystemComponentSchema).default([]),
+  /** Styling system detected (tailwind | css-modules | styled-components…). */
+  styling: z.string().nullish(),
+  extracted_at: z.string().nullish(),
+});
+export type DesignSystem = z.infer<typeof DesignSystemSchema>;
 
 // ---------- process machinery (PRD §15.10, wp-153) ----------
 
