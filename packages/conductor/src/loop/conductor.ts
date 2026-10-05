@@ -23,6 +23,7 @@ import {
 } from '../changes/index.js';
 import { type ClaimReport, claim } from '../claim/index.js';
 import { controlRun } from '../control/index.js';
+import { expireTestEnvRequests } from '../envops/testenv.js';
 import { type ReconcileReport, reconcile } from '../reconcile/index.js';
 import {
   ShellGhClient,
@@ -99,6 +100,19 @@ export class Conductor {
       } catch (e) {
         report.changes.push({ expired: [] });
         rr.warnings.push(`changeset-sweep: ${(e as Error).message}`);
+      }
+      // wp-157: expire pending test-environment requests past their
+      // `expires_at` (the next stage check re-raises a fresh request).
+      try {
+        await expireTestEnvRequests({
+          workspace: ws.name,
+          store: this.deps.store,
+          actor: actorOf(this.deps),
+          now: () => nowOf(this.deps),
+          notify: this.deps.notify,
+        });
+      } catch (e) {
+        rr.warnings.push(`test-env-sweep: ${(e as Error).message}`);
       }
     }
     return report;

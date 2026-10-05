@@ -40,6 +40,7 @@ export const ALL_GATES = [
   'merge',
   'repair',
   'plan-package',
+  'test-env',
 ] as const;
 export type Gate = (typeof ALL_GATES)[number];
 
@@ -51,8 +52,10 @@ export const PLAN_PACKAGE_GATES = [
   'test-approved',
 ] as const;
 
-/** Gates that always surface regardless of mode (fail-closed). */
-const ALWAYS_SURFACE = new Set(['repair', 'escalated']);
+/** Gates that always surface regardless of mode (fail-closed). The
+ *  `test-env` provisioning gate is a hard block (wp-157) — it is never
+ *  suppressed by a gate mode. */
+const ALWAYS_SURFACE = new Set(['repair', 'escalated', 'test-env']);
 
 const MODE_GATES: Record<GateMode, ReadonlySet<string>> = {
   full: new Set(ALL_GATES),
@@ -147,6 +150,7 @@ export function gateKindFor(gate: string): GateKind {
     case 'approved':
     case 'ci-watch':
     case 'merge':
+    case 'test-env':
       return 'approval';
     case 'split-plan':
       return 'split-plan';

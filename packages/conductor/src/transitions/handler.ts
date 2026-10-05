@@ -41,6 +41,7 @@ import {
   applyTicketStatus,
   rewriteFrontmatterStatus,
 } from '../contracts.js';
+import { ensureTestEnvForStage } from '../envops/testenv.js';
 import { emitEvent } from '../events/index.js';
 import type { EmitArgs } from '../events/index.js';
 import { gateForStatus, gateKindFor } from '../gates/index.js';
@@ -251,6 +252,20 @@ export class RealTransitionHandler implements TransitionHandler {
           // gate_approved event — a stale ticket must not stamp the
           // approval into the ledger every tick while it waits.
           if (await this.#staleSpecCheck(ticket, ctx)) return null;
+          // Test-environment gate (PRD §15.10, wp-157): a declared
+          // `test_env` spec raises a durable request and BLOCKS the
+          // implement run until a human fulfils or waives it — the
+          // conductor never fabricates an environment.
+          const env = await ensureTestEnvForStage(
+            {
+              workspace: ctx.workspace,
+              store: ctx.store,
+              actor: ctx.actor,
+              now: ctx.now,
+            },
+            { ticket, stage: 'implement' },
+          );
+          if (env.status === 'blocked') return null;
           if (state === 'cleared') await clearedGateEvent('test-approved');
           await this.#setStatus(ctx, id, 'in-progress');
           return { stage: 'implement' };

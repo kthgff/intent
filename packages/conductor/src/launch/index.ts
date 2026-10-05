@@ -29,6 +29,7 @@ import {
 import { createWorktree } from '@sprint-runner/gitops';
 import { assertRouteProvider, resolveRunRoute } from '@sprint-runner/prompts';
 import type { RunRequest } from '../contracts.js';
+import { materializeTestEnvForRun } from '../envops/testenv.js';
 import { capExceeded } from '../loop/caps.js';
 import {
   type ConductorDeps,
@@ -359,6 +360,52 @@ export async function launch(
         merged_sha: existing?.merged_sha ?? null,
       });
       worktree = dir; // last wins for multi-repo; cwd only anchors the spawn
+    }
+  }
+
+  // --- test-environment materialization (PRD §15.10, wp-157) ---
+  // A declared `test_env` spec materializes before the run executes.
+  // Best-effort + fail-safe: no spec → no env step; a pending/expired
+  // request never fabricates an environment (the claim path blocks
+  // first); a failed materialization is surfaced, never silent.
+  if (ticket && req.stage !== 'probe') {
+    try {
+      const cardSeed =
+        ticket.repos
+          .map((r) => deps.config.repos[r]?.card?.seed)
+          .find((s) => typeof s === 'string') ?? null;
+      const materialized = await materializeTestEnvForRun({
+        ctx: {
+          workspace: ws.name,
+          store,
+          actor: actorOf(deps),
+          now: () => deps.now?.() ?? new Date(),
+          notify: deps.notify,
+        },
+        ticket,
+        stage: req.stage,
+        runId,
+        worktree,
+        runDir,
+        workspaceRoot: ws.rootPath,
+        cardSeed,
+      });
+      if (materialized && !materialized.ok) {
+        await store.insertNotification({
+          workspace: ws.name,
+          subject: ticket.ticket_id,
+          kind: 'test-env-materialize-failed',
+          payload: JSON.stringify({
+            run_id: runId,
+            error: materialized.error,
+            env_dir: materialized.envDir,
+          }),
+          created_at: ts,
+          read_at: null,
+        });
+      }
+    } catch (e) {
+      deps.onError?.(e);
     }
   }
 
