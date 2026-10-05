@@ -2,7 +2,7 @@
 schema: 1
 id: wp-160
 title: API/store backlog sweep — first-PRD leftovers
-status: todo
+status: done
 priority: medium
 depth: standard
 repos: []

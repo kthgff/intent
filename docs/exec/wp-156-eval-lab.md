@@ -2,7 +2,7 @@
 schema: 1
 id: wp-156
 title: AI Evaluation Lab — golden sets, bake-off harness, promotion gates
-status: todo
+status: done
 priority: medium
 depth: standard
 repos: []

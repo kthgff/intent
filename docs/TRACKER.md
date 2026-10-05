@@ -84,51 +84,46 @@ Program plan for W16+ (PRD §14+§15): `docs/DEV-PLAN.md` + `docs/DELIVERY.md`.
 | W10 | wp-093 | Gitops slim (code-repo ops only) + delete projection + importer→rows + capture endpoint | wp-092 | done |
 | W10 | wp-094 | E2E re-green: fixtures become seed rows not a git tickets repo; all tests pass | wp-093 | done |
 | W11 | wp-095 | Container runtime: docker client (CLI or Engine API), `containers` table + `runs.container_id`, lifecycle (lazy create/start/stop/rm/orphan sweep), base image build, caps | wp-091 | done |
-| W11 | wp-096 | Aider-in-container: `docker exec` run/control (`kill`/`pause`/`unpause`), usage stream-parse over exec stdout, env injection, `runtime` flag + `containers:` settings | wp-095,wp-092 | todo |
-| W11 | wp-097 | Conductor rewire: LAUNCH container-ensure + gate-sleep + terminal teardown hooks; heartbeats via docker inspect; multi-mount recreate on repo-set growth | wp-096 | todo |
+| W11 | wp-096 | Aider-in-container: `docker exec` run/control (`kill`/`pause`/`unpause`), usage stream-parse over exec stdout, env injection, `runtime` flag + `containers:` settings | wp-095,wp-092 | done |
+| W11 | wp-097 | Conductor rewire: LAUNCH container-ensure + gate-sleep + terminal teardown hooks; heartbeats via docker inspect; multi-mount recreate on repo-set growth | wp-096 | done |
 | W11 | wp-098 | Container E2E: fixture repo + mock-in-container (or aider image), full stage chain in-container, orphan-sweep + kill/pause coverage; `pnpm test` green | wp-097 | todo |
 | W12 | wp-099 | Launch: `veto` CLI wires conductor + serves UI dist; init/daemon/tick/status/doctor | wp-092 | done |
 | W12 | wp-100 | Rename sprint-runner→veto (D31/D35): binary, config dir, package scopes, container names/labels, UI strings, docs sweep | wp-095,wp-099 | todo |
-| W13 | wp-110 | Code-intelligence foundation: commit-pinned code units, FTS + semantic + structural retrieval, citations, evidence token, retrieval evals | wp-090,wp-091,wp-092,wp-100 | todo |
+| W13 | wp-110 | Code-intelligence foundation: commit-pinned code units, FTS + semantic + structural retrieval, citations, evidence token, retrieval evals | wp-090,wp-091,wp-092,wp-100 | done |
 | W13 | wp-111 | Product integration: pre-PRD grounding, PRD quality findings, traceability verification, impact/test/review evidence UI | wp-110,wp-081 | todo |
 | W14 | wp-112 | Continuous alignment: intended/implemented/verified findings + release-readiness narrative + feedback clustering | wp-111 | todo |
 | W15 | wp-120 | Telemetry/incident intelligence: sanitized connector, fingerprint/dedupe, investigation, validated resolution, draft-ticket gate | wp-112 | todo |
-<<<<<<< HEAD
 | W16 | wp-130 | Finish conductor test-layer migration (wp-094 fold-in) + full regreen | — | done |
-| W16 | wp-131 | Contracts v3: enums/schemas/0001 amendments/Store sigs for the whole addendum program | wp-130 | todo |
-=======
-| W16 | wp-130 | Finish conductor test-layer migration (wp-094 fold-in) + full regreen | — | todo |
 | W16 | wp-131 | Contracts v3: enums/schemas/0001 amendments/Store sigs for the whole addendum program | wp-130 | done |
->>>>>>> wp/131
-| W16 | wp-132 | Vocabulary rename: project→Solution, prd→rs, +Solution Brief, +Verification Spec | wp-131 | todo |
-| W17 | wp-133 | Merge Center: readiness checklist + Veto-executed `gh pr merge` + post-merge bookkeeping | wp-131 | todo |
+| W16 | wp-132 | Vocabulary rename: project→Solution, prd→rs, +Solution Brief, +Verification Spec | wp-131 | done |
+| W17 | wp-133 | Merge Center: readiness checklist + Veto-executed `gh pr merge` + post-merge bookkeeping | wp-131 | done |
 | W17 | wp-134 | Release Center core: entities, lifecycle, manifest freeze, approvals | wp-131, wp-133 | todo |
 | W17 | wp-135 | Deployments, feature exposure, release notes (3 audiences), outcomes, retrospectives | wp-134 | todo |
 | W17 | wp-136 | Delivery API: release/merge-center/exposure/notes routes + SSE + API.md backport | wp-134, wp-135 | todo |
 | W17 | wp-137 | Merge Center + Release Center UI | wp-131, wp-136 | todo |
 | W17 | wp-138 | Delivery E2E: merge→release→deploy→retro vertical (mock adapter) | wp-133–136 | todo |
-| W19 | wp-139 | Import reconciliation: provenance tri-state, clustering, reconciled-before-autonomy | wp-131, wp-144 | todo |
-| W18 | wp-140 | ChangeSets: lifecycle, versioned spec diffs, apply/reconcile | wp-131 | todo |
-| W18 | wp-141 | Run baseline pinning + mid-run reconciliation policy | wp-131, wp-140 | todo |
+| W19 | wp-139 | Import reconciliation: provenance tri-state, clustering, reconciled-before-autonomy | wp-131, wp-144 | done |
+| W18 | wp-140 | ChangeSets: lifecycle, versioned spec diffs, apply/reconcile | wp-131 | done |
+| W18 | wp-141 | Run baseline pinning + mid-run reconciliation policy | wp-131, wp-140 | done |
 | W18 | wp-142 | Scope Creep Radar: metrics, budgets, escalation | wp-140, wp-134 | todo |
-| W19 | wp-143 | Statement Ledger: semantic_statements, extraction pipeline, typed relations | wp-131 | todo |
-| W19 | wp-144 | Board v2: typed notes, board types, multi-board + org boards, deferred retention | wp-131, wp-143 | todo |
-| W19 | wp-145 | Interview Orchestrator: wizard defs, knowledge slots, question planner, snapshots | wp-131, wp-143 | todo |
-| W19 | wp-146 | Discovery readiness + Understanding Panel API + findings→revise loop | wp-145 | todo |
+| W19 | wp-143 | Statement Ledger: semantic_statements, extraction pipeline, typed relations | wp-131 | done |
+| W19 | wp-144 | Board v2: typed notes, board types, multi-board + org boards, deferred retention | wp-131, wp-143 | done |
+| W19 | wp-145 | Interview Orchestrator: wizard defs, knowledge slots, question planner, snapshots | wp-131, wp-143 | done |
+| W19 | wp-146 | Discovery readiness + Understanding Panel API + findings→revise loop | wp-145 | done |
 | W19 | wp-147 | Discovery UI: board canvas v2, Understanding Panel, wizard surface | wp-131, wp-136, wp-146 | todo |
-| W20 | wp-148 | Review Studio: findings lifecycle, semantic comments, commit-bound approval | wp-131 | todo |
-| W20 | wp-149 | Design artifacts: structured mockups, visual ACs, design approvals + Mockups UI | wp-131, wp-132 | todo |
-| W20 | wp-150 | Security review dimension: categories, finding fields, risk-tiered enforcement | wp-148 | todo |
-| W21 | wp-151 | Ticket taxonomy: work types/origins, per-type intake, Ticket Workbench | wp-131 | todo |
+| W20 | wp-148 | Review Studio: findings lifecycle, semantic comments, commit-bound approval | wp-131 | done |
+| W20 | wp-149 | Design artifacts: structured mockups, visual ACs, design approvals + Mockups UI | wp-131, wp-132 | done |
+| W20 | wp-150 | Security review dimension: categories, finding fields, risk-tiered enforcement | wp-148 | done |
+| W21 | wp-151 | Ticket taxonomy: work types/origins, per-type intake, Ticket Workbench | wp-131 | done |
 | W21 | wp-152 | Feature Workspace: tabs, health rollup, acceptance package, scoped assistant | wp-131, wp-134, wp-146 | todo |
 | W21 | wp-153 | Process machinery: DoR/DoD engines, Assumption Register, Quality Debt, Delivery Commitments | wp-131, wp-134 | todo |
 | W21 | wp-154 | Work Decomposition Engine + contract-first tickets + integration coordination | wp-131, wp-143 | todo |
-| W22 | wp-155 | Model Routing Registry: versioned task→model config, latency classes, cost-per-accepted | wp-131 | todo |
-| W22 | wp-156 | AI Evaluation Lab: golden sets, bake-off harness, promotion gates | wp-155, wp-143 | todo |
-| W22 | wp-157 | Test-environment requests: declarative env spec + conductor provisioning | wp-131 | todo |
+| W22 | wp-155 | Model Routing Registry: versioned task→model config, latency classes, cost-per-accepted | wp-131 | done |
+| W22 | wp-156 | AI Evaluation Lab: golden sets, bake-off harness, promotion gates | wp-155, wp-143 | done |
+| W22 | wp-157 | Test-environment requests: declarative env spec + conductor provisioning | wp-131 | done |
 | W23 | wp-158 | Discovery E2E: board→statements→interview→RS→approve→tickets vertical | wp-143–146 | todo |
 | W23 | wp-159 | Wave close-out: docs reconciliation + full suite green + TRACKER update | wp-138,142,147,150,152–158 | todo |
-| W23 | wp-160 | API/store backlog sweep: review route, notify path, workspace persist, metrics, snooze, run_output SSE | wp-131 | todo |
+| W23 | wp-160 | API/store backlog sweep: review route, notify path, workspace persist, metrics, snooze, run_output SSE | wp-131 | done |
 ## Parallel-agent rules
 
 1. One agent = one `wp-*.md` at a time, on branch `wp/<id>` off `main`.
@@ -147,15 +142,15 @@ Program plan for W16+ (PRD §14+§15): `docs/DEV-PLAN.md` + `docs/DELIVERY.md`.
 | --- | --- |
 | ~~D26/D27 contract migration~~ → promoted to wp-090–094 wave (D29). DB-SCHEMA.md rewritten; SCHEMAS/CONDUCTOR/SETTINGS/API get surgical edits in wp-090. | D29 |
 | S-19 Quick Capture + Project Tray: coded mockup plus `/capture`/tray list+mutation, attachment ingest, optimistic conflict, and tray-synthesis contracts | D27/D28 |
-| `GET /tickets/<ref>/review` route missing — S-08 fails soft reading findings from event payloads | wp-080 |
-| `run_output` SSE event has no producer (conductor doesn't stream log chunks) | wp-060 |
-| `import/run.ts` `surfaceFailure` writes gate rows directly, bypasses `deps.notify` | wp-060 |
-| POST `/workspaces` registers in-memory only — not persisted to config.yaml | wp-060 |
+| ~~`GET /tickets/<ref>/review` route missing~~ → wp-160 | wp-080 |
+| ~~`run_output` SSE event has no producer~~ → wp-160 (`loop/tail.ts`) | wp-060 |
+| ~~`import/run.ts` `surfaceFailure` bypasses `deps.notify`~~ → wp-160 | wp-060 |
+| ~~POST `/workspaces` in-memory only~~ → wp-160 (persists `projects` row per D29; config.yaml is for settings) | wp-060 |
 | `devin auth` absent on this machine → real `--export` schema + aider flag set unverified (D16; verify on first real run) | wp-022/052 |
 | Light-mode mockup variants for S-01–S-14 renders (PNGs are dark-only) + `theme-color` meta swap per theme | D34 theming |
-| Compute `deviation_rate` + `human_minutes` (gate dwell) in `/metrics` — formulas spec'd in PRD; both schema-ready, unimplemented | PRODUCT-MISSION review |
+| ~~Compute `deviation_rate` + `human_minutes` (gate dwell) in `/metrics`~~ → wp-160 | PRODUCT-MISSION review |
 | ~~`packages/cli` commands still stubs~~ → wp-099 (launch wave W12) | — |
-| `gate_items.snoozed_until` column + `/inbox` field needed for S-01 snooze (D20) | design review |
+| ~~`gate_items.snoozed_until` column + `/inbox` field + snooze endpoint~~ → wp-160 | design review |
 | `GET /board` + derived `phase` + `drop_targets` per card; `/interview` edit mode (`subject_ref`/`target`/`session_id`) + `/interview/<session>/approve` + `doc_edited` event — API additions for board+focus (D21/D24/D27, SCHEMAS §16) | wp-081 |
 | Addendum deferreds (PRD §15.10/§15.11): real-time collaborative whiteboarding, Figma-grade editing, interactive prototypes beyond rendered mockups, unrestricted agent swarms, full Test-Env/Data Studio (managed multi-service envs), Acceptance Lab guided UAT, Process Learning Engine, project/feature simulation, competing-solution branches, feature memory packages, "don't build it" recommendation, knowledge-expiry sweeps, voice capture (transcript upload ships instead), bidirectional tracker sync (Jira), plugin/connector marketplace, all billing/RBAC/cloud-sandbox machinery | D41/D43 |
 

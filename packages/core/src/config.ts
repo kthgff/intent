@@ -13,6 +13,7 @@ import {
   RUNTIMES,
   type Runtime,
 } from './enums.js';
+import { ModelRouteEntrySchema } from './schemas.js';
 
 const enumOf = (values: readonly string[]) =>
   z.enum(values as [string, ...string[]]);
@@ -23,6 +24,10 @@ export const RepoCardSchema = z.object({
   test: z.string().optional(),
   lint: z.string().optional(),
   build: z.string().optional(),
+  /** Seed/setup command run to materialize a declared test environment
+   *  before a verify/implement run (PRD §15.10, wp-157) — repo-card
+   *  script; a `test_env.seed` spec list overrides it. */
+  seed: z.string().optional(),
   forbidden_paths: z.array(z.string()).default([]),
   probed_at: z.string().nullish(),
   verified: z.boolean().default(false),
@@ -178,6 +183,14 @@ export const ConfigSchema = z.object({
   main_model: z.string().nullish(),
   review_model: z.string().nullish(),
   escalation_model: z.string().nullish(),
+  /** Model routing registry (PRD §15.12, SCHEMAS §21, wp-155): every
+   *  AI interaction kind → a ModelRoute entry. Values are SPARSE —
+   *  unset fields inherit `models.default`, then the legacy
+   *  `main_model`/`review_model`/`escalation_model` knobs, at
+   *  resolution time (@sprint-runner/prompts routing). Reserved keys:
+   *  `default` (base layer for every kind) and `escalation` (the
+   *  retry-ladder step-up tier). Stage names resolve as kinds. */
+  models: z.record(ModelRouteEntrySchema).default({}),
   capabilities: z.record(CapabilitiesSchema).default({}),
   /** Per-subject docker containers (D30) — image, resource caps,
    *  gate-park behavior, global runtime default. */

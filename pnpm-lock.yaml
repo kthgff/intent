@@ -54,6 +54,9 @@ importers:
       '@sprint-runner/gitops':
         specifier: workspace:*
         version: link:../gitops
+      '@sprint-runner/kb':
+        specifier: workspace:*
+        version: link:../kb
       '@sprint-runner/store':
         specifier: workspace:*
         version: link:../store
@@ -94,6 +97,9 @@ importers:
       '@sprint-runner/core':
         specifier: workspace:*
         version: link:../core
+      '@sprint-runner/prompts':
+        specifier: workspace:*
+        version: link:../prompts
       '@sprint-runner/store':
         specifier: workspace:*
         version: link:../store
@@ -122,9 +128,15 @@ importers:
       '@sprint-runner/gitops':
         specifier: workspace:*
         version: link:../gitops
+      '@sprint-runner/kb':
+        specifier: workspace:*
+        version: link:../kb
       '@sprint-runner/lints':
         specifier: workspace:*
         version: link:../lints
+      '@sprint-runner/prompts':
+        specifier: workspace:*
+        version: link:../prompts
       '@sprint-runner/store':
         specifier: workspace:*
         version: link:../store
@@ -225,6 +237,9 @@ importers:
 
   packages/lints:
     dependencies:
+      '@sprint-runner/config':
+        specifier: workspace:*
+        version: link:../config
       '@sprint-runner/core':
         specifier: workspace:*
         version: link:../core

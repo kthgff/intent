@@ -5,7 +5,7 @@ A review found issues; your only job is to resolve them — nothing else.
 {{FINDINGS_JSON}}
 
 ## Context
-TDD: {{TDD_MD}}  ·  PRD: {{PRD_MD}}  ·  Repo cards: {{REPO_CARDS}}
+TDD: {{TDD_MD}}  ·  RS: {{RS_MD}}  ·  Repo cards: {{REPO_CARDS}}
 Artifact paths: {{ARTIFACT_TARGETS}}
 
 ## Rules

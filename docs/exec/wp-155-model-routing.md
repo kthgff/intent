@@ -2,7 +2,7 @@
 schema: 1
 id: wp-155
 title: Model Routing Registry — versioned task→model config, latency classes, cost-per-accepted metric
-status: todo
+status: done
 priority: medium
 depth: standard
 repos: []

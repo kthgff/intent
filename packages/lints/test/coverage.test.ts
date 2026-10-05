@@ -23,7 +23,7 @@ Text.
 None.
 `;
 
-const TEST = `# Test plan — SR-0001
+const VS = `# Verification spec — SR-0001
 
 ## Cases
 | case_id | title | type | file | covers |
@@ -44,11 +44,11 @@ const TEST = `# Test plan — SR-0001
 
 describe('coverageLint (SCHEMAS §4)', () => {
   it('passes when every file-plan row is covered or untestable', () => {
-    expect(coverageLint(TDD, TEST)).toEqual([]);
+    expect(coverageLint(TDD, VS)).toEqual([]);
   });
 
   it('flags a file-plan row with no case_id', () => {
-    const test = TEST.replace('| src/runner.ts | file | c2 |\n', '');
+    const test = VS.replace('| src/runner.ts | file | c2 |\n', '');
     const vs = coverageLint(TDD, test);
     expect(vs.map((x) => x.rule)).toContain('coverage.uncovered-file');
     expect(
@@ -57,12 +57,12 @@ describe('coverageLint (SCHEMAS §4)', () => {
   });
 
   it('exempts untestable: rows without requiring a matrix row', () => {
-    const test = TEST.replace('| docs/ops.md | file | n/a |\n', '');
+    const test = VS.replace('| docs/ops.md | file | n/a |\n', '');
     expect(coverageLint(TDD, test)).toEqual([]);
   });
 
   it('detects fake case_ids not present in the cases table', () => {
-    const test = TEST.replace(
+    const test = VS.replace(
       '| src/retry.ts | file | c1 |',
       '| src/retry.ts | file | c99 |',
     );
@@ -75,20 +75,20 @@ describe('coverageLint (SCHEMAS §4)', () => {
       '| file | repo | change | why |',
       '| path | repo | change | why |',
     );
-    const vs = coverageLint(badPlan, TEST);
+    const vs = coverageLint(badPlan, VS);
     expect(vs.map((x) => x.rule)).toContain('coverage.file-plan-unparseable');
 
-    const noMatrix = TEST.replace('## Coverage matrix', '## Whatever');
+    const noMatrix = VS.replace('## Coverage matrix', '## Whatever');
     const vs2 = coverageLint(TDD, noMatrix);
     expect(vs2.map((x) => x.rule)).toContain('coverage.matrix-unparseable');
 
-    const noCases = TEST.replace('## Cases', '## Scenarios');
+    const noCases = VS.replace('## Cases', '## Scenarios');
     const vs3 = coverageLint(TDD, noCases);
     expect(vs3.map((x) => x.rule)).toContain('coverage.cases-unparseable');
   });
 
   it('flags bad matrix kind values', () => {
-    const test = TEST.replace('| ac1 | ac | c1 |', '| ac1 | bogus | c1 |');
+    const test = VS.replace('| ac1 | ac | c1 |', '| ac1 | bogus | c1 |');
     const vs = coverageLint(TDD, test);
     expect(vs.map((x) => x.rule)).toContain('coverage.bad-kind');
   });

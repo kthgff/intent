@@ -27,6 +27,10 @@ import type {
   ChangesetRow,
   Claim,
   ClaimKey,
+  CodeEdgeRow,
+  CodeHead,
+  CodeUnitFtsHit,
+  CodeUnitRow,
   ContainerKey,
   ContainerRow,
   ContainerState,
@@ -72,6 +76,8 @@ import type {
   ReleaseNoteRow,
   ReleaseOutcomeRow,
   ReleaseRow,
+  RepoIndexRow,
+  RetrievalEvaluationRow,
   ReviewCommentRow,
   ReviewDecisionRow,
   ReviewEvidenceLinkRow,
@@ -88,6 +94,7 @@ import type {
   StatementRow,
   StatementVersionRow,
   Store,
+  TestEnvRequestRow,
   TicketKey,
   TicketRepoKey,
   TicketRepoRow,
@@ -1244,13 +1251,15 @@ export class PostgresStore implements Store {
 
   // ---- projects / id allocation ----
 
-  async upsertProject(row: ProjectRow): Promise<void> {
+  async upsertProject(
+    row: Pick<ProjectRow, 'workspace'> & Partial<ProjectRow>,
+  ): Promise<void> {
     await this.db.query(
       `INSERT INTO projects (workspace, org, name, next_ticket_seq,
          next_feature_seq, next_initiative_seq, next_release_seq,
-         settings, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-       ON CONFLICT (workspace) DO UPDATE SET org=$2, name=$3, settings=$8`,
+         next_changeset_seq, next_test_env_seq, settings, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       ON CONFLICT (workspace) DO UPDATE SET org=$2, name=$3, settings=$10`,
       [
         row.workspace,
         row.org ?? null,
@@ -1259,6 +1268,8 @@ export class PostgresStore implements Store {
         row.next_feature_seq ?? 1,
         row.next_initiative_seq ?? 1,
         row.next_release_seq ?? 1,
+        row.next_changeset_seq ?? 1,
+        row.next_test_env_seq ?? 1,
         j(row.settings ?? {}),
         row.created_at ?? null,
       ],
@@ -1286,7 +1297,9 @@ export class PostgresStore implements Store {
       | 'next_ticket_seq'
       | 'next_feature_seq'
       | 'next_initiative_seq'
-      | 'next_release_seq',
+      | 'next_release_seq'
+      | 'next_changeset_seq'
+      | 'next_test_env_seq',
     prefix: string,
   ): Promise<string> {
     const bump = () =>
@@ -1311,19 +1324,21 @@ export class PostgresStore implements Store {
         );
         return r[0]?.n ?? 1;
       };
-      const [t, f, i, rel] = await Promise.all([
+      const [t, f, i, rel, cs, te] = await Promise.all([
         seqStart('tickets', 'ticket_id', 'SR'),
         seqStart('features', 'feature', 'F'),
         seqStart('initiatives', 'initiative', 'I'),
         seqStart('releases', 'release_id', 'REL'),
+        seqStart('changesets', 'changeset_id', 'CS'),
+        seqStart('test_env_requests', 'request_id', 'TE'),
       ]);
       await this.db.query(
         `INSERT INTO projects (workspace, name, next_ticket_seq,
            next_feature_seq, next_initiative_seq, next_release_seq,
-           settings, created_at)
-         VALUES ($1, $1, $2, $3, $4, $5, '{}', $6)
+           next_changeset_seq, next_test_env_seq, settings, created_at)
+         VALUES ($1, $1, $2, $3, $4, $5, $6, $7, '{}', $8)
          ON CONFLICT (workspace) DO NOTHING`,
-        [workspace, t, f, i, rel, new Date().toISOString()],
+        [workspace, t, f, i, rel, cs, te, new Date().toISOString()],
       );
       rows = await bump();
     }
@@ -1350,6 +1365,84 @@ export class PostgresStore implements Store {
 
   allocReleaseId(workspace: string): Promise<string> {
     return this.allocSeq(workspace, 'next_release_seq', 'REL');
+  }
+
+  allocChangesetId(workspace: string): Promise<string> {
+    return this.allocSeq(workspace, 'next_changeset_seq', 'CS');
+  }
+
+  allocTestEnvRequestId(workspace: string): Promise<string> {
+    return this.allocSeq(workspace, 'next_test_env_seq', 'TE');
+  }
+
+  // ---- test-environment requests (PRD §15.10, wp-157) ----
+
+  async upsertTestEnvRequest(row: TestEnvRequestRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO test_env_requests (workspace, org, request_id, subject,
+         ticket_id, feature, stage, run_id, spec, status, requested_by,
+         requested_at, provisioner, expires_at, fulfilled_by, fulfilled_at,
+         evidence, waived_by, waived_at, waiver_rationale, expired_at,
+         updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+       ON CONFLICT (workspace, request_id) DO UPDATE SET
+         ticket_id=$5, feature=$6, stage=$7, run_id=$8, spec=$9, status=$10,
+         provisioner=$13, expires_at=$14, fulfilled_by=$15, fulfilled_at=$16,
+         evidence=$17, waived_by=$18, waived_at=$19, waiver_rationale=$20,
+         expired_at=$21, updated_at=$22`,
+      [
+        row.workspace,
+        row.org ?? null,
+        row.request_id,
+        row.subject,
+        row.ticket_id ?? null,
+        row.feature ?? null,
+        row.stage,
+        row.run_id ?? null,
+        j(row.spec),
+        row.status,
+        row.requested_by ?? null,
+        row.requested_at,
+        row.provisioner ?? null,
+        row.expires_at ?? null,
+        row.fulfilled_by ?? null,
+        row.fulfilled_at ?? null,
+        row.evidence ?? null,
+        row.waived_by ?? null,
+        row.waived_at ?? null,
+        row.waiver_rationale ?? null,
+        row.expired_at ?? null,
+        row.updated_at,
+      ],
+    );
+  }
+
+  async getTestEnvRequest(key: {
+    workspace: string;
+    request_id: string;
+  }): Promise<TestEnvRequestRow | null> {
+    const rows = await this.db.query(
+      'SELECT * FROM test_env_requests WHERE workspace=$1 AND request_id=$2',
+      [key.workspace, key.request_id],
+    );
+    return rows[0] ? rowToTestEnvRequest(rows[0]) : null;
+  }
+
+  async listTestEnvRequests(filter?: {
+    workspace?: string;
+    subject?: string;
+    status?: string;
+  }): Promise<TestEnvRequestRow[]> {
+    const { where, args } = pgWhere({
+      workspace: filter?.workspace,
+      subject: filter?.subject,
+      status: filter?.status,
+    });
+    const rows = await this.db.query(
+      `SELECT * FROM test_env_requests ${where} ORDER BY request_id`,
+      args,
+    );
+    return rows.map(rowToTestEnvRequest);
   }
 
   // ---- boards / canvas ----
@@ -3691,6 +3784,401 @@ export class PostgresStore implements Store {
     );
     return rows.map(rowToEvalResult);
   }
+
+  // ---- code intelligence / evidence plane (INTELLIGENCE §4, D37, wp-110) ----
+
+  async upsertRepoIndex(row: RepoIndexRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO repo_indexes (workspace, repo, commit_sha, status,
+         parser_version, indexed_at, stats)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       ON CONFLICT (workspace, repo, commit_sha) DO UPDATE SET
+         status=$4, parser_version=$5, indexed_at=$6, stats=$7`,
+      [
+        row.workspace,
+        row.repo,
+        row.commit_sha,
+        row.status,
+        row.parser_version ?? null,
+        row.indexed_at ?? null,
+        row.stats ? j(row.stats) : null,
+      ],
+    );
+  }
+
+  async getRepoIndex(key: {
+    workspace: string;
+    repo: string;
+    commit_sha: string;
+  }): Promise<RepoIndexRow | null> {
+    const rows = await this.db.query(
+      `SELECT * FROM repo_indexes
+       WHERE workspace=$1 AND repo=$2 AND commit_sha=$3`,
+      [key.workspace, key.repo, key.commit_sha],
+    );
+    return rows[0] ? rowToRepoIndex(rows[0]) : null;
+  }
+
+  async getCurrentRepoIndex(
+    workspace: string,
+    repo: string,
+  ): Promise<RepoIndexRow | null> {
+    const rows = await this.db.query(
+      `SELECT * FROM repo_indexes
+       WHERE workspace=$1 AND repo=$2 AND status='current'`,
+      [workspace, repo],
+    );
+    return rows[0] ? rowToRepoIndex(rows[0]) : null;
+  }
+
+  async listRepoIndexes(
+    filter: { workspace?: string; repo?: string; status?: string } = {},
+  ): Promise<RepoIndexRow[]> {
+    const { where, args } = pgWhere({
+      workspace: filter.workspace,
+      repo: filter.repo,
+      status: filter.status,
+    });
+    const rows = await this.db.query(
+      `SELECT * FROM repo_indexes ${where}
+       ORDER BY workspace, repo, indexed_at DESC NULLS LAST, commit_sha`,
+      args,
+    );
+    return rows.map(rowToRepoIndex);
+  }
+
+  async promoteRepoIndexHead(
+    key: { workspace: string; repo: string; commit_sha: string },
+    at?: string,
+  ): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      const target = await tx.query<{ status: string }>(
+        `SELECT status FROM repo_indexes
+         WHERE workspace=$1 AND repo=$2 AND commit_sha=$3 FOR UPDATE`,
+        [key.workspace, key.repo, key.commit_sha],
+      );
+      const row = target[0];
+      if (!row) {
+        throw new Error(
+          `promoteRepoIndexHead: no index head for ${key.repo}@${key.commit_sha}`,
+        );
+      }
+      if (row.status === 'failed') {
+        throw new Error(
+          `promoteRepoIndexHead: refusing to promote a failed head ${key.repo}@${key.commit_sha}`,
+        );
+      }
+      const ts = at ?? now();
+      // Supersede the previous head(s) FIRST, then flip the target
+      // current — both inside one tx, so retrieval never sees two
+      // current heads or zero current heads.
+      await tx.query(
+        `UPDATE repo_indexes SET status='superseded'
+         WHERE workspace=$1 AND repo=$2 AND commit_sha<>$3
+           AND status IN ('current','building')`,
+        [key.workspace, key.repo, key.commit_sha],
+      );
+      await tx.query(
+        `UPDATE repo_indexes SET status='current', indexed_at=$4
+         WHERE workspace=$1 AND repo=$2 AND commit_sha=$3`,
+        [key.workspace, key.repo, key.commit_sha, ts],
+      );
+    });
+  }
+
+  async setRepoIndexStatus(
+    key: { workspace: string; repo: string; commit_sha: string },
+    status: RepoIndexRow['status'],
+    patch: { indexed_at?: string; stats?: Record<string, unknown> | null } = {},
+  ): Promise<void> {
+    const sets = ['status=$4'];
+    const args: unknown[] = [key.workspace, key.repo, key.commit_sha, status];
+    if (patch.indexed_at !== undefined) {
+      args.push(patch.indexed_at);
+      sets.push(`indexed_at=$${args.length}`);
+    }
+    if (patch.stats !== undefined) {
+      args.push(patch.stats === null ? null : j(patch.stats));
+      sets.push(`stats=$${args.length}`);
+    }
+    await this.db.query(
+      `UPDATE repo_indexes SET ${sets.join(', ')}
+       WHERE workspace=$1 AND repo=$2 AND commit_sha=$3`,
+      args,
+    );
+  }
+
+  async upsertCodeUnits(rows: CodeUnitRow[]): Promise<void> {
+    if (rows.length === 0) return;
+    await this.db.transaction(async (tx) => {
+      for (const u of rows) {
+        const ftsText = [u.symbol, u.path, u.content]
+          .filter((s): s is string => typeof s === 'string' && s.length > 0)
+          .join('\n');
+        await tx.query(
+          `INSERT INTO code_units (id, workspace, repo, commit_sha, path,
+             language, symbol, symbol_kind, start_line, end_line,
+             content_hash, content, parse_status, fts)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,
+             to_tsvector('english',$14))
+           ON CONFLICT (id) DO UPDATE SET
+             workspace=$2, repo=$3, commit_sha=$4, path=$5, language=$6,
+             symbol=$7, symbol_kind=$8, start_line=$9, end_line=$10,
+             content_hash=$11, content=$12, parse_status=$13,
+             fts=to_tsvector('english',$14)`,
+          [
+            u.id,
+            u.workspace,
+            u.repo,
+            u.commit_sha,
+            u.path,
+            u.language ?? null,
+            u.symbol ?? null,
+            u.symbol_kind ?? null,
+            u.start_line,
+            u.end_line,
+            u.content_hash,
+            u.content,
+            u.parse_status,
+            ftsText,
+          ],
+        );
+      }
+    });
+  }
+
+  async getCodeUnit(id: string): Promise<CodeUnitRow | null> {
+    const rows = await this.db.query('SELECT * FROM code_units WHERE id=$1', [
+      id,
+    ]);
+    return rows[0] ? rowToCodeUnit(rows[0]) : null;
+  }
+
+  async listCodeUnits(filter: {
+    workspace: string;
+    repo: string;
+    commit_sha: string;
+    path?: string;
+  }): Promise<CodeUnitRow[]> {
+    const { where, args } = pgWhere({
+      workspace: filter.workspace,
+      repo: filter.repo,
+      commit_sha: filter.commit_sha,
+      path: filter.path,
+    });
+    const rows = await this.db.query(
+      `SELECT * FROM code_units ${where} ORDER BY path, start_line`,
+      args,
+    );
+    return rows.map(rowToCodeUnit);
+  }
+
+  async deleteCodeUnitsForPath(key: {
+    workspace: string;
+    repo: string;
+    commit_sha: string;
+    path: string;
+  }): Promise<void> {
+    await this.db.query(
+      `DELETE FROM code_units
+       WHERE workspace=$1 AND repo=$2 AND commit_sha=$3 AND path=$4`,
+      [key.workspace, key.repo, key.commit_sha, key.path],
+    );
+  }
+
+  async searchCodeUnitsFts(q: {
+    workspace: string;
+    heads: CodeHead[];
+    query: string;
+    limit: number;
+  }): Promise<CodeUnitFtsHit[]> {
+    if (q.heads.length === 0) return [];
+    const args: unknown[] = [q.workspace, q.query];
+    const clauses = q.heads.map((h) => {
+      args.push(h.repo);
+      const r = args.length;
+      args.push(h.commit_sha);
+      const c = args.length;
+      return `(repo=$${r} AND commit_sha=$${c})`;
+    });
+    args.push(q.limit);
+    const rows = await this.db.query(
+      `SELECT *, ts_rank(fts, websearch_to_tsquery('english',$2)) AS rank
+       FROM code_units
+       WHERE workspace=$1 AND fts @@ websearch_to_tsquery('english',$2)
+         AND (${clauses.join(' OR ')})
+       ORDER BY rank DESC, path, start_line
+       LIMIT $${args.length}`,
+      args,
+    );
+    return rows.map((r) => ({
+      unit: rowToCodeUnit(r),
+      rank: Number(r.rank ?? 0),
+    }));
+  }
+
+  async findCodeUnitsExact(q: {
+    workspace: string;
+    heads: CodeHead[];
+    symbols?: string[];
+    paths?: string[];
+    limit: number;
+  }): Promise<CodeUnitRow[]> {
+    if (q.heads.length === 0) return [];
+    const symbols = q.symbols ?? [];
+    const paths = q.paths ?? [];
+    if (symbols.length === 0 && paths.length === 0) return [];
+    const args: unknown[] = [q.workspace];
+    const headClauses = q.heads.map((h) => {
+      args.push(h.repo);
+      const r = args.length;
+      args.push(h.commit_sha);
+      const c = args.length;
+      return `(repo=$${r} AND commit_sha=$${c})`;
+    });
+    const matchParts: string[] = [];
+    if (symbols.length > 0) {
+      const ph = symbols.map((s) => {
+        args.push(s);
+        return `$${args.length}`;
+      });
+      matchParts.push(`symbol IN (${ph.join(',')})`);
+    }
+    if (paths.length > 0) {
+      const ph = paths.map((p) => {
+        args.push(p);
+        return `$${args.length}`;
+      });
+      matchParts.push(`path IN (${ph.join(',')})`);
+    }
+    args.push(q.limit);
+    const rows = await this.db.query(
+      `SELECT * FROM code_units
+       WHERE workspace=$1 AND (${headClauses.join(' OR ')})
+         AND (${matchParts.join(' OR ')})
+       ORDER BY path, start_line
+       LIMIT $${args.length}`,
+      args,
+    );
+    return rows.map(rowToCodeUnit);
+  }
+
+  async findCodeUnitsByHash(q: {
+    workspace: string;
+    heads: CodeHead[];
+    hashes: string[];
+    limit: number;
+  }): Promise<CodeUnitRow[]> {
+    if (q.heads.length === 0 || q.hashes.length === 0) return [];
+    const args: unknown[] = [q.workspace];
+    const headClauses = q.heads.map((h) => {
+      args.push(h.repo);
+      const r = args.length;
+      args.push(h.commit_sha);
+      const c = args.length;
+      return `(repo=$${r} AND commit_sha=$${c})`;
+    });
+    const hashPh = q.hashes.map((h) => {
+      args.push(h);
+      return `$${args.length}`;
+    });
+    args.push(q.limit);
+    const rows = await this.db.query(
+      `SELECT * FROM code_units
+       WHERE workspace=$1 AND (${headClauses.join(' OR ')})
+         AND content_hash IN (${hashPh.join(',')})
+       ORDER BY path, start_line
+       LIMIT $${args.length}`,
+      args,
+    );
+    return rows.map(rowToCodeUnit);
+  }
+
+  async upsertCodeEdge(row: CodeEdgeRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO code_edges (workspace, repo, commit_sha, subject_ref,
+         predicate, object_ref, evidence, source, confidence)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       ON CONFLICT (workspace, repo, commit_sha, subject_ref, predicate,
+         object_ref)
+       DO UPDATE SET evidence=$7, source=$8, confidence=$9`,
+      [
+        row.workspace,
+        row.repo,
+        row.commit_sha,
+        row.subject_ref,
+        row.predicate,
+        row.object_ref,
+        row.evidence ?? null,
+        row.source ?? null,
+        row.confidence ?? null,
+      ],
+    );
+  }
+
+  async listCodeEdges(filter: {
+    workspace: string;
+    repo: string;
+    commit_sha: string;
+    subject_ref?: string;
+    predicate?: string;
+  }): Promise<CodeEdgeRow[]> {
+    const { where, args } = pgWhere({
+      workspace: filter.workspace,
+      repo: filter.repo,
+      commit_sha: filter.commit_sha,
+      subject_ref: filter.subject_ref,
+      predicate: filter.predicate,
+    });
+    const rows = await this.db.query(
+      `SELECT * FROM code_edges ${where}
+       ORDER BY subject_ref, predicate, object_ref`,
+      args,
+    );
+    return rows.map(rowToCodeEdge);
+  }
+
+  async insertRetrievalEvaluation(row: RetrievalEvaluationRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO retrieval_evaluations (id, suite_version, task,
+         index_heads, metrics, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       ON CONFLICT (id) DO UPDATE SET
+         suite_version=$2, task=$3, index_heads=$4, metrics=$5, created_at=$6`,
+      [
+        row.id,
+        row.suite_version ?? null,
+        row.task ?? null,
+        row.index_heads ? j(row.index_heads) : null,
+        row.metrics ? j(row.metrics) : null,
+        row.created_at ?? now(),
+      ],
+    );
+  }
+
+  async getRetrievalEvaluation(
+    id: string,
+  ): Promise<RetrievalEvaluationRow | null> {
+    const rows = await this.db.query(
+      'SELECT * FROM retrieval_evaluations WHERE id=$1',
+      [id],
+    );
+    return rows[0] ? rowToRetrievalEvaluation(rows[0]) : null;
+  }
+
+  async listRetrievalEvaluations(
+    filter: { task?: string; suite_version?: string } = {},
+  ): Promise<RetrievalEvaluationRow[]> {
+    const { where, args } = pgWhere({
+      task: filter.task,
+      suite_version: filter.suite_version,
+    });
+    const rows = await this.db.query(
+      `SELECT * FROM retrieval_evaluations ${where} ORDER BY created_at`,
+      args,
+    );
+    return rows.map(rowToRetrievalEvaluation);
+  }
 }
 
 // ---------- shared row helpers ----------
@@ -3936,6 +4424,8 @@ function rowToProject(row: Row): ProjectRow {
     next_feature_seq: (row.next_feature_seq as number) ?? 1,
     next_initiative_seq: (row.next_initiative_seq as number) ?? 1,
     next_release_seq: (row.next_release_seq as number) ?? 1,
+    next_changeset_seq: (row.next_changeset_seq as number) ?? 1,
+    next_test_env_seq: (row.next_test_env_seq as number) ?? 1,
     settings: unj(row.settings, {}),
     created_at: (row.created_at as string | null) ?? null,
   };
@@ -4686,6 +5176,99 @@ function rowToEvalResult(row: Row): EvalResultRow {
     scores: unj<EvalResultRow['scores']>(row.scores, null),
     detail: (row.detail as string | null) ?? null,
     created_at: (row.created_at as string | null) ?? null,
+  };
+}
+
+function rowToRepoIndex(row: Row): RepoIndexRow {
+  return {
+    workspace: row.workspace as string,
+    repo: row.repo as string,
+    commit_sha: row.commit_sha as string,
+    status: row.status as RepoIndexRow['status'],
+    parser_version: (row.parser_version as string | null) ?? null,
+    indexed_at: (row.indexed_at as string | null) ?? null,
+    stats: unj<RepoIndexRow['stats']>(row.stats, null),
+  };
+}
+
+function rowToCodeUnit(row: Row): CodeUnitRow {
+  return {
+    id: row.id as string,
+    workspace: row.workspace as string,
+    repo: row.repo as string,
+    commit_sha: row.commit_sha as string,
+    path: row.path as string,
+    language: (row.language as string | null) ?? null,
+    symbol: (row.symbol as string | null) ?? null,
+    symbol_kind: (row.symbol_kind as string | null) ?? null,
+    start_line: row.start_line as number,
+    end_line: row.end_line as number,
+    content_hash: row.content_hash as string,
+    content: row.content as string,
+    parse_status: row.parse_status as CodeUnitRow['parse_status'],
+  };
+}
+
+function rowToCodeEdge(row: Row): CodeEdgeRow {
+  return {
+    workspace: row.workspace as string,
+    repo: row.repo as string,
+    commit_sha: row.commit_sha as string,
+    subject_ref: row.subject_ref as string,
+    predicate: row.predicate as CodeEdgeRow['predicate'],
+    object_ref: row.object_ref as string,
+    evidence: (row.evidence as string | null) ?? null,
+    source: (row.source as string | null) ?? null,
+    confidence:
+      row.confidence === null || row.confidence === undefined
+        ? null
+        : Number(row.confidence),
+  };
+}
+
+function rowToRetrievalEvaluation(row: Row): RetrievalEvaluationRow {
+  return {
+    id: row.id as string,
+    suite_version: (row.suite_version as string | null) ?? null,
+    task: (row.task as string | null) ?? null,
+    index_heads: unj<RetrievalEvaluationRow['index_heads']>(
+      row.index_heads,
+      null,
+    ),
+    metrics: unj<RetrievalEvaluationRow['metrics']>(row.metrics, null),
+    created_at: (row.created_at as string | null) ?? null,
+  };
+}
+
+function rowToTestEnvRequest(row: Row): TestEnvRequestRow {
+  return {
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    request_id: row.request_id as string,
+    subject: row.subject as string,
+    ticket_id: (row.ticket_id as string | null) ?? null,
+    feature: (row.feature as string | null) ?? null,
+    stage: row.stage as string,
+    run_id: (row.run_id as string | null) ?? null,
+    spec: unj<TestEnvRequestRow['spec']>(row.spec, {
+      services: [],
+      seed: [],
+      fixtures: [],
+      mocks: [],
+    }),
+    status: row.status as TestEnvRequestRow['status'],
+    requested_by: (row.requested_by as string | null) ?? null,
+    requested_at: row.requested_at as string,
+    provisioner: (row.provisioner as string | null) ?? null,
+    expires_at: (row.expires_at as string | null) ?? null,
+    fulfilled_by: (row.fulfilled_by as string | null) ?? null,
+    fulfilled_at: (row.fulfilled_at as string | null) ?? null,
+    evidence: (row.evidence as string | null) ?? null,
+    waived_by: (row.waived_by as string | null) ?? null,
+    waived_at: (row.waived_at as string | null) ?? null,
+    waiver_rationale: (row.waiver_rationale as string | null) ?? null,
+    expired_at: (row.expired_at as string | null) ?? null,
+    updated_at: row.updated_at as string,
   };
 }
 

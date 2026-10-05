@@ -22,33 +22,52 @@ import type { ConductorDeps, StreamEvent } from '@sprint-runner/conductor';
 import {
   type Conductor,
   type ConductorWorkspace,
+  DEFAULT_IMPORT_BOARD,
   type RunnerTask,
   type ToolCtx,
   applyTicketStatus,
+  convertImportBoard,
   fetchIssues,
   preview,
   queuePendingRun,
+  reconcileImport,
   renderLogMd,
+  resolveReconciliationFinding,
   upsertFrontmatterKeys,
 } from '@sprint-runner/conductor';
 import {
-  deepMerge,
   defaultGlobalConfigPath,
+  mergeConfigFile,
   parseEnv,
-  parsePartialConfig,
 } from '@sprint-runner/config';
 import type { EffectiveConfig } from '@sprint-runner/config';
 import {
+  APPROVED_SCOPE_ORIGINS,
   BOARD_ITEM_KINDS,
   type BoardItem,
+  DEPTH_TIERS,
   DOC_KINDS,
   type DocKind,
   type EventName,
   type GateItem,
+  RECONCILIATION_DECISIONS,
   type Store,
+  TICKET_ORIGINS,
+  TICKET_PRIORITIES,
+  TICKET_WORK_TYPES,
+  type TicketOrigin,
   type TicketPriority,
   type TicketRow,
   type TicketStatus,
+  type TicketWorkType,
+  WORK_TYPE_POLICIES,
+  directCreateAllowed,
+  evaluateEvidence,
+  evidenceFor,
+  gatherEvidenceSnapshot,
+  latestClassification,
+  needsScopeApproval,
+  severityRule,
 } from '@sprint-runner/core';
 import Fastify, {
   type FastifyInstance,
@@ -57,6 +76,8 @@ import Fastify, {
 } from 'fastify';
 import YAML from 'yaml';
 import { z } from 'zod';
+import { registerBoardRoutes } from './board.js';
+import { registerDesignRoutes } from './design.js';
 import {
   DiffApplyError,
   applyUnifiedDiff,
@@ -64,6 +85,9 @@ import {
   lineDiff,
   parseUnifiedDiff,
 } from './diff.js';
+import { registerEvidenceRoutes } from './evidence.js';
+import { deviationMetrics, gateDwell } from './metrics.js';
+import { registerReviewRoutes } from './review.js';
 import { StreamHub } from './sse.js';
 
 // ---------------------------------------------------------------------------
@@ -141,6 +165,56 @@ const CaptureBodySchema = z
   })
   .passthrough();
 
+/** wp-139: (re)run import reconciliation for a workspace. */
+const ReconcileBodySchema = z
+  .object({
+    workspace: WorkspaceNameSchema,
+    board: z.string().optional(),
+    ticketIds: z.array(z.string()).optional(),
+  })
+  .passthrough();
+
+/** wp-139: resolve one reconciliation finding. */
+const ResolveFindingBodySchema = z
+  .object({
+    workspace: WorkspaceNameSchema,
+    decision: z.string().min(1),
+    actor: z.string().optional(),
+  })
+  .passthrough();
+
+/** wp-139: convert the import board to an ordinary board. */
+const ConvertBoardBodySchema = z
+  .object({
+    workspace: WorkspaceNameSchema,
+    board: z.string().optional(),
+    to: z.enum(['enhancement', 'modernization', 'quality']).optional(),
+  })
+  .passthrough();
+
+/** §15.7 direct ticket creation (wp-151). `work_type` is required; the
+ *  route enforces the direct-create rules before any row is written. */
+const CreateTicketBodySchema = z
+  .object({
+    workspace: WorkspaceNameSchema,
+    title: z.string().min(1),
+    work_type: z.string().min(1),
+    origin: z.string().optional(),
+    severity: z.string().optional(),
+    priority: z.string().optional(),
+    depth: z.string().optional(),
+    backend: z.string().optional(),
+    model: z.string().optional(),
+    repos: z.array(z.string()).optional(),
+    body: z.string().optional(),
+    feature: z.string().optional(),
+    parent: z.string().optional(),
+    /** Approved-scope evidence for types that may not be direct-created
+     *  (`story`): the RS/board proposal that authorizes the work. */
+    scope_ref: z.string().optional(),
+  })
+  .passthrough();
+
 const ClaimBodySchema = z
   .object({
     actor: z.string().optional(),
@@ -148,12 +222,18 @@ const ClaimBodySchema = z
   })
   .passthrough();
 
+/** Snooze (D20): `{until: <ISO>}` absolute, or `{for_minutes: n}`
+ *  relative — exactly one meaningful knob, both optional in the schema
+ *  so the handler can 400 with a readable message. */
 const SnoozeBodySchema = z
   .object({
-    until: z.string().optional(),
-    ttl_s: z.number().int().positive().optional(),
+    until: z.string().min(1).optional(),
+    for_minutes: z.number().positive().optional(),
   })
-  .passthrough();
+  .passthrough()
+  .refine((b) => b.until !== undefined || b.for_minutes !== undefined, {
+    message: 'snooze requires {until} or {for_minutes}',
+  });
 
 // ---------------------------------------------------------------------------
 // Public surface types
@@ -291,6 +371,14 @@ const ANXIETY_RANK: Record<string, number> = {
 };
 const anxrank = (kind: string) => ANXIETY_RANK[kind] ?? 8;
 
+/** D20 snooze: an item with `snoozed_until` in the future stays open
+ *  but leaves the inbox and badge counts until then. */
+const isSnoozed = (item: GateItem, nowIso: string): boolean =>
+  item.snoozed_until !== null &&
+  item.snoozed_until !== undefined &&
+  item.snoozed_until > nowIso;
+
+/** S-01 ranking: anxiety-first → blocked_agent → priority → age. */
 function rankInbox(items: GateItem[]): GateItem[] {
   return [...items].sort(
     (a, b) =>
@@ -598,6 +686,70 @@ export function createServer(opts: ServerOptions): ApiServer {
   }
 
   /**
+   * The Ticket Workbench payload (§15.7, wp-151) — the ticket's
+   * taxonomy + per-type tabs + the policy evidence checklist, computed
+   * by the SAME policy functions the conductor enforces (taxonomy.ts),
+   * so the UI can never drift from the gate behavior.
+   */
+  async function workbenchFor(wsName: string, row: TicketRow) {
+    const workType = (row.work_type as TicketWorkType | null) ?? null;
+    const origin = (row.origin as TicketOrigin | null) ?? null;
+    const snapshot = await gatherEvidenceSnapshot(store, wsName, {
+      ticket_id: row.ticket_id,
+      work_type: workType,
+      origin,
+      severity: row.severity ?? null,
+      parent: row.parent ?? null,
+      feature: row.feature ?? null,
+    });
+    const policy = workType === null ? null : WORK_TYPE_POLICIES[workType];
+    const evaluated = new Map<string, boolean>();
+    const missing: string[] = [];
+    for (const gate of ['intake', 'test-approved', 'approved'] as const) {
+      const verdict = evaluateEvidence(workType, origin, gate, snapshot);
+      for (const r of verdict.satisfied) evaluated.set(r.id, true);
+      for (const r of verdict.missing) {
+        evaluated.set(r.id, false);
+        missing.push(r.id);
+      }
+    }
+    const scopeGate = await store.getGateItem({
+      workspace: wsName,
+      subject: row.ticket_id,
+      gate: 'scope-proposal',
+    });
+    const cls = await latestClassification(store, wsName, row.ticket_id);
+    const scopeVerdict =
+      cls.kind === 'ok' ? (cls.value.scope_verdict as string) : null;
+    return {
+      work_type: workType,
+      origin,
+      severity: row.severity ?? null,
+      severity_rule:
+        workType === null ? 'forbidden' : severityRule(workType, origin),
+      direct_create: workType === null ? false : directCreateAllowed(workType),
+      scope_verdict: scopeVerdict,
+      scope_approval_needed: needsScopeApproval(
+        workType,
+        origin,
+        scopeVerdict as never,
+        scopeGate !== null && scopeGate.cleared_at !== null,
+      ),
+      summary: policy?.summary ?? null,
+      tabs: policy?.tabs ?? ['type'],
+      intake: policy?.intake ?? [],
+      evidence: evidenceFor(workType, origin).map((r) => ({
+        id: r.id,
+        gate: r.gate,
+        label: r.label,
+        satisfied: evaluated.get(r.id) ?? false,
+        check: r.check,
+      })),
+      missing,
+    };
+  }
+
+  /**
    * Gate-write idempotency (API.md): `expected_status` must equal the
    * ticket's current status, and the gate item must exist and be open —
    * a stale submission (already cleared by another install, or the
@@ -863,11 +1015,17 @@ export function createServer(opts: ServerOptions): ApiServer {
   // ------------------------------------------------------------------
 
   app.get('/api/v1/inbox', async (req) => {
-    const { workspace: wsName } = req.query as { workspace?: string };
+    const q = req.query as { workspace?: string; include_snoozed?: string };
+    const wsName = q.workspace;
+    const includeSnoozed =
+      q.include_snoozed === '1' || q.include_snoozed === 'true';
+    const nowIso = now();
     const items = rankInbox(
-      await store.listGateItems(
-        wsName ? { workspace: wsName, open: true } : { open: true },
-      ),
+      (
+        await store.listGateItems(
+          wsName ? { workspace: wsName, open: true } : { open: true },
+        )
+      ).filter((i) => includeSnoozed || !isSnoozed(i, nowIso)),
     );
     const out = await Promise.all(
       items.map(async (item) => {
@@ -1043,6 +1201,153 @@ export function createServer(opts: ServerOptions): ApiServer {
     return { tickets };
   });
 
+  /**
+   * Direct ticket creation (§15.7, wp-151). Engineers create
+   * bugs/tech/spikes/operational work directly; a `story` (or any
+   * non-direct type) must arrive from an approved RS/board proposal —
+   * `directCreateAllowed` / `needsScopeApproval` decide, fail-closed.
+   * The created row lands at `imported`, so the pipeline's intake gate
+   * still classifies + enforces evidence.
+   */
+  app.post('/api/v1/tickets', async (req, reply) => {
+    const body = parseBody(CreateTicketBodySchema, req.body, 'create ticket');
+    const ws = workspace(body.workspace);
+    const workType = body.work_type as TicketWorkType;
+    if (!(TICKET_WORK_TYPES as readonly string[]).includes(workType)) {
+      throw badRequest(
+        `unknown work_type '${body.work_type}' (expected ${TICKET_WORK_TYPES.join('|')})`,
+      );
+    }
+    const origin = (body.origin ?? 'manual') as TicketOrigin;
+    if (!(TICKET_ORIGINS as readonly string[]).includes(origin)) {
+      throw badRequest(
+        `unknown origin '${body.origin}' (expected ${TICKET_ORIGINS.join('|')})`,
+      );
+    }
+    // Approved scope = an approved origin (rs/board) or an explicit
+    // `scope_ref` to the authorizing RS/board proposal.
+    const scopeApproved =
+      (APPROVED_SCOPE_ORIGINS as readonly string[]).includes(origin) ||
+      body.scope_ref !== undefined;
+    // §15.7 direct-create rules: a type that isn't directly creatable
+    // (story) needs approved scope; `needsScopeApproval` decides.
+    if (
+      (!directCreateAllowed(workType) && !scopeApproved) ||
+      needsScopeApproval(workType, origin, null, scopeApproved)
+    ) {
+      throw forbidden(
+        `work type '${workType}' may not be created directly — it must originate from an approved RS/board proposal (set origin ${APPROVED_SCOPE_ORIGINS.join('|')} or supply scope_ref)`,
+      );
+    }
+    // Priority ≠ severity: severity is forbidden where it can only mean
+    // "importance" (it drives triage on bugs/security/incidents only).
+    if (
+      body.severity !== undefined &&
+      severityRule(workType, origin) === 'forbidden'
+    ) {
+      throw badRequest(
+        `severity does not apply to ${workType} tickets (priority ≠ severity, §15.7)`,
+      );
+    }
+    const priority = (body.priority ?? 'medium') as TicketPriority;
+    if (!(TICKET_PRIORITIES as readonly string[]).includes(priority)) {
+      throw badRequest(
+        `unknown priority '${body.priority}' (expected ${TICKET_PRIORITIES.join('|')})`,
+      );
+    }
+    const depth = body.depth ?? 'standard';
+    if (!(DEPTH_TIERS as readonly string[]).includes(depth)) {
+      throw badRequest(
+        `unknown depth '${body.depth}' (expected ${DEPTH_TIERS.join('|')})`,
+      );
+    }
+    const repos = body.repos ?? [];
+    const source = body.scope_ref ? `scope:${body.scope_ref}` : 'manual';
+    const ts = now();
+    const ticketId = await store.allocTicketId(ws.name);
+    const contents = [
+      '---',
+      YAML.stringify({
+        schema: 1,
+        id: ticketId,
+        title: body.title,
+        status: 'imported',
+        priority,
+        ...(body.feature ? { feature: body.feature } : {}),
+        repos,
+        depth,
+        source,
+        ...(body.parent ? { parent: body.parent } : {}),
+        depends_on: [],
+        forced: false,
+      }).trimEnd(),
+      '---',
+      '',
+      '## Description',
+      '',
+      body.body?.trim() ?? '',
+      '',
+    ].join('\n');
+    await store.transaction(async (s) => {
+      await s.upsertTicket({
+        workspace: ws.name,
+        ticket_id: ticketId,
+        feature: body.feature ?? null,
+        title: body.title,
+        status: 'imported',
+        priority,
+        depth,
+        backend: body.backend ?? null,
+        model: body.model ?? null,
+        repos,
+        parent: body.parent ?? null,
+        depends_on: [],
+        source,
+        work_type: workType,
+        origin,
+        severity: (body.severity ?? null) as TicketRow['severity'],
+        forced: false,
+        spec_score: null,
+        spec_hash: null,
+        blocked_reason: null,
+        created_at: ts,
+        updated_at: ts,
+      });
+      await s.appendDocVersion(
+        { workspace: ws.name, subject: ticketId, doc: 'ticket.md' },
+        contents,
+        actor,
+      );
+      for (const repo of repos) {
+        await s.upsertTicketRepo({
+          workspace: ws.name,
+          ticket_id: ticketId,
+          repo,
+          branch: null,
+          worktree: null,
+          pr_url: null,
+          pr_state: null,
+          ci_state: null,
+          merged_sha: null,
+        });
+      }
+    });
+    await emitEvent(ws, {
+      ticketId,
+      event: 'imported',
+      data: {
+        via: 'direct-create',
+        work_type: workType,
+        origin,
+        ...(body.scope_ref ? { scope_ref: body.scope_ref } : {}),
+      },
+    });
+    return reply.status(201).send({
+      ticket_id: ticketId,
+      ticket: await getTicketOr404(ws.name, ticketId),
+    });
+  });
+
   app.get('/api/v1/tickets/:workspace/:ticket', async (req) => {
     const { workspace: wsName, ticket } = req.params as {
       workspace: string;
@@ -1110,12 +1415,14 @@ export function createServer(opts: ServerOptions): ApiServer {
       flagged,
       open_gates: gates.filter((g) => g.subject === ticket),
       family: [...family, ...children],
+      // §15.7 Ticket Workbench (wp-151) — per-type tabs + evidence.
+      workbench: await workbenchFor(wsName, row),
     };
   });
 
   /**
    * Doc name → DOC_KINDS doc. Routes accept either the bare name
-   * (`prd`) or the full doc kind (`prd.md`). `split-plan` is the one
+   * (`rs`) or the full doc kind (`rs.md`). `split-plan` is the one
    * exception: it's a run_artifact (RUN_ARTIFACT_KINDS), served from
    * the latest producing run.
    */
@@ -1211,6 +1518,36 @@ export function createServer(opts: ServerOptions): ApiServer {
       // LOG.md is a derived render of the events rows (DB-SCHEMA).
       log_md: renderLogMd(ticket, events),
     };
+  });
+
+  // ---- S-08 review.json — latest review run_artifact (D19 gap) ----
+
+  app.get('/api/v1/tickets/:workspace/:ticket/review', async (req) => {
+    const { workspace: wsName, ticket } = req.params as {
+      workspace: string;
+      ticket: string;
+    };
+    workspace(wsName);
+    await getTicketOr404(wsName, ticket);
+    // review.json is a run_artifact under D29 — the same lookup the
+    // findings verdict route writes through (nested names included).
+    const art = await latestArtifact(wsName, ticket, 'review.json');
+    if (art === null) {
+      throw notFound(`no review.json for ${wsName}/${ticket}`);
+    }
+    let review: unknown;
+    try {
+      review = JSON.parse(art.content);
+    } catch {
+      // Fail-closed: a malformed artifact is an honest 5xx, never a
+      // half-parsed payload the UI mistakes for a clean review.
+      throw new ApiError(
+        502,
+        'artifact_corrupt',
+        `review.json on run ${art.runId} is not valid JSON`,
+      );
+    }
+    return { run_id: art.runId, name: art.name, review };
   });
 
   // ---- S-04 wizard answers → commit → re-run ----
@@ -1565,6 +1902,21 @@ export function createServer(opts: ServerOptions): ApiServer {
         const cleared = await clear('split-plan');
         return { action, gate_cleared: cleared.gate };
       }
+      // §15.7 scope proposal (wp-151): approve authorizes the over-scope
+      // work; decline records a gate_overridden so the conductor
+      // escalates instead of absorbing it.
+      case 'approve_scope':
+      case 'reject_scope': {
+        if (action === 'reject_scope') {
+          await emitEvent(ws, {
+            ticketId: ticket,
+            event: 'gate_overridden',
+            data: { gate: 'scope-proposal' },
+          });
+        }
+        const cleared = await clear('scope-proposal');
+        return { action, gate_cleared: cleared.gate };
+      }
       case 'resume': {
         const gate = await openGate(wsName, ticket, [
           'escalated',
@@ -1771,14 +2123,16 @@ export function createServer(opts: ServerOptions): ApiServer {
 
   app.get('/api/v1/workspaces', async () => {
     const pending = await store.listRuns({ status: 'pending' });
+    const nowIso = now();
     const workspaces = await Promise.all(
       conductor.deps.workspaces.map(async (ws) => ({
         name: ws.name,
         root_path: ws.rootPath,
         queue_depth: pending.filter((r) => r.workspace === ws.name).length,
+        // Badge semantics (D20): snoozed items don't demand attention.
         open_gate_items: (
           await store.listGateItems({ workspace: ws.name, open: true })
-        ).length,
+        ).filter((i) => !isSnoozed(i, nowIso)).length,
       })),
     );
     return { workspaces };
@@ -1812,6 +2166,7 @@ export function createServer(opts: ServerOptions): ApiServer {
         next_ticket_seq: 1,
         next_feature_seq: 1,
         next_initiative_seq: 1,
+        next_release_seq: 1,
         // wp-099: persist the resolved root so daemon boots (and the
         // CLI's project listing) can rebuild workspaces from the DB
         // alone — `path` is the canonical field.
@@ -2311,6 +2666,102 @@ export function createServer(opts: ServerOptions): ApiServer {
   });
 
   // ------------------------------------------------------------------
+  // /import/reconcile — wp-139 import reconciliation surface
+  // ------------------------------------------------------------------
+
+  /** The import board + its reviewable items (ticket cards + findings). */
+  app.get('/api/v1/import/board', async (req) => {
+    const { workspace: wsName, board } = req.query as {
+      workspace?: string;
+      board?: string;
+    };
+    const slug = board ?? DEFAULT_IMPORT_BOARD;
+    if (!wsName) {
+      // Every import board across workspaces (org-level inbox view).
+      const projects = await store.listProjects();
+      const boards: Awaited<ReturnType<typeof store.listBoards>> = [];
+      for (const p of projects) {
+        for (const b of await store.listBoards(p.workspace)) {
+          if (b.board_type === 'import') boards.push(b);
+        }
+      }
+      return { boards };
+    }
+    const row = await store.getBoard(wsName, slug);
+    const items = await store.listBoardItems({
+      workspace: wsName,
+      board: slug,
+    });
+    return { board: row, items };
+  });
+
+  /** (Re)run reconciliation: cluster imported items, detect drift vs the
+   *  source of record, surface findings, set the reconciled flag. */
+  app.post('/api/v1/import/reconcile', async (req) => {
+    const body = parseBody(ReconcileBodySchema, req.body, 'reconcile');
+    const ws = workspace(body.workspace);
+    const result = await reconcileImport({
+      workspace: ws.name,
+      store,
+      actor,
+      ...(body.board ? { board: body.board } : {}),
+      ...(body.ticketIds ? { ticketIds: body.ticketIds } : {}),
+    });
+    return { result };
+  });
+
+  /** Resolve a finding. `inferred` findings require a human (provenance
+   *  enforcement — inferred never auto-approves). */
+  app.post('/api/v1/import/findings/:findingId/resolve', async (req) => {
+    const params = req.params as { findingId: string };
+    const body = parseBody(
+      ResolveFindingBodySchema,
+      req.body,
+      'resolve-finding',
+    );
+    if (
+      !(RECONCILIATION_DECISIONS as readonly string[]).includes(body.decision)
+    ) {
+      throw badRequest(
+        `unknown decision '${body.decision}' (expected ${RECONCILIATION_DECISIONS.join('|')})`,
+      );
+    }
+    if (body.decision === 'open') {
+      throw badRequest(
+        'resolve-finding: decision must be a resolution, not `open`',
+      );
+    }
+    const ws = workspace(body.workspace);
+    try {
+      const out = await resolveReconciliationFinding({
+        workspace: ws.name,
+        store,
+        findingId: params.findingId,
+        decision: body.decision,
+        actor: body.actor ?? actor,
+        human: true,
+      });
+      return out;
+    } catch (e) {
+      throw badRequest((e as Error).message);
+    }
+  });
+
+  /** Convert the import board to an ordinary board (history preserved). */
+  app.post('/api/v1/import/convert', async (req) => {
+    const body = parseBody(ConvertBoardBodySchema, req.body, 'convert');
+    const ws = workspace(body.workspace);
+    const out = await convertImportBoard({
+      workspace: ws.name,
+      store,
+      actor,
+      ...(body.board ? { board: body.board } : {}),
+      ...(body.to ? { to: body.to } : {}),
+    });
+    return out;
+  });
+
+  // ------------------------------------------------------------------
   // /capture — D27 tray ingress (API.md): board:null board_items
   // ------------------------------------------------------------------
 
@@ -2380,23 +2831,12 @@ export function createServer(opts: ServerOptions): ApiServer {
     const warnings: string[] = [];
 
     if (body?.config && Object.keys(body.config).length > 0) {
-      let existing: Record<string, unknown> = {};
-      if (existsSync(globalConfigPath)) {
-        const parsed = YAML.parse(
-          await readFile(globalConfigPath, 'utf8'),
-        ) as unknown;
-        if (parsed && typeof parsed === 'object') {
-          existing = parsed as Record<string, unknown>;
-        }
-      }
-      const merged = deepMerge(existing, body.config) as Record<
-        string,
-        unknown
-      >;
-      // Fail-closed validation of the merged document.
-      parsePartialConfig(merged, `PUT /settings → ${globalConfigPath}`);
-      await mkdir(dirname(globalConfigPath), { recursive: true });
-      await writeFile(globalConfigPath, YAML.stringify(merged), 'utf8');
+      // Persist through the config package's write path: comment-
+      // preserving YAML merge + fail-closed validation before write.
+      const merged = mergeConfigFile(
+        globalConfigPath,
+        body.config as Record<string, unknown>,
+      );
       Object.assign(config, merged);
       const ui = (body.config as Record<string, unknown>).ui as
         | Record<string, unknown>
@@ -2495,14 +2935,17 @@ export function createServer(opts: ServerOptions): ApiServer {
   // ------------------------------------------------------------------
 
   app.get('/api/v1/metrics', async (req) => {
-    const { workspace: wsName } = req.query as { workspace?: string };
-    const workspaces = wsName
-      ? [wsName]
+    const q = req.query as { workspace?: string; since?: string };
+    const since =
+      q.since && !Number.isNaN(Date.parse(q.since)) ? q.since : null;
+    const workspaces = q.workspace
+      ? [q.workspace]
       : conductor.deps.workspaces.map((w) => w.name);
     const ticketsByStatus: Record<string, number> = {};
     const runsByStatus: Record<string, number> = {};
     const eventsByName: Record<string, number> = {};
     let openGateItems = 0;
+    let acceptedOutcomes = 0;
     const totals = {
       cost_usd: 0,
       tokens_in: 0,
@@ -2510,13 +2953,32 @@ export function createServer(opts: ServerOptions): ApiServer {
       tokens_cached: 0,
       human_minutes: 0,
     };
+    const deviations = {
+      merged_tickets: 0,
+      tickets_with_deviations: 0,
+      deviations_total: 0,
+    };
+    const dwell = { cleared_minutes: 0, open_minutes: 0 };
+    const nowIso = now();
     for (const ws of workspaces) {
       for (const t of await store.listTickets({ workspace: ws })) {
         ticketsByStatus[t.status] = (ticketsByStatus[t.status] ?? 0) + 1;
       }
-      openGateItems += (
-        await store.listGateItems({ workspace: ws, open: true })
+      const gateItems = await store.listGateItems({ workspace: ws });
+      // Badge semantics: snoozed items are open but not demanding.
+      openGateItems += gateItems.filter(
+        (i) => !i.cleared_at && !isSnoozed(i, nowIso),
       ).length;
+      // human_minutes = gate dwell (PRD): surfaced → cleared, plus
+      // still-open items accruing to now. The stale path summed a
+      // human_minutes field off events that was never populated.
+      const dwellW = gateDwell(gateItems, { since });
+      dwell.cleared_minutes += dwellW.cleared_minutes;
+      dwell.open_minutes += dwellW.open_minutes;
+      const devW = await deviationMetrics(store, ws, since);
+      deviations.merged_tickets += devW.merged_tickets;
+      deviations.tickets_with_deviations += devW.tickets_with_deviations;
+      deviations.deviations_total += devW.deviations_total;
       const runs = await store.listRuns({ workspace: ws });
       for (const r of runs) {
         runsByStatus[r.status] = (runsByStatus[r.status] ?? 0) + 1;
@@ -2527,7 +2989,6 @@ export function createServer(opts: ServerOptions): ApiServer {
         totals.tokens_in += e.tokens_in ?? 0;
         totals.tokens_out += e.tokens_out ?? 0;
         totals.tokens_cached += e.tokens_cached ?? 0;
-        totals.human_minutes += e.human_minutes ?? 0;
       }
       // usage_calls is the per-call ledger — per-call latency totals
       // live there; token sums ride events (no double count).
@@ -2538,7 +2999,21 @@ export function createServer(opts: ServerOptions): ApiServer {
             (eventsByName.usage_calls ?? 0) + calls.length;
         }
       }
+      // wp-155 (PRD §15.12): cost per VERIFIED ACCEPTED OUTCOME —
+      // inference + retries + execution + remediation over outcomes
+      // that reached a delivered terminal state, never per-call price.
+      for (const t of await store.listTickets({ workspace: ws })) {
+        if (t.status === 'merged' || t.status === 'released') {
+          acceptedOutcomes += 1;
+        }
+      }
     }
+    totals.human_minutes = dwell.cleared_minutes + dwell.open_minutes;
+    const merged = deviations.merged_tickets;
+    const costPerAcceptedOutcome =
+      acceptedOutcomes > 0
+        ? Number((totals.cost_usd / acceptedOutcomes).toFixed(6))
+        : null;
     return {
       workspaces,
       tickets_by_status: ticketsByStatus,
@@ -2546,6 +3021,23 @@ export function createServer(opts: ServerOptions): ApiServer {
       events_by_name: eventsByName,
       open_gate_items: openGateItems,
       totals,
+      // PRD headline: merged tickets with ≥1 deviation ÷ merged tickets.
+      deviations: {
+        ...deviations,
+        deviation_rate:
+          merged > 0 ? deviations.tickets_with_deviations / merged : 0,
+        addenda_per_ticket:
+          merged > 0 ? deviations.deviations_total / merged : 0,
+      },
+      // Dwell detail so the honest-idle caveat is inspectable, not
+      // folded away into one number.
+      gate_dwell: {
+        ...dwell,
+        total_minutes: dwell.cleared_minutes + dwell.open_minutes,
+      },
+      since,
+      accepted_outcomes: acceptedOutcomes,
+      cost_per_accepted_outcome: costPerAcceptedOutcome,
     };
   });
 
@@ -2632,8 +3124,9 @@ export function createServer(opts: ServerOptions): ApiServer {
     },
   );
 
-  // ---- gate-item snooze (D20 — snoozed items stay open but leave
-  //      badge counts and the board until snoozed_until) ----
+  // ------------------------------------------------------------------
+  // gate_items.snoozed_until — D20: hide from inbox/badge until then
+  // ------------------------------------------------------------------
 
   app.post(
     '/api/v1/gate-items/:workspace/:subject/:gate/snooze',
@@ -2648,6 +3141,16 @@ export function createServer(opts: ServerOptions): ApiServer {
         gate: string;
       };
       const body = parseBody(SnoozeBodySchema, req.body, 'snooze');
+      const until =
+        body.until ??
+        new Date(Date.now() + (body.for_minutes ?? 0) * 60_000).toISOString();
+      const untilMs = Date.parse(until);
+      if (!Number.isFinite(untilMs)) {
+        throw badRequest('snooze: {until} must be an ISO timestamp');
+      }
+      if (untilMs <= Date.now()) {
+        throw badRequest('snooze: {until} must be in the future');
+      }
       const ws = workspace(wsName);
       const item = await store.getGateItem({
         workspace: ws.name,
@@ -2657,21 +3160,17 @@ export function createServer(opts: ServerOptions): ApiServer {
       if (!item || item.cleared_at) {
         throw notFound(`no open gate item '${gate}' for ${ws.name}/${subject}`);
       }
-      let until: string;
-      if (body.until !== undefined) {
-        const t = Date.parse(body.until);
-        if (Number.isNaN(t)) {
-          throw badRequest(`snooze: 'until' must be an ISO timestamp`);
-        }
-        until = new Date(t).toISOString();
-      } else {
-        until = new Date(
-          Date.now() + (body.ttl_s ?? 24 * 3600) * 1000,
-        ).toISOString();
-      }
-      const row = { ...item, snoozed_until: until };
-      await store.upsertGateItem(row);
-      return { item: row };
+      // upsertGateItem rewrites the row — spread the current item so
+      // priority/blocked_agent/kind survive the snooze. No event row:
+      // EVENT_NAMES is a closed union (core) and the durable state is
+      // the snoozed_until field itself, read back through /inbox.
+      await store.upsertGateItem({
+        ...item,
+        snoozed_until: new Date(untilMs).toISOString(),
+      });
+      return {
+        item: await store.getGateItem({ workspace: ws.name, subject, gate }),
+      };
     },
   );
 
@@ -2693,14 +3192,68 @@ export function createServer(opts: ServerOptions): ApiServer {
         subject,
         gate,
       });
-      if (!item) {
-        throw notFound(`no gate item '${gate}' for ${ws.name}/${subject}`);
+      if (!item || item.cleared_at) {
+        throw notFound(`no open gate item '${gate}' for ${ws.name}/${subject}`);
       }
-      const row = { ...item, snoozed_until: null };
-      await store.upsertGateItem(row);
-      return { item: row };
+      if (item.snoozed_until === null || item.snoozed_until === undefined) {
+        throw notFound(`gate item '${gate}' is not snoozed`);
+      }
+      await store.upsertGateItem({ ...item, snoozed_until: null });
+      return {
+        item: await store.getGateItem({ workspace: ws.name, subject, gate }),
+      };
     },
   );
+
+  // /reviews — Review Studio surface (PRD §15.8, wp-148)
+  // ------------------------------------------------------------------
+  registerReviewRoutes(app, {
+    store,
+    actor,
+    nowIso: now,
+    workspace,
+    clearGate,
+    requestRun,
+    ticketOrNull: async (wsName, ticketId) =>
+      store.getTicket({ workspace: wsName, ticket_id: ticketId }),
+  });
+
+  // ------------------------------------------------------------------
+  // /board, /boards — pipeline board + idea boards (PRD §15.3, wp-144)
+  // ------------------------------------------------------------------
+  registerBoardRoutes(app, {
+    store,
+    actor,
+    nowIso: now,
+    workspace,
+  });
+
+  // ------------------------------------------------------------------
+  // /design — structured mockups + design approvals (PRD §15.4, wp-149)
+  // ------------------------------------------------------------------
+  registerDesignRoutes(app, {
+    store,
+    actor,
+    nowIso: now,
+    workspace,
+  });
+
+  // ------------------------------------------------------------------
+  // /evidence, /repositories/<repo>/index — D37 evidence surface (wp-110)
+  // ------------------------------------------------------------------
+  registerEvidenceRoutes(app, {
+    store,
+    config,
+    workspaceRoot: (name) =>
+      conductor.deps.workspaces.find((w) => w.name === name)?.rootPath,
+    repoPath: (_wsName, repo) => config.repos[repo]?.path,
+    notify: (e) =>
+      conductor.deps.notify?.({
+        type: e.type as 'index_status',
+        payload: e.payload,
+      }),
+    now,
+  });
 
   return app;
 }

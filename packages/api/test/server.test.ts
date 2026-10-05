@@ -136,6 +136,7 @@ describe('auth', () => {
   const ROUTES: [string, string][] = [
     ['GET', '/api/v1/inbox'],
     ['GET', '/api/v1/tickets'],
+    ['POST', '/api/v1/tickets'],
     ['GET', '/api/v1/tickets/ws/SR-0001'],
     ['GET', '/api/v1/tickets/ws/SR-0001/events'],
     ['POST', '/api/v1/tickets/ws/SR-0001/answers'],
@@ -147,6 +148,10 @@ describe('auth', () => {
     ['POST', '/api/v1/workspaces'],
     ['POST', '/api/v1/interview'],
     ['POST', '/api/v1/import'],
+    ['GET', '/api/v1/import/board'],
+    ['POST', '/api/v1/import/reconcile'],
+    ['POST', '/api/v1/import/convert'],
+    ['POST', '/api/v1/import/findings/x/resolve'],
     ['GET', '/api/v1/settings'],
     ['PUT', '/api/v1/settings'],
     ['GET', '/api/v1/kb/repo'],
@@ -177,6 +182,58 @@ describe('auth', () => {
       headers: { authorization: `Bearer ${'b'.repeat(64)}` },
     });
     expect(res.statusCode).toBe(401);
+    await app.close();
+  });
+});
+
+describe('import reconciliation — wp-139 routes', () => {
+  it('runs reconciliation and exposes the import board', async () => {
+    const app = makeServer();
+    const rec = await app.inject({
+      method: 'POST',
+      url: '/api/v1/import/reconcile',
+      headers: AUTH,
+      payload: { workspace: WS },
+    });
+    expect(rec.statusCode).toBe(200);
+    const body = rec.json() as {
+      result: { board: string; boardCreated: boolean };
+    };
+    expect(body.result.board).toBe('import');
+    expect(body.result.boardCreated).toBe(true);
+
+    const board = await app.inject({
+      method: 'GET',
+      url: `/api/v1/import/board?workspace=${WS}`,
+      headers: AUTH,
+    });
+    expect(board.statusCode).toBe(200);
+    const boardBody = board.json() as {
+      board: { board_type: string } | null;
+      items: unknown[];
+    };
+    expect(boardBody.board?.board_type).toBe('import');
+    expect(boardBody.items).toEqual([]);
+    await app.close();
+  });
+
+  it('rejects an unknown decision and a missing finding', async () => {
+    const app = makeServer();
+    const bad = await app.inject({
+      method: 'POST',
+      url: '/api/v1/import/findings/recon-drift-SR-0001/resolve',
+      headers: AUTH,
+      payload: { workspace: WS, decision: 'nonsense' },
+    });
+    expect(bad.statusCode).toBe(400);
+
+    const missing = await app.inject({
+      method: 'POST',
+      url: '/api/v1/import/findings/recon-drift-SR-0001/resolve',
+      headers: AUTH,
+      payload: { workspace: WS, decision: 'dismissed' },
+    });
+    expect(missing.statusCode).toBe(400);
     await app.close();
   });
 });
@@ -525,6 +582,40 @@ describe('settings', () => {
     expect(existsSync(env)).toBe(true);
     expect(readFileSync(env, 'utf8')).toContain('MY_API_KEY=supersecret-value');
     expect(statSync(env).mode & 0o777).toBe(0o600);
+    await app.close();
+  });
+});
+
+describe('metrics — wp-155 cost per accepted outcome', () => {
+  it('reports accepted_outcomes + cost_per_accepted_outcome (null when none)', async () => {
+    const app = makeServer();
+    await store.upsertTicket(
+      ticketRow({ ticket_id: 'SR-0001', status: 'in-progress' }),
+    );
+    const none = await app.inject({
+      method: 'GET',
+      url: '/api/v1/metrics',
+      headers: AUTH,
+    });
+    expect(none.statusCode).toBe(200);
+    expect(none.json().accepted_outcomes).toBe(0);
+    expect(none.json().cost_per_accepted_outcome).toBeNull();
+
+    // merged + released count as verified accepted outcomes.
+    await store.upsertTicket(
+      ticketRow({ ticket_id: 'SR-0002', status: 'merged' }),
+    );
+    await store.upsertTicket(
+      ticketRow({ ticket_id: 'SR-0003', status: 'released' }),
+    );
+    const some = await app.inject({
+      method: 'GET',
+      url: '/api/v1/metrics',
+      headers: AUTH,
+    });
+    expect(some.json().accepted_outcomes).toBe(2);
+    // No spend in the fixture → 0 / 2, still a number (not null).
+    expect(some.json().cost_per_accepted_outcome).toBe(0);
     await app.close();
   });
 });

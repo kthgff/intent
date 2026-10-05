@@ -2,7 +2,7 @@
 schema: 1
 id: wp-157
 title: Test-environment requests — declarative env spec + conductor provisioning hook
-status: todo
+status: done
 priority: low
 depth: standard
 repos: []

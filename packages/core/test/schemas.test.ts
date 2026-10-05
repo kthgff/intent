@@ -2,11 +2,14 @@ import { describe, expect, it } from 'vitest';
 import {
   AgentFindingSchema,
   ConfigSchema,
+  DesignChecklistSchema,
+  DesignSystemSchema,
   DossierEntrySchema,
   EmbeddingSchema,
   EntitySchema,
   EventSchema,
   GateItemSchema,
+  MockupSchema,
   PROMPT_TEMPLATES,
   PROMPT_VERSION,
   PrBodySchema,
@@ -458,12 +461,91 @@ describe('config.yaml (SETTINGS)', () => {
 });
 
 describe('prompt templates', () => {
-  it('ships all 21 templates at PROMPT_VERSION 2', () => {
+  it('ships all 25 templates at PROMPT_VERSION 2', () => {
     // v2: wp-081 added interview-edit (chat-to-edit, s-01 D25).
     expect(PROMPT_VERSION).toBe(2);
-    expect(Object.keys(PROMPT_TEMPLATES).length).toBe(21);
+    expect(Object.keys(PROMPT_TEMPLATES).length).toBe(25);
+    expect(PROMPT_TEMPLATES.retro.length).toBeGreaterThan(0);
+    expect(PROMPT_TEMPLATES['solution-brief'].length).toBeGreaterThan(0);
     expect(PROMPT_TEMPLATES.triage.length).toBeGreaterThan(0);
     expect(PROMPT_TEMPLATES['review-passes'].length).toBeGreaterThan(0);
+    expect(PROMPT_TEMPLATES.mockup.length).toBeGreaterThan(0);
+    expect(PROMPT_TEMPLATES['design-ingest'].length).toBeGreaterThan(0);
     expect(PROMPT_TEMPLATES['interview-edit'].length).toBeGreaterThan(0);
+  });
+});
+
+describe('design artifacts (PRD §15.4, wp-149)', () => {
+  const mockupFixture = {
+    schema: 1,
+    subject: 'SR-0001',
+    title: 'Login',
+    fidelity: 'wireframe',
+    screens: [
+      {
+        screen_id: 'login',
+        title: 'Login',
+        route: '/login',
+        requirement: 'AC-1',
+        root: 'c-form',
+        states: ['default', 'error'],
+      },
+    ],
+    components: [
+      {
+        component_id: 'c-form',
+        name: 'Form',
+        kind: 'form',
+        children: ['c-submit'],
+        props: { title: 'Sign in' },
+        requirement: 'AC-1',
+      },
+      {
+        component_id: 'c-submit',
+        name: 'Button',
+        parent: 'c-form',
+        kind: 'button',
+        props: { label: 'Sign in' },
+      },
+    ],
+    visual_acs: [{ ac_id: 'AC-1', component_id: 'c-form', state: 'default' }],
+  };
+
+  it('parses a valid mockup tree and applies defaults', () => {
+    const m = MockupSchema.parse(mockupFixture);
+    expect(m.fidelity).toBe('wireframe');
+    expect(m.components[0]?.children).toEqual(['c-submit']);
+    expect(m.components[1]?.children).toEqual([]);
+    expect(m.visual_acs[0]?.state).toBe('default');
+  });
+
+  it('rejects an unknown fidelity tier', () => {
+    expect(
+      MockupSchema.safeParse({ ...mockupFixture, fidelity: 'photoreal' })
+        .success,
+    ).toBe(false);
+  });
+
+  it('parses a design-system bundle', () => {
+    const ds = DesignSystemSchema.parse({
+      schema: 1,
+      source: 'web',
+      tokens: { color: { primary: '#0055ff' } },
+      components: [
+        { name: 'Button', import: 'ui/Button', props: { tone: 'string' } },
+      ],
+      styling: 'tailwind',
+    });
+    expect(ds.components[0]?.name).toBe('Button');
+    expect(ds.components[0]?.variants).toEqual([]);
+  });
+
+  it('design checklist keys are constrained to the item enum', () => {
+    expect(DesignChecklistSchema.safeParse({ desktop: true }).success).toBe(
+      true,
+    );
+    expect(DesignChecklistSchema.safeParse({ bogus: true }).success).toBe(
+      false,
+    );
   });
 });

@@ -15,10 +15,17 @@ import type {
   Adapter,
   RunHandle,
   RunRow,
+  Runtime,
   Stage,
   Store,
 } from '@sprint-runner/core';
 import type { TransitionHandler } from '../contracts.js';
+import {
+  CliDockerClient,
+  type ContainerRuntimeDeps,
+  type DockerClientLike,
+  resolveBackendRuntime,
+} from '../envops/containers.js';
 import type { ScanResult } from '../envops/index.js';
 import type { FetchIssuesOptions } from '../import/github.js';
 import type { FetchIssuesResult } from '../import/types.js';
@@ -53,7 +60,13 @@ export interface StreamEvent {
     | 'notification'
     /** A `tickets` row changed (status write) — board/focus refresh
      *  hint (s-01 live updates). Payload is a partial TicketRow. */
-    | 'ticket_updated';
+    | 'ticket_updated'
+    /** Repository-index progress (wp-110 — D37 `index_status` row in
+     *  the API.md event table). */
+    | 'index_status'
+    /** ChangeSet lifecycle writes (wp-140 — SSE mirrors `changeset_*`,
+     *  DELIVERY §5). */
+    | 'changeset';
   payload: unknown;
 }
 
@@ -101,6 +114,21 @@ export interface ConductorDeps {
    *  check runs off an adapter callback, outside tick()). */
   onError?: (error: unknown) => void;
   /**
+   * Docker client for the D30 container runtime (wp-097). Optional —
+   * when a configured backend resolves to `runtime: container` the
+   * conductor lazily creates a {@link CliDockerClient} (shells the real
+   * `docker` CLI — same rule as git/gh). Tests inject a fake.
+   */
+  docker?: DockerClientLike;
+  /**
+   * Dockerfile backing `containers.image` — the bundled `veto/agent`
+   * image is built from it; `null` = pull-only. `undefined` (default)
+   * auto-resolves the repo's `docker/Dockerfile.agent`.
+   */
+  containerDockerfile?: string | null;
+  /** Container PID-1 command override (tests with non-coreutils images). */
+  containerCommand?: string[];
+  /**
    * Live-channel hook (wp-060 / API.md SSE). Called after each durable
    * write the UI streams — run_status on run row changes, gate_surfaced
    * + notification on gate_items insert, usage_partial on streamed
@@ -146,6 +174,52 @@ export function adapterFor(deps: ConductorDeps, backend: string): Adapter {
 }
 
 // ---------------------------------------------------------------------------
+// Container runtime wiring (D30, wp-097)
+// ---------------------------------------------------------------------------
+
+/**
+ * The wp-095 lifecycle deps for the conductor's container ops
+ * (ensure/sleep/wake/teardown/sweep + docker inspect). Defaults to a
+ * {@link CliDockerClient} so production needs no extra wiring — the
+ * client is only ever *called* when a backend resolves to
+ * `runtime: container`.
+ */
+export function containerRuntimeDeps(
+  deps: ConductorDeps,
+): ContainerRuntimeDeps {
+  return {
+    docker: deps.docker ?? new CliDockerClient(),
+    store: deps.store,
+    containers: deps.config.containers,
+    capabilities: deps.config.capabilities,
+    ...(deps.containerDockerfile !== undefined
+      ? { dockerfile: deps.containerDockerfile }
+      : {}),
+    ...(deps.containerCommand !== undefined
+      ? { command: deps.containerCommand }
+      : {}),
+    ...(deps.now !== undefined ? { now: deps.now } : {}),
+  };
+}
+
+/** Effective runtime for one backend (D30): per-backend config override
+ *  → adapter-declared capability → `containers.runtime` global. */
+export function backendRuntime(
+  deps: ConductorDeps,
+  backend: string,
+  adapter?: Adapter,
+): Runtime {
+  return resolveBackendRuntime(
+    {
+      containers: deps.config.containers,
+      capabilities: deps.config.capabilities,
+    },
+    backend,
+    adapter?.capabilities.runtime,
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Run-handle persistence — `<run_dir>/handle.json`
 // ---------------------------------------------------------------------------
 
@@ -163,19 +237,32 @@ export async function saveHandle(runDir: string, handle: RunHandle) {
 }
 
 /** Load a persisted handle; falls back to a pid-only handle when the
- *  run row has one (log_path may be absent — liveness still works). */
+ *  run row has one (log_path may be absent — liveness still works).
+ *  Container runs (D30) also carry `container_id` — from handle.json,
+ *  or synthesized from `runs.container_id` when the file is gone
+ *  (conductor restart), so control/reconcile still pick the docker
+ *  seam. */
 export async function loadHandle(run: RunRow): Promise<RunHandle | null> {
+  const containerId = run.container_id ?? null;
   const file = join(run.run_dir ?? '', HANDLE_FILE);
   if (run.run_dir && existsSync(file)) {
     try {
       const parsed = JSON.parse(await readFile(file, 'utf8')) as RunHandle;
-      if (typeof parsed.pid === 'number') return parsed;
+      if (typeof parsed.pid === 'number') {
+        return containerId !== null && parsed.container_id === undefined
+          ? { ...parsed, container_id: containerId }
+          : parsed;
+      }
     } catch {
       /* fall through to pid-only */
     }
   }
-  if (typeof run.pid === 'number') {
-    return { pid: run.pid, log_path: join(run.run_dir ?? '', 'run.log') };
+  if (typeof run.pid === 'number' || containerId !== null) {
+    return {
+      pid: run.pid ?? 0,
+      log_path: join(run.run_dir ?? '', 'run.log'),
+      ...(containerId !== null ? { container_id: containerId } : {}),
+    };
   }
   return null;
 }

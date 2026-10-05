@@ -22,6 +22,16 @@ import {
   parsePartialConfig,
 } from './validate.js';
 
+export {
+  DEFAULT_EVAL_THRESHOLD,
+  EVAL_FAMILIES,
+  type EvalFamily,
+  STRICT_EVAL_FAMILIES,
+  STRICT_EVAL_FLOOR,
+  effectiveEvalThreshold,
+  evalThresholdsFromRegistry,
+  isStrictEvalFamily,
+} from './eval.js';
 export { parseEnv } from './env.js';
 export { deepMerge, isPlainObject } from './merge.js';
 export {
@@ -32,6 +42,7 @@ export {
   parsePartialConfig,
   validConfigPaths,
 } from './validate.js';
+export { mergeConfigFile } from './write.js';
 export type { PartialConfig } from './validate.js';
 
 /** Result of loading one or more config/env layers. */

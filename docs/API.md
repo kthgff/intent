@@ -51,6 +51,7 @@ payload shapes come from `SCHEMAS.md`/`DB-SCHEMA.md`.
 | `/tickets/<ref>/answers` | POST | S-04 wizard answers (single or batch) → commit → re-run |
 | `/tickets/<ref>/docs/<name>/feedback` | POST | S-06 comment → `doc_feedback` → revision run |
 | `/tickets/<ref>/docs/<name>/approve` | POST | S-06 approve → `doc_approved` (+ merges mirror PR) |
+| `/tickets/<ref>/review` | GET | S-08 — latest `review.json` run_artifact for the ticket (404 when absent; 502 on corrupt JSON — fail-closed) |
 | `/tickets/<ref>/findings/<fid>/verdict` | POST | S-08 accept / dismiss / wontfix |
 | `/tickets/<ref>/actions` | POST | `go_implement` (spend checkpoint), `open_pr`, `merge`, `revert`, `send_back`, `force_ready`, `wont_do`, `handoff`, `resume`, `retry`, `approve_split` |
 | `/runs`, `/runs/<id>` | GET | S-07 monitor — registry + artifact listing |
@@ -67,8 +68,9 @@ payload shapes come from `SCHEMAS.md`/`DB-SCHEMA.md`.
 | `/repositories/<repo>/index` | GET, POST | D37 code-index head/status; POST requests incremental index of the authorized current default-branch SHA (never accepts arbitrary filesystem paths) |
 | `/alignment/<scope>` | GET, POST | Phase B (D37): list current `alignment-findings.json`; POST requests a fresh intended/implemented/verified comparison |
 | `/telemetry/sources`, `/incidents` | — | Phase C (D37), deferred: sanitized connector administration, error-signature list, incident investigation, and human-approved draft-ticket proposal; raw telemetry is queried in its source backend, not returned by default |
-| `/metrics` | GET | S-12 — dashboard aggregates from `events`/`usage_calls` |
+| `/metrics` | GET | S-12 — dashboard aggregates from `events`/`usage_calls`; includes `accepted_outcomes` + `cost_per_accepted_outcome` (wp-155, PRD §15.12: total inference+retry+execution+remediation spend over outcomes that reached `merged`/`released` — never per-call price; `null` when no outcome has landed) |
 | `/gate-items/<id>/claim` `/release` | POST, DELETE | shared-queue claiming |
+| `/gate-items/<ws>/<subject>/<gate>/snooze` | POST | D20 snooze — `{until}` ISO (or `{for_minutes}`) → `snoozed_until`; hidden from `/inbox` + badge until then (`?include_snoozed=1` reveals) |
 
 ## Live channel — `GET /api/v1/stream` (SSE)
 

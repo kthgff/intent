@@ -280,7 +280,7 @@ export async function readTriageJson(
 // Stale-spec check (CONDUCTOR "Stale-spec check")
 // ---------------------------------------------------------------------------
 
-const SPEC_INPUTS = ['ticket.md', 'prd.md', 'tdd.md', 'test.md'] as const;
+const SPEC_INPUTS = ['ticket.md', 'rs.md', 'tdd.md', 'vs.md'] as const;
 
 /** sha256 over the spec inputs' doc_versions contents — the value
  *  recorded on `tickets.spec_hash` at spec completion. */
@@ -490,6 +490,11 @@ export async function materializeSplit(args: {
         parent: ticketId,
         depends_on: depIds,
         source: parent?.source ?? null,
+        // §15.7 (wp-151): children inherit the parent's taxonomy —
+        // a split does not silently re-classify the work.
+        work_type: parent?.work_type ?? null,
+        origin: parent?.origin ?? null,
+        severity: parent?.severity ?? null,
         forced: false,
         spec_score: null,
         spec_hash: null,

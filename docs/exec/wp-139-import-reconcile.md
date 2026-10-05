@@ -2,7 +2,7 @@
 schema: 1
 id: wp-139
 title: Import reconciliation — provenance states, clustering, reconciled-before-autonomy
-status: todo
+status: done
 priority: medium
 depth: standard
 repos: []
