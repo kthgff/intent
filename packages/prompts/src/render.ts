@@ -21,6 +21,11 @@ import {
  * Stage → prompt template name. `review` executes per-pass through the
  * `review-base` template (CONDUCTOR: "4 review passes"). `verify` runs
  * are detached runner tasks with no agent and no prompt → null.
+ * Addendum stages without a shipped template map to null until their
+ * owning wp lands one (wp-132 wired `retro`; `release-notes` → wp-134,
+ * `extract` → wp-143, `mockup`/`design-ingest` → wp-149). The
+ * `solution-brief` template is also shipped (unbound — its producing
+ * stage arrives with the discovery wps; DOC_KINDS accepts the doc).
  */
 export const STAGE_TEMPLATES = {
   interview: 'interview',
@@ -43,14 +48,14 @@ export const STAGE_TEMPLATES = {
   escalate: 'escalate',
   survey: 'survey',
   verify: null,
-  /** Addendum stages (wp-131 freeze) — no shipped prompt template yet;
-   *  owning wps map them when the stage lands. `extract` is wp-143's
-   *  statement-extraction stage — its LLM surface runs through
-   *  conductor/semantics `runExtraction` (prompt builder +
-   *  EXTRACT_PROMPT_VERSION), not a core template, so it maps null
-   *  here. */
+  /** Addendum stages (wp-131 freeze) — no shipped core prompt template
+   *  yet; owning wps map them when the stage lands. `retro` is wired by
+   *  wp-132. `extract` is wp-143's statement-extraction stage — its LLM
+   *  surface runs through conductor/semantics `runExtraction` (prompt
+   *  builder + EXTRACT_PROMPT_VERSION), not a core template, so it maps
+   *  null here. */
   'release-notes': null,
-  retro: null,
+  retro: 'retro',
   extract: null,
   mockup: null,
   'design-ingest': null,

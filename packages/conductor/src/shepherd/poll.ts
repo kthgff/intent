@@ -24,7 +24,7 @@
  *   - `gh pr view` → MERGED → merged_sha on the row; ALL rows merged →
  *     `merged` (`reverted` when the merged PR is a revert PR).
  *
- * D29: tickets/docs are Postgres rows — test.md, merge.json and
+ * D29: tickets/docs are Postgres rows — vs.md, merge.json and
  * dod-attestations.json are `doc_versions` read/written through
  * `tools`. Shepherd poll bookkeeping (cycles, fingerprints, seen
  * comments, DoD results) is NOT truth: it lives in
@@ -480,8 +480,8 @@ async function evaluateDod(
   const id = ticket.ticket_id;
   if (await mergeFlagEnabled(tools, id)) return; // already enabled
 
-  const testMd = (await tools.getDocText(id, 'test.md')) ?? '';
-  const dodRows = parseDodRows(testMd);
+  const vsMd = (await tools.getDocText(id, 'vs.md')) ?? '';
+  const dodRows = parseDodRows(vsMd);
   st.dod ??= {};
 
   for (const dodRow of dodRows.filter((r) => r.kind === 'cmd')) {

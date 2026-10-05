@@ -363,7 +363,12 @@ export interface Store {
 
   // ---- projects (DB-SCHEMA projects; workspace is the key) ----
 
-  upsertProject(row: ProjectRow): Promise<void>;
+  /** Only `workspace` is required — the `next_*_seq` counters and
+   *  `settings` carry zod defaults, so callers may omit them (a new
+   *  counter never breaks existing call sites). */
+  upsertProject(
+    row: Pick<ProjectRow, 'workspace'> & Partial<ProjectRow>,
+  ): Promise<void>;
   getProject(workspace: string): Promise<ProjectRow | null>;
   listProjects(): Promise<ProjectRow[]>;
   /**
@@ -563,6 +568,9 @@ export interface Store {
   }): Promise<ReleaseOutcomeRow[]>;
 
   // ---- changesets (PRD §15.5, wp-140) ----
+
+  /** CS-NNNN allocator — same transactional seq-bump as tickets. */
+  allocChangesetId(workspace: string): Promise<string>;
 
   upsertChangeset(row: ChangesetRow): Promise<void>;
   getChangeset(key: {

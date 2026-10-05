@@ -4,7 +4,7 @@ Review the diff below with real skepticism.
 
 ## Material
 Diff (all repos): {{DIFF}}
-Spec — PRD: {{PRD_MD}}  ·  TDD: {{TDD_MD}}  ·  test plan: {{TEST_MD}}
+Spec — RS: {{RS_MD}}  ·  TDD: {{TDD_MD}}  ·  VS: {{VS_MD}}
 Agent-reported deviations: {{DEVIATIONS_MD}}
 
 ## Your lens

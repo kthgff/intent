@@ -11,3 +11,15 @@ export {
   STAGE_TEMPLATES,
   substitute,
 } from './render.js';
+export {
+  assertRouteProvider,
+  escalationModelFor,
+  isInteractiveRoute,
+  resolveModelRoute,
+  resolveRunRoute,
+  type RouteConfig,
+  RouteError,
+  ROUTE_KIND_DEFAULT,
+  ROUTE_KIND_ESCALATION,
+  routeChain,
+} from './routing.js';

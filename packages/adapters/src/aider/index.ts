@@ -10,6 +10,12 @@ export {
   type FindAiderBinaryOptions,
 } from './binary.js';
 export {
+  CliDockerExec,
+  type ContainerDockerClient,
+  type DockerExecSpec,
+  DockerExecError,
+} from './container.js';
+export {
   costUsd,
   type ModelPrice,
   normalizeModelId,

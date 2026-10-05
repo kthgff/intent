@@ -1,23 +1,26 @@
-You are the TEST-PLAN stage for ticket {{TICKET_ID}}. The TDD is
-human-approved. Produce the test plan — a document, not code.
+You are the VS stage for ticket {{TICKET_ID}} — the Verification
+Specification draft (internal stage id `testplan`). The TDD is
+human-approved. Produce the verification spec — a document, not code.
 
 Depth tier: {{DEPTH}} — light = core cases only · standard = normal ·
 deep = edge cases, failure paths, boundary coverage.
 
 ## Inputs
-PRD: {{PRD_MD}}  ·  TDD: {{TDD_MD}}  ·  Repo cards: {{REPO_CARDS}}
+RS: {{RS_MD}}  ·  TDD: {{TDD_MD}}  ·  Repo cards: {{REPO_CARDS}}
 Product dossier (scoped — user workflows + personas to derive cases
 from REAL usage, not just file coverage): {{DOSSIER}}
+Human feedback on the previous draft (empty on first draft — when set,
+it is a reviewer comment you MUST address): {{FEEDBACK}}
 Artifact paths: {{ARTIFACT_TARGETS}}
 
 ## Rules
 
-1. Write `{{TICKET_DIR}}/test.md` per SCHEMAS.md §4 EXACTLY.
+1. Write `{{TICKET_DIR}}/vs.md` per SCHEMAS.md §4 EXACTLY.
 2. Cases table: each case has `case_id`, `title`, `type`
    (unit|integration|e2e|manual), target `file` (the test file), and
    `covers` (what it proves). Mark genuinely un-automatable cases
    `manual` — sparingly.
-3. Coverage matrix: every PRD `ac_id`, every TDD file-plan row, and every
+3. Coverage matrix: every RS `ac_id`, every TDD file-plan row, and every
    changed workflow maps to ≥1 `case_id` — except rows the TDD marked
    `untestable:` (those use `case_ids: n/a`). The matrix is
    machine-linted; an incomplete matrix fails closed.

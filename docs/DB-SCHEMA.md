@@ -41,6 +41,8 @@ projects(
                                            --   RETURNING * (atomic)
   next_feature_seq INT DEFAULT 1,          -- F-NNNN
   next_initiative_seq INT DEFAULT 1,       -- I-NNNN
+  next_release_seq INT DEFAULT 1,          -- REL-NNNN (DELIVERY §3)
+  next_changeset_seq INT DEFAULT 1,        -- CS-NNNN (PRD §15.5, wp-140)
   settings TEXT,                           -- jsonb — per-project config
                                            -- overrides (SETTINGS
                                            -- precedence layer)
@@ -352,7 +354,7 @@ release_outcomes(
   PRIMARY KEY(workspace, release_id, kpi));
 
 -- --- changesets (PRD §15.5, wp-140) ---
-changesets(workspace, org, changeset_id,
+changesets(workspace, org, changeset_id,    -- CS-NNNN (next_changeset_seq)
   title, request,                         -- verbatim request text
   baseline,                               -- json {subject,doc,version}
   classification,                         -- clarification|correction|addition|modification|removal

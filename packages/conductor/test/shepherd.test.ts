@@ -5,7 +5,7 @@
  * wiring is covered by the interval test below.
  *
  * D29 plumbing: tickets are `tickets` truth rows (seeded via
- * `store.upsertTicket`); PR linkage is `ticket_repos`; `test.md`,
+ * `store.upsertTicket`); PR linkage is `ticket_repos`; `vs.md`,
  * `merge.json` and `dod-attestations.json` are `doc_versions` docs on
  * the ticket subject (`{workspace, subject, doc}`). Shepherd poll
  * bookkeeping (cycles, fingerprints, DoD results) is scratch state
@@ -94,12 +94,12 @@ function ticketRow(
 /**
  * Seed a ticket the D29 way: the `tickets` truth row plus its
  * `ticket.md` doc_version (status flips rewrite the doc's frontmatter
- * into new versions), and an optional `test.md` doc for the DoD path.
+ * into new versions), and an optional `vs.md` doc for the DoD path.
  */
 async function seedTicket(
   id: string,
   status: TicketRow['status'],
-  opts: { testMd?: string; title?: string; repos?: string[] } = {},
+  opts: { vsMd?: string; title?: string; repos?: string[] } = {},
 ): Promise<void> {
   const repos = opts.repos ?? ['code-repo'];
   const title = opts.title ?? `Shepherd ${id}`;
@@ -122,24 +122,24 @@ async function seedTicket(
     ].join('\n'),
     'test-seed',
   );
-  if (opts.testMd !== undefined) {
+  if (opts.vsMd !== undefined) {
     await store.appendDocVersion(
-      { workspace: WS, subject: id, doc: 'test.md' },
-      opts.testMd,
+      { workspace: WS, subject: id, doc: 'vs.md' },
+      opts.vsMd,
       'test-seed',
     );
   }
 }
 
 /** Latest content of a doc_versions doc, or null when absent. */
-async function docText(subject: string, doc: 'merge.json' | 'test.md') {
+async function docText(subject: string, doc: 'merge.json' | 'vs.md') {
   const v = await store.getDoc({ workspace: WS, subject, doc });
   return v?.content ?? null;
 }
 
 const DOD_MD = (rows: string) =>
   [
-    '# Test plan — SR-0001',
+    '# Verification spec — SR-0001',
     '',
     '## Cases',
     '| case_id | title | type | file | covers |',
@@ -437,7 +437,7 @@ describe('shepherd poll', () => {
 
   it('green + quiet → merge enabled only after DoD cmd verify + manual attest', async () => {
     await seedTicket('SR-0005', 'ci-watch', {
-      testMd: DOD_MD(
+      vsMd: DOD_MD(
         '| smoke suite passes | cmd:exit 0 |\n' +
           '| human eyeballs it | manual |',
       ),
@@ -485,7 +485,7 @@ describe('shepherd poll', () => {
 
   it('failing DoD cmd → dod-failed gate, merge stays disabled', async () => {
     await seedTicket('SR-0006', 'ci-watch', {
-      testMd: DOD_MD('| smoke | cmd:exit 1 |'),
+      vsMd: DOD_MD('| smoke | cmd:exit 1 |'),
     });
     await store.upsertTicketRepo(repoRow('SR-0006', 'code-repo'));
     const gh = new StubGh();
