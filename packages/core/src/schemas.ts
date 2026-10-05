@@ -22,6 +22,7 @@ import {
   CODE_PARSE_STATUSES,
   COMMIT_POLICIES,
   CONTAINER_STATES,
+  CONTRACT_KINDS,
   COVERAGE_KINDS,
   DELIVERY_COMMITMENT_STATUSES,
   DELIVERY_STATES,
@@ -202,6 +203,12 @@ export const TicketFrontmatterSchema = z.object({
   /** Declarative test-environment spec (wp-157) — carried into the
    *  `tickets` row at materialization. */
   test_env: TestEnvSpecSchema.nullish(),
+  /** Contract-first (wp-154): names of the approved `contract.json`
+   *  contracts this ticket consumes — set at split materialization
+   *  from the `## Contracts` table's `consumers`. A declared contract
+   *  must exist as a `contract.json` doc_version before the ticket's
+   *  first repo-executing run (fail-closed claim check). */
+  contract: z.array(z.string().min(1)).nullish(),
 });
 export type TicketFrontmatter = z.infer<typeof TicketFrontmatterSchema>;
 
@@ -1037,6 +1044,42 @@ export const RunBaselineSchema = z.object({
   contract_ver: z.number().int().nullish(),
 });
 export type RunBaseline = z.infer<typeof RunBaselineSchema>;
+
+// ---------- contract.json (PRD §15.7/§15.10, wp-154) ----------
+
+/**
+ * ONE interface contract — the shape the decompose/split run writes as
+ * a `contracts/<name>.json` run artifact, promoted to the consumer
+ * tickets' `contract.json` doc_version on split-plan approval
+ * (contract-first: the approved contract lands BEFORE implement runs).
+ * `terms` is deliberately free-form per kind (endpoints / data fields /
+ * event envelope) — the content IS the agreement; the runner pins it by
+ * doc_version (`runs.request.baseline.contract_ver`) and never guesses.
+ */
+export const ContractSpecSchema = z.object({
+  schema: z.literal(1),
+  /** Contract name — the `## Contracts` row key + pin identity. */
+  name: z.string().min(1),
+  kind: enumOf(CONTRACT_KINDS),
+  /** Monotonically increasing contract revision — bump on every
+   *  approved interface change (this is the number consumers pin). */
+  version: z.number().int().positive(),
+  summary: z.string().optional(),
+  /** Child ticket ids the contract was authored for (advisory context;
+   *  the doc_version pin is the enforcement). */
+  consumers: z.array(z.string()).default([]),
+  /** The interface terms — endpoints, schema fields, event envelope… */
+  terms: z.record(z.unknown()).default({}),
+});
+export type ContractSpec = z.infer<typeof ContractSpecSchema>;
+
+/** The promoted `contract.json` doc_version on a consuming ticket —
+ *  the envelope of every contract that ticket consumes. */
+export const ContractDocSchema = z.object({
+  schema: z.literal(1),
+  contracts: z.array(ContractSpecSchema).min(1),
+});
+export type ContractDoc = z.infer<typeof ContractDocSchema>;
 
 /** The `runs.request` json contract (D40 + wp-141): producers write,
  *  consumers parse. `.passthrough()` — forward-compatible, new fields

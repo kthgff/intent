@@ -316,6 +316,10 @@ export const EVENT_NAMES = [
    *  flags drift between an imported artifact and its source. */
   'import_reconciled',
   'import_drift_detected',
+  /** Integration Coordinator (wp-154): a dependent ticket was
+   *  revalidated after one of its `depends_on` tickets merged —
+   *  `data` carries the recomputed readiness/safety + any drift. */
+  'dependent_revalidated',
 ] as const;
 export type EventName = (typeof EVENT_NAMES)[number];
 
@@ -1136,6 +1140,21 @@ export const PARALLEL_SAFETIES = [
   'exclusive',
 ] as const;
 export type ParallelSafety = (typeof PARALLEL_SAFETIES)[number];
+
+/** contract.json kind (PRD §15.7/§15.10, wp-154) — the interface class
+ *  an approved contract freezes: HTTP/RPC surface, persisted/exchanged
+ *  data shape, or pub-sub envelope. */
+export const CONTRACT_KINDS = ['api', 'data', 'event'] as const;
+export type ContractKind = (typeof CONTRACT_KINDS)[number];
+
+/** split-plan.md `## Decomposition` security cell (wp-154):
+ *  `sensitive` work (auth/secrets/crypto/PII…) decomposes `exclusive`. */
+export const DECOMPOSE_SECURITY = ['standard', 'sensitive'] as const;
+export type DecomposeSecurity = (typeof DECOMPOSE_SECURITY)[number];
+
+/** split-plan.md `## Decomposition` complexity cell (wp-154). */
+export const DECOMPOSE_COMPLEXITIES = ['low', 'medium', 'high'] as const;
+export type DecomposeComplexity = (typeof DECOMPOSE_COMPLEXITIES)[number];
 
 // ---------- boards v2 (PRD §15.3, wp-144/139) ----------
 
