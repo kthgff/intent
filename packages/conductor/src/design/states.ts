@@ -14,16 +14,19 @@
  * Ids are deterministic: the same screen + state always yields the same
  * ids, so a re-run is a structural no-op.
  */
-import {
-  type Mockup,
-  type MockupBreakpoint,
-  type MockupState,
+import type {
+  Mockup,
+  MockupBreakpoint,
+  MockupState,
 } from '@sprint-runner/core';
 import { lintMockup } from './mockup.js';
 import { badRequest } from './types.js';
 
 /** Id suffix for a state variant: `c-submit` → `c-submit--loading`. */
-export function stateSuffix(state: MockupState, breakpoint?: MockupBreakpoint): string {
+export function stateSuffix(
+  state: MockupState,
+  breakpoint?: MockupBreakpoint,
+): string {
   return breakpoint && breakpoint !== 'desktop'
     ? `--${state}--${breakpoint}`
     : `--${state}`;
@@ -82,7 +85,8 @@ export function expandScreenStates(
     visual_acs: [...mockup.visual_acs],
   };
   const target = next.screens.find((s) => s.screen_id === args.screenId);
-  if (!target) throw badRequest(`state generator: no screen '${args.screenId}'`);
+  if (!target)
+    throw badRequest(`state generator: no screen '${args.screenId}'`);
 
   for (const state of args.states) {
     if (target.states.includes(state)) continue;
@@ -96,7 +100,9 @@ export function expandScreenStates(
       next.components.push({
         ...c,
         component_id: idMap.get(id) as string,
-        parent: c.parent ? (idMap.get(c.parent) ?? `${c.parent}${suffix}`) : null,
+        parent: c.parent
+          ? (idMap.get(c.parent) ?? `${c.parent}${suffix}`)
+          : null,
         children: c.children.map((ch) => idMap.get(ch) ?? `${ch}${suffix}`),
         props: { ...c.props, ...override },
         state,
@@ -123,10 +129,7 @@ export function expandScreenStates(
 }
 
 /** The state variants a screen currently carries, in canonical order. */
-export function screenStates(
-  mockup: Mockup,
-  screenId: string,
-): MockupState[] {
+export function screenStates(mockup: Mockup, screenId: string): MockupState[] {
   const screen = mockup.screens.find((s) => s.screen_id === screenId);
   if (!screen) return [];
   const order: MockupState[] = [

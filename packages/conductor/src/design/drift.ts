@@ -8,7 +8,10 @@
  * human renders the verdict through the normal finding lifecycle
  * (wp-148). This module never resolves a drift finding itself.
  */
-import type { ReviewFindingRow, ReviewFindingStatus } from '@sprint-runner/core';
+import type {
+  ReviewFindingRow,
+  ReviewFindingStatus,
+} from '@sprint-runner/core';
 import { DESIGN_DRIFT_CATEGORY } from '@sprint-runner/core';
 import { upsertFinding } from '../review/studio/findings.js';
 import { reviewIdFor } from '../review/studio/types.js';
@@ -102,9 +105,7 @@ export function describeDrift(args: {
     );
   }
   if (missingStates.length) {
-    out.push(
-      `approved states not implemented: ${missingStates.join(', ')}`,
-    );
+    out.push(`approved states not implemented: ${missingStates.join(', ')}`);
   }
   return out;
 }

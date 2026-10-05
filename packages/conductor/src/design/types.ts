@@ -33,11 +33,7 @@ export class DesignError extends Error {
     | 'bad-request';
   readonly statusCode: number;
 
-  constructor(
-    code: DesignError['code'],
-    message: string,
-    statusCode?: number,
-  ) {
+  constructor(code: DesignError['code'], message: string, statusCode?: number) {
     super(message);
     this.code = code;
     this.statusCode =

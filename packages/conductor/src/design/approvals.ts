@@ -18,19 +18,19 @@
  */
 import {
   type DesignApprovalRow,
-  DesignChecklistSchema,
   type DesignChecklistItem,
+  DesignChecklistSchema,
   type Mockup,
 } from '@sprint-runner/core';
 import {
   MOCKUP_DOC,
+  type MockupDiff,
+  type RequirementCoverage,
   affectedAcs,
   diffMockups,
   mockupAcs,
   parseMockup,
   requirementCoverage,
-  type MockupDiff,
-  type RequirementCoverage,
 } from './mockup.js';
 import {
   type DesignCtx,
@@ -119,7 +119,7 @@ export async function recordDesignApproval(
   const complete = checklistComplete(args.checklist);
   if (!complete && !(args.rationale && args.rationale.trim().length > 0)) {
     throw invalid(
-      `design approval: checklist is incomplete (desktop/mobile/flows/error-empty/a11y/linked-acs) — a partial approval requires a rationale`,
+      'design approval: checklist is incomplete (desktop/mobile/flows/error-empty/a11y/linked-acs) — a partial approval requires a rationale',
     );
   }
   const covers =

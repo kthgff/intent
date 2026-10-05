@@ -48,9 +48,7 @@ export function mergeDesignSystems(
   existing: DesignSystem | null,
   incoming: DesignSystem,
 ): DesignSystemMerge {
-  const before = new Map(
-    (existing?.components ?? []).map((c) => [c.name, c]),
-  );
+  const before = new Map((existing?.components ?? []).map((c) => [c.name, c]));
   const after = new Map(incoming.components.map((c) => [c.name, c]));
   const added: string[] = [];
   const updated: string[] = [];
@@ -67,9 +65,16 @@ export function mergeDesignSystems(
   for (const [group, value] of Object.entries(incoming.tokens)) {
     const prior = tokens[group];
     tokens[group] =
-      prior && typeof prior === 'object' && !Array.isArray(prior) &&
-      value && typeof value === 'object' && !Array.isArray(value)
-        ? { ...(prior as Record<string, unknown>), ...(value as Record<string, unknown>) }
+      prior &&
+      typeof prior === 'object' &&
+      !Array.isArray(prior) &&
+      value &&
+      typeof value === 'object' &&
+      !Array.isArray(value)
+        ? {
+            ...(prior as Record<string, unknown>),
+            ...(value as Record<string, unknown>),
+          }
         : value;
   }
   const merged: DesignSystem = {

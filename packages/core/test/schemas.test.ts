@@ -503,9 +503,7 @@ describe('design artifacts (PRD §15.4, wp-149)', () => {
         props: { label: 'Sign in' },
       },
     ],
-    visual_acs: [
-      { ac_id: 'AC-1', component_id: 'c-form', state: 'default' },
-    ],
+    visual_acs: [{ ac_id: 'AC-1', component_id: 'c-form', state: 'default' }],
   };
 
   it('parses a valid mockup tree and applies defaults', () => {
@@ -528,7 +526,9 @@ describe('design artifacts (PRD §15.4, wp-149)', () => {
       schema: 1,
       source: 'web',
       tokens: { color: { primary: '#0055ff' } },
-      components: [{ name: 'Button', import: 'ui/Button', props: { tone: 'string' } }],
+      components: [
+        { name: 'Button', import: 'ui/Button', props: { tone: 'string' } },
+      ],
       styling: 'tailwind',
     });
     expect(ds.components[0]?.name).toBe('Button');
@@ -536,7 +536,11 @@ describe('design artifacts (PRD §15.4, wp-149)', () => {
   });
 
   it('design checklist keys are constrained to the item enum', () => {
-    expect(DesignChecklistSchema.safeParse({ desktop: true }).success).toBe(true);
-    expect(DesignChecklistSchema.safeParse({ bogus: true }).success).toBe(false);
+    expect(DesignChecklistSchema.safeParse({ desktop: true }).success).toBe(
+      true,
+    );
+    expect(DesignChecklistSchema.safeParse({ bogus: true }).success).toBe(
+      false,
+    );
   });
 });

@@ -115,7 +115,9 @@ export function lintMockup(mockup: Mockup): void {
 }
 
 /** Index components by id. */
-export function componentIndex(mockup: Mockup): Map<string, Mockup['components'][number]> {
+export function componentIndex(
+  mockup: Mockup,
+): Map<string, Mockup['components'][number]> {
   return new Map(mockup.components.map((c) => [c.component_id, c]));
 }
 
@@ -150,7 +152,10 @@ export interface RequirementCoverage {
 /** Per-AC coverage: which components/states satisfy it. An AC with no
  *  component or no state is a visible gap (never silently passes). */
 export function requirementCoverage(mockup: Mockup): RequirementCoverage[] {
-  const byAc = new Map<string, { components: Set<string>; states: Set<string> }>();
+  const byAc = new Map<
+    string,
+    { components: Set<string>; states: Set<string> }
+  >();
   const touch = (ac: string) => {
     let entry = byAc.get(ac);
     if (!entry) {
@@ -241,7 +246,8 @@ export function diffMockups(
   for (const id of a.keys()) if (!b.has(id)) removed_components.push(id);
   for (const [id, ca] of a) {
     const cb = b.get(id);
-    if (cb && componentKey(ca) !== componentKey(cb)) changed_components.push(id);
+    if (cb && componentKey(ca) !== componentKey(cb))
+      changed_components.push(id);
   }
 
   const sa = new Map(from.screens.map((s) => [s.screen_id, s]));
@@ -295,7 +301,11 @@ export function diffMockups(
  * added/removed/changed component (in either revision) or changed
  * screen.
  */
-export function affectedAcs(diff: MockupDiff, from: Mockup, to: Mockup): string[] {
+export function affectedAcs(
+  diff: MockupDiff,
+  from: Mockup,
+  to: Mockup,
+): string[] {
   const acs = new Set<string>(diff.moved_ac_links);
   const touchedComponents = new Set([
     ...diff.added_components,

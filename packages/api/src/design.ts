@@ -138,7 +138,11 @@ export function registerDesignRoutes(
   app.get(
     '/api/v1/design/:workspace/:subject/mockups/:version',
     async (req) => {
-      const { workspace: wsName, subject, version } = req.params as {
+      const {
+        workspace: wsName,
+        subject,
+        version,
+      } = req.params as {
         workspace: string;
         subject: string;
         version: string;
@@ -190,7 +194,12 @@ export function registerDesignRoutes(
   app.get(
     '/api/v1/design/:workspace/:subject/mockups/:version/screens/:screen',
     async (req) => {
-      const { workspace: wsName, subject, version, screen } = req.params as {
+      const {
+        workspace: wsName,
+        subject,
+        version,
+        screen,
+      } = req.params as {
         workspace: string;
         subject: string;
         version: string;
@@ -209,9 +218,7 @@ export function registerDesignRoutes(
       if (!loaded) throw new ApiError(404, 'not_found', `no mockup.json v${v}`);
       const tree = screenTree(loaded.mockup, decodeURIComponent(screen), {
         ...(q.state ? { state: q.state as MockupState } : {}),
-        ...(q.breakpoint
-          ? { breakpoint: q.breakpoint as never }
-          : {}),
+        ...(q.breakpoint ? { breakpoint: q.breakpoint as never } : {}),
       });
       if (!tree) {
         throw new ApiError(404, 'not_found', `no screen '${screen}'`);
@@ -224,7 +231,11 @@ export function registerDesignRoutes(
   app.post(
     '/api/v1/design/:workspace/:subject/mockups/:version/states',
     async (req) => {
-      const { workspace: wsName, subject, version } = req.params as {
+      const {
+        workspace: wsName,
+        subject,
+        version,
+      } = req.params as {
         workspace: string;
         subject: string;
         version: string;

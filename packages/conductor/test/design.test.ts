@@ -144,8 +144,22 @@ function mockup(over: Partial<Mockup> = {}): Mockup {
       },
     ],
     visual_acs: [
-      { ac_id: 'AC-1', statement: null, screen_id: 'login', component_id: 'c-form', state: 'default', breakpoint: null },
-      { ac_id: 'AC-2', statement: null, screen_id: 'login', component_id: 'c-help', state: 'default', breakpoint: null },
+      {
+        ac_id: 'AC-1',
+        statement: null,
+        screen_id: 'login',
+        component_id: 'c-form',
+        state: 'default',
+        breakpoint: null,
+      },
+      {
+        ac_id: 'AC-2',
+        statement: null,
+        screen_id: 'login',
+        component_id: 'c-help',
+        state: 'default',
+        breakpoint: null,
+      },
     ],
     created_at: null,
     updated_at: null,
@@ -177,6 +191,14 @@ const FULL_CHECKLIST = {
 // mockup contract
 // ---------------------------------------------------------------------------
 
+/** Fixture index accessor — a missing fixture is a test bug, not a
+ *  lint-suppressed assertion. */
+function at<T>(arr: readonly T[], i: number): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`fixture index ${i} is missing`);
+  return v;
+}
+
 describe('mockup.json contract', () => {
   it('parses a valid tree and round-trips through stableJson-safe diff', () => {
     const m = parseMockup(JSON.stringify(mockup()));
@@ -192,13 +214,17 @@ describe('mockup.json contract', () => {
 
   it('fails closed on a dangling child reference', () => {
     const bad = mockup();
-    bad.components[0]!.children = ['c-missing'];
+    const first = bad.components[0];
+    if (!first) throw new Error('fixture has no components');
+    first.children = ['c-missing'];
     expect(() => lintMockup(bad)).toThrow(/missing child/);
   });
 
   it('fails closed on duplicate component ids and dangling AC edges', () => {
     const dup = mockup();
-    dup.components.push({ ...dup.components[1]! });
+    const second = dup.components[1];
+    if (!second) throw new Error('fixture needs two components');
+    dup.components.push({ ...second });
     expect(() => lintMockup(dup)).toThrow(/duplicate component_id/);
 
     const dangling = mockup();
@@ -218,7 +244,10 @@ describe('mockup.json contract', () => {
     expect(cov.map((c) => c.ac_id)).toEqual(['AC-1', 'AC-2']);
     expect(cov.find((c) => c.ac_id === 'AC-1')?.components).toEqual(['c-form']);
     expect(cov.every((c) => c.covered)).toBe(true);
-    expect(visualAcEdges(mockup()).map((e) => e.ac_id)).toEqual(['AC-1', 'AC-2']);
+    expect(visualAcEdges(mockup()).map((e) => e.ac_id)).toEqual([
+      'AC-1',
+      'AC-2',
+    ]);
   });
 
   it('builds a nested render tree for a screen', () => {
@@ -238,9 +267,9 @@ describe('structural diff', () => {
     const a = mockup();
     const b: Mockup = JSON.parse(JSON.stringify(a));
     // reorder props keys
-    b.components[0]!.props = { z: 1, a: 2 };
+    at(b.components, 0).props = { z: 1, a: 2 };
     const a2: Mockup = JSON.parse(JSON.stringify(a));
-    a2.components[0]!.props = { a: 2, z: 1 };
+    at(a2.components, 0).props = { a: 2, z: 1 };
     const diff = diffMockups(a2, b, { from: 1, to: 2 });
     expect(diff.material).toBe(false);
     expect(diff.changed_components).toEqual([]);
@@ -251,12 +280,12 @@ describe('structural diff', () => {
     const to = mockup();
     to.components = to.components.filter((c) => c.component_id !== 'c-help');
     to.components.push({
-      ...from.components[1]!,
+      ...at(from.components, 1),
       component_id: 'c-cancel',
       requirement: 'AC-3',
     });
-    to.components[0]!.props = { title: 'Sign in now' };
-    to.screens[0]!.states = ['default', 'error'];
+    at(to.components, 0).props = { title: 'Sign in now' };
+    at(to.screens, 0).states = ['default', 'error'];
     const diff = diffMockups(from, to, { from: 1, to: 2 });
     expect(diff.removed_components).toContain('c-help');
     expect(diff.added_components).toContain('c-cancel');
@@ -289,7 +318,11 @@ describe('screen-state generator', () => {
     });
     expect(out.screens[0]?.states).toEqual(['default', 'loading', 'error']);
     expect(out.components.map((c) => c.component_id)).toEqual(
-      expect.arrayContaining(['c-form--loading', 'c-submit--loading', 'c-form--error']),
+      expect.arrayContaining([
+        'c-form--loading',
+        'c-submit--loading',
+        'c-form--error',
+      ]),
     );
     // deterministic: same call → same ids
     const out2 = expandScreenStates(m, {
@@ -323,7 +356,9 @@ describe('design-system ingestion', () => {
     schema: 1,
     source: 'web',
     tokens: { color: { primary: '#0055ff', danger: '#f00' } },
-    components: [{ name: 'Button', import: 'ui/Button', props: {}, variants: [] }],
+    components: [
+      { name: 'Button', import: 'ui/Button', props: {}, variants: [] },
+    ],
     styling: 'tailwind',
     ...over,
   });
@@ -335,7 +370,12 @@ describe('design-system ingestion', () => {
         ds({
           tokens: { color: { primary: '#0033cc' }, spacing: { sm: 4 } },
           components: [
-            { name: 'Button', import: 'ui/Button', props: { tone: 'string' }, variants: ['ghost'] },
+            {
+              name: 'Button',
+              import: 'ui/Button',
+              props: { tone: 'string' },
+              variants: ['ghost'],
+            },
             { name: 'Card', import: 'ui/Card', props: {}, variants: [] },
           ],
         }),
@@ -344,7 +384,9 @@ describe('design-system ingestion', () => {
     const { merged, added, updated } = mergeDesignSystems(existing, incoming);
     expect(added).toEqual(['Card']);
     expect(updated).toEqual(['Button']);
-    expect((merged.tokens.color as Record<string, string>).primary).toBe('#0033cc');
+    expect((merged.tokens.color as Record<string, string>).primary).toBe(
+      '#0033cc',
+    );
     expect((merged.tokens.color as Record<string, string>).danger).toBe('#f00');
     expect((merged.tokens.spacing as Record<string, number>).sm).toBe(4);
   });
@@ -383,7 +425,10 @@ describe('design approvals', () => {
       checklist: FULL_CHECKLIST,
     });
     expect(again.created).toBe(false);
-    const all = await store!.listDesignApprovals({ workspace: WS, subject: SUBJECT });
+    const all = await store.listDesignApprovals({
+      workspace: WS,
+      subject: SUBJECT,
+    });
     expect(all).toHaveLength(1);
   });
 
@@ -448,7 +493,7 @@ describe('design approvals', () => {
 
     // v2: change the component that serves AC-1 only.
     const next = mockup();
-    next.components[0]!.props = { title: 'Sign in now' };
+    at(next.components, 0).props = { title: 'Sign in now' };
     const v2 = await putMockup(next);
 
     const result = await invalidateAffectedApprovals(ctx(), {
@@ -459,9 +504,16 @@ describe('design approvals', () => {
     expect(result.unaffected).toHaveLength(1);
     expect(result.diffs[0]?.changed_components).toContain('c-form');
 
-    const rows = await store!.listDesignApprovals({ workspace: WS, subject: SUBJECT });
-    expect(rows.find((r) => r.reviewer === 'alice')?.status).toBe('invalidated');
-    expect(rows.find((r) => r.reviewer === 'alice')?.invalidated_at).not.toBeNull();
+    const rows = await store.listDesignApprovals({
+      workspace: WS,
+      subject: SUBJECT,
+    });
+    expect(rows.find((r) => r.reviewer === 'alice')?.status).toBe(
+      'invalidated',
+    );
+    expect(
+      rows.find((r) => r.reviewer === 'alice')?.invalidated_at,
+    ).not.toBeNull();
     expect(rows.find((r) => r.reviewer === 'bob')?.status).toBe('approved');
   });
 
@@ -476,7 +528,7 @@ describe('design approvals', () => {
     });
     // Re-serialize the identical tree → new version, no material change.
     const same: Mockup = JSON.parse(JSON.stringify(mockup()));
-    same.components[0]!.props = { title: 'Sign in' };
+    at(same.components, 0).props = { title: 'Sign in' };
     const v2 = await putMockup(same);
     const r = await syncDesignApprovals(ctx(), { subject: SUBJECT });
     expect(r.to_version).toBe(v2);
@@ -494,9 +546,9 @@ describe('design approvals', () => {
       checklist: FULL_CHECKLIST,
     });
     // empty covers → engine defaults to all ACs, so this is covered; force empty:
-    await store!.upsertDesignApproval({ ...rec.approval, covers: [] });
+    await store.upsertDesignApproval({ ...rec.approval, covers: [] });
     const next = mockup();
-    next.components[0]!.props = { title: 'Changed' };
+    at(next.components, 0).props = { title: 'Changed' };
     const v2 = await putMockup(next);
     const r = await invalidateAffectedApprovals(ctx(), {
       subject: SUBJECT,
@@ -517,7 +569,7 @@ describe('design approvals', () => {
     let state = await designApprovalState(ctx(), SUBJECT);
     expect(state[0]?.currency).toBe('current');
     const next = mockup();
-    next.components[0]!.props = { title: 'v2' };
+    at(next.components, 0).props = { title: 'v2' };
     await putMockup(next);
     state = await designApprovalState(ctx(), SUBJECT);
     // bound to v1, latest is v2 → superseded (no material invalidation ran)
@@ -551,7 +603,7 @@ describe('design drift', () => {
       body: 'refreshed evidence',
     });
     expect(f2.finding_id).toBe(f1.finding_id);
-    const all = await store!.listReviewFindings({
+    const all = await store.listReviewFindings({
       workspace: WS,
       review_id: `rv-${SUBJECT}`,
     });
