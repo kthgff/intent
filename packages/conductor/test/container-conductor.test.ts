@@ -15,21 +15,24 @@
  *  4. Real-daemon integration — `describe.skipIf` when `docker info`
  *     fails (docker is an optional runtime dep; tests skip cleanly).
  */
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import {
   closeSync,
   cpSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   openSync,
   readFileSync,
   rmSync,
+  statSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { MockAdapter } from '@sprint-runner/adapters';
+import { MockAdapter, parseArtifactDir } from '@sprint-runner/adapters';
 import { resolveConfig } from '@sprint-runner/config';
+import { REVIEW_PASSES } from '@sprint-runner/core';
 import type {
   Adapter,
   CapabilityFlags,
@@ -40,6 +43,7 @@ import type {
   RunHandle,
   RunResult,
   RunRow,
+  TicketRow,
   TokenValues,
   UsageCallback,
 } from '@sprint-runner/core';
@@ -58,6 +62,7 @@ import {
   LeaseManager,
   MANAGED_LABEL,
   type ReconcileReport,
+  RealTransitionHandler,
   SUBJECT_LABEL,
   StubTransitionHandler,
   containerName,
@@ -609,14 +614,38 @@ describe('conductor container bootstrap (D30)', () => {
 // Real daemon — skipIf absent (docker is an optional runtime dep).
 // ---------------------------------------------------------------------------
 
-const DOCKER_OK = (() => {
+/** Reachable daemon + the env needed to reach it. The default context
+ *  can be dead while Docker Desktop still serves on the desktop socket
+ *  (`~/.docker/run/docker.sock`, the `desktop-linux` context) — probe
+ *  the default first, then the desktop socket. */
+const DOCKER_PROBE = ((): { env: Record<string, string> } | null => {
   try {
     execFileSync('docker', ['info'], { stdio: 'pipe' });
-    return true;
+    return { env: {} };
   } catch {
-    return false;
+    /* default context dead — try the desktop socket */
+  }
+  const sock = join(homedir(), '.docker/run/docker.sock');
+  if (!existsSync(sock)) return null;
+  const env = { DOCKER_HOST: `unix://${sock}` };
+  try {
+    execFileSync('docker', ['info'], {
+      stdio: 'pipe',
+      env: { ...process.env, ...env },
+    });
+    return { env };
+  } catch {
+    return null;
   }
 })();
+
+const DOCKER_OK = DOCKER_PROBE !== null;
+const DOCKER_ENV = DOCKER_PROBE?.env ?? {};
+
+/** Process env for docker CLI calls in this suite. */
+function dockerEnv(): Record<string, string> {
+  return { ...process.env, ...DOCKER_ENV };
+}
 
 const TEST_IMAGE = 'alpine:latest';
 
@@ -714,7 +743,7 @@ describe.skipIf(!DOCKER_OK)('conductor container run (real docker)', () => {
   };
 
   beforeEach(async () => {
-    docker = new CliDockerClient();
+    docker = new CliDockerClient({ env: DOCKER_ENV });
     mounts = [mkdtempSync(join(tmpdir(), 'wp097-wt-'))];
     if (!(await docker.imageExists(TEST_IMAGE))) {
       await docker.pullImage(TEST_IMAGE);
@@ -766,4 +795,923 @@ describe.skipIf(!DOCKER_OK)('conductor container run (real docker)', () => {
     });
     expect(await docker.inspect(containerName(WS, 'SR-R1'))).toBeNull();
   }, 120_000);
+});
+
+// ---------------------------------------------------------------------------
+// wp-098 — Container E2E (D30): the containerized run path end-to-end.
+//
+// Backend under test: a container-capable MOCK backend — the wp-040
+// scripted agent (helpers/mock-agent.mjs) `docker cp`'d into the subject
+// container once, then executed per run via `docker exec -w <worktree>`
+// (aider's image/flags are still unverified per the wp-098 ticket — the
+// runtime is what's under test, not the model). Coverage:
+//
+//   1. Full chain — worktree create → container ensure → exec run →
+//      sentinel → artifact collect → transition → gate-sleep → wake →
+//      teardown.
+//   2. Kill mid-run — container stops, worktree preserved, status stays
+//      for retry; the retry wakes the SAME container (docker start).
+//   3. Pause/resume — cgroup freeze stops output; the timeout clock
+//      keeps ticking (deadline is absolute — a run resumed past its
+//      timeout is killed on the next sweep).
+//   4. Orphan sweep after a simulated conductor crash — managed
+//      containers with no live row or a terminal/missing subject are
+//      removed; live subjects + unmanaged containers are kept.
+//   5. Multi-repo ticket — two worktree mounts, ONE container.
+//   6. Repo-set growth — a second repo's worktree recreates the
+//      container (new id, union of mounts).
+//
+// Real-daemon only (describe.skipIf). Deliberately in THIS file rather
+// than a sibling suite: the orphan sweep removes any `veto/managed`
+// container without a live row in the sweeping store, so two real-
+// daemon files racing under vitest file-parallelism would reap each
+// other's containers mid-test.
+// ---------------------------------------------------------------------------
+
+const SCRIPT_AGENT = join(HERE, 'helpers/mock-agent.mjs');
+const CONTAINER_AGENT = '/opt/veto-mock-agent.mjs';
+
+/** The e2e image: the real agent image when it's already built locally
+ *  (D30 — the runtime is what's under test), else a pullable node
+ *  image that `conductor.start()` fetches via ensureAgentImage. Both
+ *  have `node` for the scripted agent; the keepalive is overridden to
+ *  `tail -f /dev/null` which exists in either. */
+const E2E_IMAGE = ((): string => {
+  try {
+    execFileSync('docker', ['image', 'inspect', 'veto/agent:latest'], {
+      stdio: 'pipe',
+      env: dockerEnv(),
+    });
+    return 'veto/agent:latest';
+  } catch {
+    return 'node:22-alpine';
+  }
+})();
+
+/** `docker cp` — the CliDockerClient surface has no need for it (the
+ *  lifecycle never copies into containers); the in-container backend
+ *  uses it to install the scripted agent once per container. */
+function dockerCp(src: string, dest: string): Promise<void> {
+  return new Promise((res, rej) => {
+    execFile(
+      'docker',
+      ['cp', src, dest],
+      { env: dockerEnv(), timeout: 60_000 },
+      (err, _stdout, stderr) => {
+        if (err === null) res();
+        else {
+          rej(
+            new Error(
+              `docker cp ${src} → ${dest}: ${String(stderr).trim() || err.message}`,
+            ),
+          );
+        }
+      },
+    );
+  });
+}
+
+function lastNonEmptyLine(path: string): string | null {
+  let text: string;
+  try {
+    text = readFileSync(path, 'utf8');
+  } catch {
+    return null;
+  }
+  const lines = text.split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = (lines[i] as string).trim();
+    if (line !== '') return line;
+  }
+  return null;
+}
+
+function execClientAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Script for one in-container run — a builtin DSL word (`done`,
+ *  `hang`, `garbage-sentinel`, `no-sentinel`) or a spec object carried
+ *  to mock-agent.mjs as `script:<base64url>` (same DSL as the wp-040
+ *  ScriptedAdapter minus `files:` — run_dir is NOT bind-mounted into
+ *  the container, so only the worktree scratch dir (`artifacts:`)
+ *  reaches the host through the path-identical bind mount). */
+interface ContainerScriptSpec {
+  sentinel?: string | null;
+  artifacts?: Record<string, unknown>;
+  delayMs?: number;
+  hang?: boolean;
+}
+type ContainerScript = ContainerScriptSpec | string;
+
+interface ContainerRunInfo {
+  subject: string;
+  stage: string;
+  attempt: number;
+  ticketId: string | null;
+  runId: string;
+}
+
+type ContainerScriptFn = (run: ContainerRunInfo) => ContainerScript;
+
+interface ExecRecord {
+  exitCode: number | null;
+  exitPromise: Promise<void>;
+}
+
+/**
+ * ContainerScriptedAdapter — the wp-098 container-capable backend:
+ * the scripted mock agent runs INSIDE the subject's container via
+ * `docker exec -w <worktree>` (installed once per container by
+ * `docker cp`). `can_write_outside_tree: false` → the prompt renders a
+ * worktree-relative `.sprint-runner/<run-id>/` scratch dir; the mount
+ * is path-identical (D30), so in-container artifact writes land on the
+ * host and reconcile's collectArtifacts moves them into run_dir.
+ * Cardless stages (no container_id — the lazy-create rule) fall back
+ * to the wrapped MockAdapter host spawn.
+ */
+class ContainerScriptedAdapter implements Adapter {
+  readonly name = 'mock' as const;
+  readonly capabilities: CapabilityFlags = {
+    can_exec: true,
+    can_write_outside_tree: false,
+    has_gh: false,
+    can_signal: true,
+    streams_usage: false,
+    runtime: 'container',
+  };
+  /** Container ids this backend exec'd into — the in-container proof. */
+  readonly inContainer: string[] = [];
+  /** Run ids that took the host fallback (cardless stages). */
+  readonly hostRuns: string[] = [];
+  readonly #docker: CliDockerClient;
+  readonly #inner: MockAdapter;
+  readonly #script: ContainerScriptFn;
+  readonly #agentScript: string;
+  readonly #killGraceMs: number;
+  readonly #meta = new WeakMap<RenderedPrompt, ContainerRunInfo>();
+  readonly #records = new Map<number, ExecRecord>();
+  readonly #installed = new Set<string>();
+
+  constructor(
+    docker: CliDockerClient,
+    opts: {
+      script: ContainerScriptFn;
+      agentScript?: string;
+      killGraceMs?: number;
+    },
+  ) {
+    this.#docker = docker;
+    this.#script = opts.script;
+    this.#agentScript = opts.agentScript ?? SCRIPT_AGENT;
+    this.#killGraceMs = opts.killGraceMs ?? 1_000;
+    this.#inner = new MockAdapter({
+      capabilities: this.capabilities,
+      delayMs: 30,
+      heartbeatMs: 100,
+    });
+  }
+
+  prepare(
+    subject: string,
+    stage: string,
+    ctx: PrepareContext,
+  ): RenderedPrompt {
+    const attempt = Number(
+      ctx.run_id.split('/').pop()?.split('-')[0] ?? '1',
+    );
+    const info: ContainerRunInfo = {
+      subject,
+      stage,
+      attempt,
+      ticketId: ctx.ticket_dir
+        ? (ctx.ticket_dir.split('/').pop() ?? null)
+        : null,
+      runId: ctx.run_id,
+    };
+    const rendered = this.#inner.prepare(subject, stage, ctx);
+    this.#meta.set(rendered, info);
+    return rendered;
+  }
+
+  #scenario(rendered: RenderedPrompt): string {
+    const meta = this.#meta.get(rendered);
+    const spec = meta ? this.#script(meta) : 'done';
+    return typeof spec === 'string'
+      ? spec
+      : `script:${Buffer.from(JSON.stringify(spec), 'utf8').toString('base64url')}`;
+  }
+
+  async run(
+    worktree: string,
+    rendered: RenderedPrompt,
+    timeout: number,
+    opts?: { run_dir?: string; container_id?: string },
+  ): Promise<RunHandle> {
+    const meta = this.#meta.get(rendered);
+    const scenario = this.#scenario(rendered);
+    const containerId = opts?.container_id;
+    if (containerId === undefined) {
+      // Cardless stage — the lazy-create rule runs it host-side.
+      if (meta) this.hostRuns.push(meta.runId);
+      return this.#inner.run(worktree, rendered, timeout, { scenario });
+    }
+
+    // One-time agent install — the container is persistent, so a single
+    // `docker cp` covers every later `docker exec` on it.
+    if (!this.#installed.has(containerId)) {
+      await dockerCp(this.#agentScript, `${containerId}:${CONTAINER_AGENT}`);
+      this.#installed.add(containerId);
+    }
+    const artifactDir =
+      parseArtifactDir(rendered.text, worktree) ??
+      join(worktree, '.sprint-runner', meta?.runId ?? 'run');
+    const logPath = join(opts?.run_dir ?? tmpdir(), 'run.log');
+    mkdirSync(dirname(logPath), { recursive: true });
+    const fd = openSync(logPath, 'a');
+    const child = this.#docker.exec(
+      containerId,
+      {
+        workdir: worktree,
+        env: {
+          MOCK_SCENARIO: scenario,
+          MOCK_ARTIFACT_DIR: artifactDir,
+          MOCK_HEARTBEAT_MS: '100',
+          MOCK_DELAY_MS: '0',
+        },
+        argv: ['node', CONTAINER_AGENT],
+      },
+      { stdio: ['ignore', fd, fd] },
+    );
+    closeSync(fd);
+    child.unref();
+    const pid = child.pid as number;
+    let resolveExit!: () => void;
+    const exitPromise = new Promise<void>((r) => {
+      resolveExit = r;
+    });
+    const rec: ExecRecord = { exitCode: null, exitPromise };
+    child.on('exit', (code, signal) => {
+      rec.exitCode =
+        code ?? (signal === 'SIGKILL' ? 137 : signal === 'SIGTERM' ? 143 : 1);
+      resolveExit();
+    });
+    this.#records.set(pid, rec);
+    this.inContainer.push(containerId);
+    return { pid, log_path: logPath, container_id: containerId };
+  }
+
+  async control(handle: RunHandle, op: ControlOp): Promise<void> {
+    const cid = handle.container_id;
+    if (cid === undefined) return this.#inner.control(handle, op);
+    if (op === 'pause') {
+      await this.#docker.pause(cid);
+      return;
+    }
+    if (op === 'resume') {
+      await this.#docker.unpause(cid);
+      return;
+    }
+    // kill (CONDUCTOR run control, D30): TERM grace → KILL — the whole
+    // container stops (its exec'd run with it); restarted by the next
+    // launch's ensure. A frozen cgroup can't die — unpause first.
+    const info = await this.#docker.inspect(cid).catch(() => null);
+    if (info?.paused) await this.#docker.unpause(cid).catch(() => {});
+    if (info?.running) {
+      await this.#docker.kill(cid, 'TERM').catch(() => {});
+      const deadline = Date.now() + this.#killGraceMs;
+      let cur: DockerContainerInfo | null = info;
+      while (cur?.running && Date.now() < deadline) {
+        await sleep(50);
+        cur = await this.#docker.inspect(cid).catch(() => null);
+      }
+      if (cur?.running) {
+        await this.#docker.kill(cid, 'KILL').catch(() => {});
+      }
+    }
+    // The local docker-exec client exits with the container — SIGKILL
+    // it anyway in case the daemon already forgot the exec session.
+    try {
+      process.kill(handle.pid, 'SIGKILL');
+    } catch {
+      /* already gone */
+    }
+  }
+
+  on_usage(): void {}
+
+  async collect(handle: RunHandle, ctx: CollectContext): Promise<RunResult> {
+    if (handle.container_id === undefined) {
+      return this.#inner.collect(handle, ctx);
+    }
+    const rec = this.#records.get(handle.pid);
+    if (rec) {
+      await rec.exitPromise;
+    } else {
+      // Re-attached run (conductor restart) — poll the exec client.
+      const deadline = Date.now() + 30_000;
+      while (execClientAlive(handle.pid) && Date.now() < deadline) {
+        await sleep(50);
+      }
+    }
+    const raw = lastNonEmptyLine(handle.log_path);
+    const sentinel = raw !== null ? MockAdapter.parseSentinel(raw) : null;
+    // run_artifacts ingestion is reconcile's job — the scratch dir is
+    // already host-visible via the path-identical bind mount and
+    // collectArtifacts (can_write_outside_tree: false) moves it into
+    // run_dir.
+    return {
+      sentinel,
+      sentinel_raw: raw,
+      artifacts: [],
+      usage: null,
+      exit_code: rec?.exitCode ?? null,
+    };
+  }
+}
+
+/** ConductorDeps wired for the e2e backend: real transitions + real
+ *  container runtime on the e2e image (pull-only — never rebuilds
+ *  veto/agent inside a test). */
+function e2eDeps(
+  docker: CliDockerClient,
+  adapter: Adapter,
+  configOverrides: Record<string, unknown> = {},
+): ConductorDeps {
+  const deps = makeDeps(docker, adapter, {
+    containers: { ...CONTAINERS, image: E2E_IMAGE },
+    ...configOverrides,
+  });
+  deps.transitions = new RealTransitionHandler(deps.config);
+  deps.containerCommand = ['tail', '-f', '/dev/null'];
+  return deps;
+}
+
+const repoEntry = (path: string) => ({
+  path,
+  card: {
+    test: 'make test',
+    lint: 'make lint',
+    build: 'make build',
+    forbidden_paths: [],
+    probed_at: NOW,
+    verified: true,
+  },
+});
+
+describe.skipIf(!DOCKER_OK)('wp-098 container e2e (real docker)', () => {
+  let docker: CliDockerClient;
+  /** Subject container names that must not outlive the test. */
+  const tracked = new Set<string>();
+  /** Unmanaged container names created by tests (cleanup only). */
+  const foreignNames: string[] = [];
+
+  const track = (...subjects: string[]): void => {
+    for (const s of subjects) tracked.add(containerName(WS, s));
+  };
+
+  beforeEach(() => {
+    docker = new CliDockerClient({ env: DOCKER_ENV });
+  });
+
+  afterEach(async () => {
+    // Acceptance: no container/volume/worktree residue after suite
+    // teardown. Worktrees live under the tmp dir the file-level
+    // afterEach already removes; only bind mounts are used (no
+    // volumes are ever created by the runtime).
+    for (const name of [...tracked, ...foreignNames]) {
+      await docker.rm(name, { force: true }).catch(() => {});
+    }
+    for (const name of tracked) {
+      expect(await docker.inspect(name), `residue: ${name}`).toBeNull();
+    }
+    tracked.clear();
+    foreignNames.length = 0;
+  });
+
+  const tickUntil = async (
+    conductor: Conductor,
+    pred: () => Promise<boolean> | boolean,
+    desc: string,
+    maxTicks = 600,
+  ): Promise<void> => {
+    for (let i = 0; i < maxTicks; i++) {
+      await conductor.tick();
+      if (await pred()) return;
+      await sleep(40);
+    }
+    throw new Error(`tickUntil(${desc}) — ${maxTicks} ticks elapsed`);
+  };
+
+  const ticketStatus = async (id: string): Promise<string | undefined> =>
+    (await store.getTicket({ workspace: WS, ticket_id: id }))?.status;
+
+  const runToStatus = (
+    conductor: Conductor,
+    id: string,
+    status: string,
+  ): Promise<void> =>
+    tickUntil(
+      conductor,
+      async () => (await ticketStatus(id)) === status,
+      `${id} → ${status}`,
+    );
+
+  const setTicket = async (
+    id: string,
+    patch: Partial<TicketRow>,
+  ): Promise<void> => {
+    const t = await store.getTicket({ workspace: WS, ticket_id: id });
+    if (!t) throw new Error(`setTicket: no ticket ${id}`);
+    await store.upsertTicket({ ...t, ...patch });
+  };
+
+  const runsFor = (subject: string) =>
+    store.listRuns({ workspace: WS, subject });
+
+  it(
+    'full chain: worktree → ensure → exec → sentinel → collect → transition → gate-sleep → wake → teardown',
+    { timeout: 240_000 },
+    async () => {
+      const t0 = Date.now();
+      const adapter = new ContainerScriptedAdapter(docker, {
+        script: (r) => {
+          if (r.stage === 'implement') {
+            return {
+              sentinel: 'DONE',
+              artifacts: { 'result.json': { ok: true, ran: 'in-container' } },
+            };
+          }
+          if (r.stage === 'review') {
+            const pass = REVIEW_PASSES[
+              (r.attempt - 1) % REVIEW_PASSES.length
+            ] as string;
+            return {
+              sentinel: `PASS-COMPLETE: ${pass}`,
+              artifacts: {
+                [`findings-${pass}.json`]: [
+                  {
+                    file: 'src/app.ts',
+                    line: 1,
+                    severity: 'nit',
+                    category: 'style',
+                    body: `nit from ${pass}`,
+                  },
+                ],
+              },
+            };
+          }
+          if (r.stage === 'fix') return { sentinel: 'BLOCKED: wake-ok' };
+          return 'done';
+        },
+      });
+      const deps = e2eDeps(docker, adapter);
+      const conductor = new Conductor(deps);
+      await putTicket('SR-E1', 'in-progress');
+      track('SR-E1');
+      await conductor.start(); // ping + image + startup orphan sweep
+      const tBoot = Date.now();
+
+      // The chain: worktree create → container ensure → docker exec →
+      // sentinel → artifact collect → transition (verify task + 4
+      // review passes) → changes-requested gate → gate-sleep.
+      await runToStatus(conductor, 'SR-E1', 'changes-requested');
+      const tChain = Date.now();
+
+      const impl = (await runsFor('SR-E1')).find(
+        (r) => r.stage === 'implement',
+      );
+      expect(impl?.status).toBe('done');
+      expect(impl?.sentinel).toBe('DONE');
+      expect(impl?.container_id).not.toBeNull();
+
+      // Worktree create — the git worktree exists on the host AND was
+      // the exec cwd inside the container (path-identical mount).
+      const wt = impl?.worktree as string;
+      expect(wt).toContain('code-repo.worktrees');
+      expect(existsSync(wt)).toBe(true);
+      expect(adapter.inContainer).toContain(impl?.container_id);
+
+      // The in-container agent wrote the run's stdout — its banner is
+      // in the collected run.log (sentinel source).
+      const logText = readFileSync(join(impl?.run_dir as string, 'run.log'), 'utf8');
+      expect(logText).toContain('MOCK scenario=script:');
+
+      // Artifact collect — the worktree scratch dir crossed the bind
+      // mount and was ingested as a run_artifacts row.
+      expect(
+        await store.getArtifact(impl?.id as string, 'result.json'),
+      ).not.toBeNull();
+      // The scratch dir is purged — nothing left in the worktree.
+      expect(existsSync(join(wt, '.sprint-runner'))).toBe(false);
+
+      // Transition ran the verify task + review passes to the gate.
+      const gate = await store.getGateItem({
+        workspace: WS,
+        subject: 'SR-E1',
+        gate: 'changes-requested',
+      });
+      expect(gate).not.toBeNull();
+      const reviewRuns = (await runsFor('SR-E1')).filter(
+        (r) => r.stage === 'review',
+      );
+      expect(reviewRuns).toHaveLength(REVIEW_PASSES.length);
+
+      // gate-sleep — docker stop; the row records 'stopped'.
+      const row = await containerRow('SR-E1');
+      expect(row?.container_id).toBe(impl?.container_id);
+      expect(row?.state).toBe('stopped');
+      const parked = await docker.inspect(row?.container_id as string);
+      expect(parked?.running).toBe(false);
+
+      // wake — the next repo-executing launch `docker start`s the SAME
+      // container (no recreate: mount set + image unchanged).
+      const fixId = await launch(launchCtx(deps), {
+        workspace: WS,
+        subject: 'SR-E1',
+        stage: 'fix',
+        ticketId: 'SR-E1',
+      });
+      const fix = await getRun(fixId as string);
+      expect(fix?.container_id).toBe(row?.container_id);
+      expect(
+        (await docker.inspect(row?.container_id as string))?.running,
+      ).toBe(true);
+      await tickUntil(
+        conductor,
+        async () => (await getRun(fixId as string))?.status === 'done',
+        'wake fix run done',
+      );
+      expect((await getRun(fixId as string))?.sentinel).toBe('BLOCKED');
+      expect(await ticketStatus('SR-E1')).toBe('blocked');
+
+      // teardown — terminal status → docker rm + row 'removed'.
+      await setTicket('SR-E1', { status: 'released' as never });
+      await conductor.tick();
+      expect((await containerRow('SR-E1'))?.state).toBe('removed');
+      expect(await docker.inspect(containerName(WS, 'SR-E1'))).toBeNull();
+
+      // Bind-mount timing notes (macOS Docker Desktop) — recorded into
+      // the exec doc; a named-volume fallback stays a follow-up only if
+      // these numbers ever hurt.
+      console.log(
+        `[wp-098 timings] image=${E2E_IMAGE} boot=${tBoot - t0}ms ` +
+          `chain-to-gate=${tChain - tBoot}ms`,
+      );
+    },
+  );
+
+  it(
+    'kill mid-run: container stops, worktree preserved, status stays for retry (same container wakes)',
+    { timeout: 180_000 },
+    async () => {
+      const adapter = new ContainerScriptedAdapter(docker, {
+        script: (r) =>
+          r.stage === 'implement' && r.attempt === 1
+            ? 'hang'
+            : { sentinel: 'DONE', artifacts: { 'result.json': { ok: true } } },
+      });
+      const deps = e2eDeps(docker, adapter);
+      const conductor = new Conductor(deps);
+      await putTicket('SR-K1', 'in-progress');
+      track('SR-K1');
+      await conductor.start();
+
+      await tickUntil(
+        conductor,
+        async () =>
+          (await runsFor('SR-K1')).some((r) => r.status === 'running'),
+        'killable run running',
+      );
+      const run1 = (await runsFor('SR-K1')).find(
+        (r) => r.status === 'running',
+      ) as RunRow;
+      const cid = run1.container_id as string;
+      const wt = run1.worktree as string;
+
+      await conductor.control(run1.id, 'kill');
+
+      expect((await docker.inspect(cid))?.running).toBe(false);
+      expect(existsSync(wt)).toBe(true); // worktree preserved
+      expect((await getRun(run1.id))?.status).toBe('killed');
+      expect(await ticketStatus('SR-K1')).toBe('in-progress');
+      const events = (
+        await store.listEvents({ workspace: WS, ticket_id: 'SR-K1' })
+      ).map((e) => e.event);
+      expect(events).toContain('run_killed');
+
+      // Retry: claim relaunches implement (attempt 2) → ensure starts
+      // the SAME stopped container (docker start — the wake path).
+      await tickUntil(
+        conductor,
+        async () =>
+          (await getRun(`${WS}/SR-K1/002-implement`))?.status === 'done',
+        'implement attempt 2 done',
+      );
+      const run2 = await getRun(`${WS}/SR-K1/002-implement`);
+      expect(run2?.container_id).toBe(cid);
+      expect(run2?.sentinel).toBe('DONE');
+      expect((await docker.inspect(cid))?.running).toBe(true);
+    },
+  );
+
+  it(
+    'pause freezes work (no log growth, container cgroup paused); resume completes; the timeout clock kept ticking',
+    { timeout: 180_000 },
+    async () => {
+      const adapter = new ContainerScriptedAdapter(docker, {
+        script: (r) => {
+          if (r.subject === 'SR-P1') {
+            return {
+              sentinel: 'DONE',
+              artifacts: { 'result.json': { ok: true } },
+              delayMs: 1500,
+            };
+          }
+          return 'hang'; // SR-P2 hangs forever
+        },
+      });
+      // Short implement timeout — SR-P2's run must die on schedule even
+      // though it spent most of its life paused.
+      const deps = e2eDeps(docker, adapter, {
+        timeouts: { implement: 8 },
+      });
+      const conductor = new Conductor(deps);
+      await putTicket('SR-P1', 'in-progress');
+      await putTicket('SR-P2', 'in-progress');
+      track('SR-P1', 'SR-P2');
+      await conductor.start();
+
+      // --- pause/resume: SR-P1 finishes after a mid-run freeze ---
+      await tickUntil(
+        conductor,
+        async () =>
+          (await runsFor('SR-P1')).some((r) => r.status === 'running'),
+        'SR-P1 running',
+      );
+      const p1 = (await runsFor('SR-P1')).find(
+        (r) => r.status === 'running',
+      ) as RunRow;
+      await conductor.control(p1.id, 'pause');
+      expect((await docker.inspect(p1.container_id as string))?.paused).toBe(
+        true,
+      );
+      expect((await getRun(p1.id))?.status).toBe('paused');
+
+      // Work frozen — the agent emits heartbeat lines ~10Hz live, so a
+      // flat log size across 600ms is a real cgroup freeze, not a quiet
+      // process.
+      const p1Log = join(p1.run_dir as string, 'run.log');
+      const frozenSize = statSync(p1Log).size;
+      await sleep(600);
+      expect(statSync(p1Log).size).toBe(frozenSize);
+
+      await conductor.control(p1.id, 'resume');
+      expect(
+        (await docker.inspect(p1.container_id as string))?.paused,
+      ).toBe(false);
+      await tickUntil(
+        conductor,
+        async () => (await getRun(p1.id))?.status === 'done',
+        'SR-P1 done',
+      );
+      expect((await getRun(p1.id))?.sentinel).toBe('DONE');
+
+      // --- timeout keeps ticking while paused: SR-P2 hangs, gets
+      //     paused, outlives its deadline frozen, and is killed as soon
+      //     as the resumed run is swept (the deadline is absolute —
+      //     pause did not defer it). ---
+      await tickUntil(
+        conductor,
+        async () =>
+          (await runsFor('SR-P2')).some((r) => r.status === 'running'),
+        'SR-P2 running',
+      );
+      const p2 = (await runsFor('SR-P2')).find(
+        (r) => r.status === 'running',
+      ) as RunRow;
+      await conductor.control(p2.id, 'pause');
+      expect((await docker.inspect(p2.container_id as string))?.paused).toBe(
+        true,
+      );
+      // Past the 8s implement timeout while frozen.
+      await sleep(9_000);
+      await conductor.control(p2.id, 'resume');
+      await tickUntil(
+        conductor,
+        async () => (await getRun(p2.id))?.status === 'killed',
+        'SR-P2 killed after resume',
+      );
+      expect(
+        (await docker.inspect(p2.container_id as string))?.running,
+      ).toBe(false);
+      expect(await ticketStatus('SR-P2')).toBe('in-progress'); // stays for retry
+      const events = (
+        await store.listEvents({ workspace: WS, ticket_id: 'SR-P2' })
+      ).map((e) => e.event);
+      expect(events).toContain('run_paused');
+      expect(events).toContain('run_resumed');
+      expect(events).toContain('run_killed');
+    },
+  );
+
+  it(
+    'orphan sweep after a simulated conductor crash: rowless/terminal managed containers removed, live subjects + unmanaged kept',
+    { timeout: 120_000 },
+    async () => {
+      const adapter = new ContainerScriptedAdapter(docker, {
+        script: () => 'done',
+      });
+      const deps = e2eDeps(docker, adapter);
+      await putTicket('SR-KEEP', 'in-progress');
+      await putTicket('SR-VANISH', 'in-progress');
+      await putTicket('SR-TERM', 'in-progress');
+      track('SR-KEEP', 'SR-VANISH', 'SR-TERM');
+      const ctr = containerRuntimeDeps(deps);
+      for (const s of ['SR-KEEP', 'SR-VANISH', 'SR-TERM']) {
+        await ensureSubjectContainer(ctr, {
+          workspace: WS,
+          subject: s,
+          mounts: [codeRepo],
+        });
+      }
+
+      // Unmanaged container — the sweep never lists/touches it.
+      const foreignName = `wp098-foreign-${Date.now()}`;
+      foreignNames.push(foreignName);
+      const foreignId = await docker.create({
+        name: foreignName,
+        image: E2E_IMAGE,
+        argv: ['tail', '-f', '/dev/null'],
+      });
+
+      // Crash scene: SR-VANISH's ticket row is gone, SR-TERM went
+      // terminal with the container still up, and SR-GHOST is a managed
+      // container with no `containers` row (died between create and
+      // upsert).
+      await store.deleteTicket({ workspace: WS, ticket_id: 'SR-VANISH' });
+      await setTicket('SR-TERM', { status: 'released' as never });
+      track('SR-GHOST');
+      const ghostId = await docker.create({
+        name: containerName(WS, 'SR-GHOST'),
+        image: E2E_IMAGE,
+        labels: {
+          [MANAGED_LABEL]: 'true',
+          [SUBJECT_LABEL]: `${WS}/SR-GHOST`,
+        },
+        argv: ['tail', '-f', '/dev/null'],
+      });
+
+      // A fresh conductor start() IS the post-crash startup sweep.
+      const report = await new Conductor(deps).start();
+      expect(report.swept.removed).toEqual(
+        expect.arrayContaining([
+          containerName(WS, 'SR-VANISH'),
+          containerName(WS, 'SR-TERM'),
+          containerName(WS, 'SR-GHOST'),
+        ]),
+      );
+      expect(report.swept.kept).toContain(containerName(WS, 'SR-KEEP'));
+      expect(await docker.inspect(ghostId)).toBeNull();
+      expect(
+        (await docker.inspect(containerName(WS, 'SR-KEEP')))?.running,
+      ).toBe(true);
+      expect(await docker.inspect(foreignId)).not.toBeNull();
+    },
+  );
+
+  it(
+    'multi-repo ticket: two worktree mounts, one container',
+    { timeout: 180_000 },
+    async () => {
+      const codeRepo2 = join(dir, 'code-repo-2');
+      cpSync(CODE_FIXTURE, codeRepo2, { recursive: true });
+      gitInit(codeRepo2);
+      const adapter = new ContainerScriptedAdapter(docker, {
+        script: () => ({
+          sentinel: 'DONE',
+          artifacts: { 'result.json': { ok: true } },
+        }),
+      });
+      const deps = e2eDeps(docker, adapter, {
+        repos: {
+          'code-repo': repoEntry(codeRepo),
+          'code-repo-2': repoEntry(codeRepo2),
+        },
+      });
+      const conductor = new Conductor(deps);
+      await putTicket('SR-M1', 'in-progress', ['code-repo', 'code-repo-2']);
+      track('SR-M1');
+      await conductor.start();
+
+      await tickUntil(
+        conductor,
+        async () =>
+          (await getRun(`${WS}/SR-M1/001-implement`))?.status === 'done',
+        'SR-M1 implement done',
+      );
+
+      // One ticket_repos row per repo — both worktrees created.
+      const rows = await store.listTicketRepos({
+        workspace: WS,
+        ticket_id: 'SR-M1',
+      });
+      expect(rows).toHaveLength(2);
+      for (const r of rows) {
+        expect(existsSync(r.worktree as string)).toBe(true);
+      }
+
+      // ONE container, both mounts.
+      const cid = (await containerRow('SR-M1'))?.container_id as string;
+      const info = await docker.inspect(cid);
+      const mounts = (info?.mounts ?? [])
+        .filter((m) => m.type === 'bind')
+        .map((m) => m.source)
+        .sort();
+      expect(mounts).toEqual(rows.map((r) => r.worktree).sort());
+      const managed = (await docker.listManaged()).filter(
+        (c) => c.labels[SUBJECT_LABEL] === `${WS}/SR-M1`,
+      );
+      expect(managed).toHaveLength(1);
+
+      // Both mounts are live inside the container.
+      const [a, b] = rows.map((r) => r.worktree);
+      const { stdout } = await docker.execRun(cid, {
+        argv: ['sh', '-c', `test -d "${a}" && test -d "${b}" && echo BOTH`],
+      });
+      expect(stdout.trim()).toBe('BOTH');
+      expect((await getRun(`${WS}/SR-M1/001-implement`))?.container_id).toBe(
+        cid,
+      );
+    },
+  );
+
+  it(
+    'repo-set growth recreates the container (new id, union of mounts)',
+    { timeout: 180_000 },
+    async () => {
+      const codeRepo2 = join(dir, 'code-repo-2');
+      cpSync(CODE_FIXTURE, codeRepo2, { recursive: true });
+      gitInit(codeRepo2);
+      const adapter = new ContainerScriptedAdapter(docker, {
+        script: (r) =>
+          r.stage === 'fix'
+            ? { sentinel: 'BLOCKED: grown' }
+            : { sentinel: 'BLOCKED: parked' },
+      });
+      const deps = e2eDeps(docker, adapter, {
+        repos: {
+          'code-repo': repoEntry(codeRepo),
+          'code-repo-2': repoEntry(codeRepo2),
+        },
+      });
+      const conductor = new Conductor(deps);
+      await putTicket('SR-MG1', 'in-progress', ['code-repo']);
+      track('SR-MG1');
+      await conductor.start();
+
+      await tickUntil(
+        conductor,
+        async () =>
+          (await getRun(`${WS}/SR-MG1/001-implement`))?.status === 'done',
+        'SR-MG1 implement done',
+      );
+      const row1 = await containerRow('SR-MG1');
+      const id1 = row1?.container_id as string;
+      expect(
+        (await docker.inspect(id1))?.mounts.filter((m) => m.type === 'bind'),
+      ).toHaveLength(1);
+
+      // The ticket's repo set grows mid-flight → the next launch's
+      // ensure sees the mount drift and recreates (container state is
+      // disposable; the worktrees hold everything that matters).
+      await setTicket('SR-MG1', { repos: ['code-repo', 'code-repo-2'] });
+      const fixId = await launch(launchCtx(deps), {
+        workspace: WS,
+        subject: 'SR-MG1',
+        stage: 'fix',
+        ticketId: 'SR-MG1',
+      });
+      const row2 = await containerRow('SR-MG1');
+      const id2 = row2?.container_id as string;
+      expect(id2).not.toBe(id1);
+      expect(await docker.inspect(id1)).toBeNull(); // old container rm'd
+      const grown = await docker.inspect(id2);
+      expect(grown?.running).toBe(true);
+      expect(
+        grown?.mounts.filter((m) => m.type === 'bind'),
+      ).toHaveLength(2);
+      await tickUntil(
+        conductor,
+        async () => (await getRun(fixId as string))?.status === 'done',
+        'SR-MG1 fix done',
+      );
+      expect((await getRun(fixId as string))?.container_id).toBe(id2);
+    },
+  );
 });
