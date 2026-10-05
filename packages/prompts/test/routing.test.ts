@@ -101,24 +101,16 @@ describe('latency classes', () => {
     const c = cfg();
     expect(resolveModelRoute(c, 'verify').latency_class).toBe('instant');
     expect(resolveModelRoute(c, 'import').latency_class).toBe('instant');
-    expect(resolveModelRoute(c, 'interview').latency_class).toBe(
-      'interactive',
-    );
-    expect(resolveModelRoute(c, 'discuss').latency_class).toBe(
-      'interactive',
-    );
-    expect(resolveModelRoute(c, 'implement').latency_class).toBe(
-      'background',
-    );
+    expect(resolveModelRoute(c, 'interview').latency_class).toBe('interactive');
+    expect(resolveModelRoute(c, 'discuss').latency_class).toBe('interactive');
+    expect(resolveModelRoute(c, 'implement').latency_class).toBe('background');
   });
 
   it('isInteractiveRoute mirrors the resolved class', () => {
     expect(isInteractiveRoute(resolveModelRoute(cfg(), 'interview'))).toBe(
       true,
     );
-    expect(isInteractiveRoute(resolveModelRoute(cfg(), 'triage'))).toBe(
-      false,
-    );
+    expect(isInteractiveRoute(resolveModelRoute(cfg(), 'triage'))).toBe(false);
   });
 });
 
@@ -129,9 +121,9 @@ describe('resolveRunRoute — per-run pinning', () => {
   });
 
   it('request pin > ticket pin > registry primary', () => {
-    expect(
-      resolveRunRoute({ config: c, kind: 'triage' }).model,
-    ).toBe('or/triage');
+    expect(resolveRunRoute({ config: c, kind: 'triage' }).model).toBe(
+      'or/triage',
+    );
     expect(
       resolveRunRoute({ config: c, kind: 'triage', ticketModel: 'or/tix' })
         .model,
@@ -150,8 +142,7 @@ describe('resolveRunRoute — per-run pinning', () => {
 
   it('records the pin source', () => {
     expect(
-      resolveRunRoute({ config: c, kind: 'triage', ticketModel: 'x' })
-        .source,
+      resolveRunRoute({ config: c, kind: 'triage', ticketModel: 'x' }).source,
     ).toBe('ticket');
     expect(resolveRunRoute({ config: c, kind: 'triage' }).source).toBe(
       'registry',
@@ -162,9 +153,9 @@ describe('resolveRunRoute — per-run pinning', () => {
 describe('escalation tier', () => {
   it('escalationModelFor: registry escalation > escalation_model > null', () => {
     expect(escalationModelFor(cfg())).toBeNull();
-    expect(
-      escalationModelFor(cfg({ escalation_model: 'or/esc' })),
-    ).toBe('or/esc');
+    expect(escalationModelFor(cfg({ escalation_model: 'or/esc' }))).toBe(
+      'or/esc',
+    );
     expect(
       escalationModelFor(
         cfg({
@@ -196,9 +187,7 @@ describe('providers allowlist + chain', () => {
       cfg({ models: { triage: { providers: ['anthropic'] } } }),
       'triage',
     );
-    expect(() => assertRouteProvider(route, 'openrouter')).toThrow(
-      RouteError,
-    );
+    expect(() => assertRouteProvider(route, 'openrouter')).toThrow(RouteError);
     expect(() => assertRouteProvider(route, 'anthropic')).not.toThrow();
   });
 

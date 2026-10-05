@@ -73,12 +73,7 @@ const FIXED_KEYS: Record<string, readonly string[]> = {
 };
 
 /** Paths whose children are named record entries with fixed shapes. */
-const RECORD_PATHS = new Set([
-  'capabilities',
-  'repos',
-  'products',
-  'models',
-]);
+const RECORD_PATHS = new Set(['capabilities', 'repos', 'products', 'models']);
 /** Paths whose children are named scalars — any key allowed. */
 const LEAF_RECORD_PATHS = new Set(['timeouts', 'importers.default_repo_map']);
 
