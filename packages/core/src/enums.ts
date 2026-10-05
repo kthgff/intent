@@ -305,6 +305,11 @@ export const EVENT_NAMES = [
   'test_env_fulfilled',
   'test_env_waived',
   'test_env_expired',
+  /** Import reconciliation (wp-139) — `import_reconciled` records the
+   *  provenance trail for a resolved finding; `import_drift_detected`
+   *  flags drift between an imported artifact and its source. */
+  'import_reconciled',
+  'import_drift_detected',
 ] as const;
 export type EventName = (typeof EVENT_NAMES)[number];
 
@@ -338,6 +343,9 @@ export const FINDING_CATEGORIES = [
   'style',
   'test-gap',
   'spec-deviation',
+  /** Post-merge implementation-vs-approved-design comparison (§15.4,
+   *  wp-149) — advisory, human-verdicted. */
+  'design-drift',
 ] as const;
 export type FindingCategory = (typeof FINDING_CATEGORIES)[number];
 
@@ -880,6 +888,51 @@ export const PROVENANCE_STATES = [
 ] as const;
 export type ProvenanceState = (typeof PROVENANCE_STATES)[number];
 
+/** Provenance states that may auto-approve (wp-139): only evidence the
+ *  system can trace (`source-backed`) or a human vouched for
+ *  (`stakeholder-verified`). `inferred` ALWAYS needs a human. */
+export const PROVENANCE_AUTO_APPROVABLE = [
+  'source-backed',
+  'stakeholder-verified',
+] as const satisfies readonly ProvenanceState[];
+
+/** True iff `provenance` may clear a gate without a human (§15.3,
+ *  wp-139 — "inferred never auto-approves"). */
+export function provenanceAllowsAutoApproval(
+  provenance: ProvenanceState | null | undefined,
+): boolean {
+  return (
+    provenance != null &&
+    (PROVENANCE_AUTO_APPROVABLE as readonly string[]).includes(provenance)
+  );
+}
+
+/** Import reconciliation review-item kinds (wp-139, PRD §15.3). Drift
+ *  between an imported artifact and its source of record is never
+ *  silently overwritten — it surfaces as one of these reviewable
+ *  findings on the import board. */
+export const RECONCILIATION_KINDS = [
+  'duplicate',
+  'conflict',
+  'drift',
+  'completed',
+  'clarification',
+] as const;
+export type ReconciliationKind = (typeof RECONCILIATION_KINDS)[number];
+
+/** Human decision recorded against a reconciliation finding (wp-139).
+ *  `open` = awaiting review; the rest close it. */
+export const RECONCILIATION_DECISIONS = [
+  'open',
+  'merged',
+  'kept-both',
+  'superseded',
+  'source-accepted',
+  'imported-kept',
+  'dismissed',
+] as const;
+export type ReconciliationDecision = (typeof RECONCILIATION_DECISIONS)[number];
+
 /** semantic_statements.source_ref.kind — the evidence kind a statement
  *  was extracted from (wp-143). `manual` = directly authored (no
  *  extraction run). */
@@ -1195,6 +1248,59 @@ export const DESIGN_APPROVAL_STATUSES = [
   'superseded',
 ] as const;
 export type DesignApprovalStatus = (typeof DESIGN_APPROVAL_STATUSES)[number];
+
+// ---------- design artifacts / mockups (PRD §15.4, wp-149) ----------
+
+/** mockup.json fidelity tiers — cheapest that answers the current
+ *  question (§15.4): `wireframe` → `hi-fi` → `prototype`. */
+export const MOCKUP_FIDELITIES = ['wireframe', 'hi-fi', 'prototype'] as const;
+export type MockupFidelity = (typeof MOCKUP_FIDELITIES)[number];
+
+/** Screen states a mockup covers. `default` is the resting screen; the
+ *  rest are the state-generator variants (§15.4) — `loading`, `empty`,
+ *  `success`, `error`, `permission`. */
+export const MOCKUP_STATES = [
+  'default',
+  'loading',
+  'empty',
+  'success',
+  'error',
+  'permission',
+] as const;
+export type MockupState = (typeof MOCKUP_STATES)[number];
+
+/** Responsive variants a component tree can carry (§15.4). */
+export const MOCKUP_BREAKPOINTS = ['mobile', 'tablet', 'desktop'] as const;
+export type MockupBreakpoint = (typeof MOCKUP_BREAKPOINTS)[number];
+
+/** Design-approval checklist items (§15.4): desktop, mobile, flows,
+ *  error/empty states, accessibility, linked ACs. */
+export const DESIGN_CHECKLIST_ITEMS = [
+  'desktop',
+  'mobile',
+  'flows',
+  'error-empty',
+  'a11y',
+  'linked-acs',
+] as const;
+export type DesignChecklistItem = (typeof DESIGN_CHECKLIST_ITEMS)[number];
+
+/** Generator modes for the `mockup` stage (§15.4): author a tree from
+ *  scratch, ingest a screenshot, ingest a sketch, or expand a screen
+ *  into state variants. */
+export const MOCKUP_GENERATOR_MODES = [
+  'compose',
+  'screenshot',
+  'sketch',
+  'states',
+] as const;
+export type MockupGeneratorMode = (typeof MOCKUP_GENERATOR_MODES)[number];
+
+/** Design-drift finding category (§15.4) — post-merge implementation
+ *  vs approved-mockup comparison. Advisory only: a machine never
+ *  resolves it; a human verdict (the normal finding lifecycle) is
+ *  required. */
+export const DESIGN_DRIFT_CATEGORY = 'design-drift' as const;
 
 // ---------- model routing (PRD §15.12, wp-155) ----------
 

@@ -2,7 +2,7 @@
 schema: 1
 id: wp-133
 title: Merge Center — readiness checklist + Veto-executed merge + post-merge bookkeeping
-status: todo
+status: done
 priority: high
 depth: deep
 repos: []

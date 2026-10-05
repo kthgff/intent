@@ -43,13 +43,16 @@ import { hasLiveRun } from '../launch/index.js';
 import { nowIso, resolveRepoPath } from '../loop/deps.js';
 import { makeTransitionTools } from '../loop/tools.js';
 import type { ToolCtx } from '../loop/tools.js';
+import { recordMerged } from '../merge/bookkeeping.js';
+import { runMergeCenter } from '../merge/center.js';
+import { checksGreen, isFailing } from './checks.js';
 import {
   type DodRowClassified,
   manualRowsAttested,
   parseDodRows,
   readDodAttestations,
 } from './dod.js';
-import type { GhClient, PrCheck } from './gh.js';
+import type { GhClient, PrCheck, PrInfo } from './gh.js';
 import { loadShepherdFile, prState, saveShepherdFile } from './state.js';
 
 export interface ShepherdReport {
@@ -66,33 +69,6 @@ export interface ShepherdCtx extends ToolCtx {
 }
 
 const SHEPHERD_STATUSES = ['pr-open', 'ci-watch'];
-
-function isFailing(c: PrCheck): boolean {
-  const b = c.bucket?.toLowerCase();
-  const s = c.state?.toUpperCase();
-  return (
-    b === 'fail' ||
-    b === 'cancel' ||
-    s === 'FAILURE' ||
-    s === 'ERROR' ||
-    s === 'CANCELLED' ||
-    s === 'TIMED_OUT'
-  );
-}
-
-function isPending(c: PrCheck): boolean {
-  const b = c.bucket?.toLowerCase();
-  const s = c.state?.toUpperCase();
-  return (
-    b === 'pending' ||
-    s === 'PENDING' ||
-    s === 'QUEUED' ||
-    s === 'IN_PROGRESS' ||
-    s === 'EXPECTED' ||
-    s === 'WAITING' ||
-    s === 'REQUESTED'
-  );
-}
 
 /** Stable fingerprint of the failing-check set — same failures → same
  *  fingerprint → no duplicate ci-fix while a push hasn't landed. */
@@ -145,6 +121,14 @@ export async function pollOpenPrs(ctx: ShepherdCtx): Promise<ShepherdReport> {
   };
   const tools = makeTransitionTools(ctx);
   const maxCycles = deps.config.budgets.shepherd_max_cycles;
+
+  // wp-133: rows the poll actually fetched this pass — the Merge
+  // Center reuses these `gh` results and skips tickets the poll never
+  // touched (escalated PRs are human-owned until the gate clears).
+  const polledData = new Map<
+    string,
+    { prInfos: Map<string, PrInfo>; checks: Map<string, PrCheck[]> }
+  >();
 
   const tickets = (await store.listTickets({ workspace: ws.name })).filter(
     (t) => SHEPHERD_STATUSES.includes(t.status),
@@ -215,7 +199,7 @@ export async function pollOpenPrs(ctx: ShepherdCtx): Promise<ShepherdReport> {
       const st = prState(shep, row.repo);
       if (st.escalated) continue;
 
-      let info: { state: string; mergeCommit?: { oid?: string } | null };
+      let info: PrInfo;
       let checks: PrCheck[];
       try {
         info = await gh.prView(row.pr_url);
@@ -225,6 +209,13 @@ export async function pollOpenPrs(ctx: ShepherdCtx): Promise<ShepherdReport> {
         continue;
       }
       report.polled.push(row.pr_url);
+      const pd = polledData.get(id) ?? {
+        prInfos: new Map<string, PrInfo>(),
+        checks: new Map<string, PrCheck[]>(),
+      };
+      polledData.set(id, pd);
+      pd.prInfos.set(row.repo, info);
+      pd.checks.set(row.repo, checks);
 
       // -- merge / close detection --
       const ghState = info.state.toUpperCase();
@@ -265,8 +256,7 @@ export async function pollOpenPrs(ctx: ShepherdCtx): Promise<ShepherdReport> {
 
       // -- checks classification --
       const failing = checks.some(isFailing);
-      const pending = checks.some(isPending);
-      const green = checks.length > 0 && !failing && !pending;
+      const green = checksGreen(checks);
       const ciState = failing ? 'failing' : green ? 'green' : 'pending';
       if (row.ci_state !== ciState) {
         await store.upsertTicketRepo({ ...row, ci_state: ciState });
@@ -389,23 +379,17 @@ export async function pollOpenPrs(ctx: ShepherdCtx): Promise<ShepherdReport> {
       finalRows.every((r) => r.pr_state === 'merged')
     ) {
       const terminal = (await isRevertTicket(ctx, id)) ? 'reverted' : 'merged';
-      await tools.applyTicketStatus({
-        ticketId: id,
+      // Post-merge bookkeeping (wp-133, DELIVERY §2): ticket status +
+      // merged_sha + `merged` event + implementation-note append, all in
+      // ONE transaction (recordMerged).
+      await recordMerged({
+        ctx: { ...ctx, gh },
+        tools,
+        ticket,
+        rows: finalRows,
         status: terminal,
-        data: {
-          via: 'shepherd: all PRs merged',
-          shas: Object.fromEntries(
-            finalRows.map((r) => [r.repo, r.merged_sha]),
-          ),
-        },
       });
-      await tools.appendEvent({
-        ticketId: id,
-        event: terminal,
-        data: { repos: finalRows.map((r) => r.repo) },
-      });
-      // The human merged on github — clear the merge-gate inbox row so
-      // it doesn't linger open forever.
+      // Clear the merge-gate inbox row so it doesn't linger open forever.
       const gate = await store.getGateItem({
         workspace: ws.name,
         subject: id,
@@ -423,6 +407,22 @@ export async function pollOpenPrs(ctx: ShepherdCtx): Promise<ShepherdReport> {
     // Persist the shepherd state file only when it moved (scratch
     // state — no git commit, it is not a truth artifact).
     await saveShepherdFile(ws, id, shep, shepRaw);
+  }
+
+  // ---- Merge Center (wp-133, DELIVERY §2) ----
+  // The `ci-watch` tail: evaluate the readiness checklist and, when
+  // green, execute the merge via `gh pr merge` (never bypassing branch
+  // protection). Runs after the per-ticket poll so freshly-merged rows
+  // are visible to the next pass's rollup.
+  try {
+    const mergeReport = await runMergeCenter(
+      { ...ctx, gh },
+      { polled: polledData },
+    );
+    report.actions.push(...mergeReport.actions);
+    report.warnings.push(...mergeReport.warnings);
+  } catch (e) {
+    report.warnings.push(`merge-center: ${(e as Error).message}`);
   }
 
   return report;

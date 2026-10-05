@@ -37,6 +37,10 @@ backend: aider               # optional; default from config
 model: openrouter/anthropic/claude-sonnet-4   # optional
 source: jira:PROJ-123        # optional: jira: | github:org/repo#N |
                              #   manual | capture | synthesis
+source_ref:                  # optional import provenance (wp-139) —
+                             #   {system, kind, url, imported_at,
+                             #    original_status}; kind ∈ issue |
+                             #   pull-request (GitHub issues ≠ PRs)
 parent: null                 # set on children produced by a split run
 depends_on: []               # ticket ids that must merge before this
                              # one can implement (topological ordering)
@@ -86,6 +90,11 @@ feature/initiative status, never a ticket status.)
 #  a row for a non-code file may start its `change` cell with
 #  "untestable:" — exempts that row from coverage; see §4
 ## Risks / open items
+## Threat model              (required for sensitive-scope changes, §15.8)
+#  assets at risk · trust boundaries · threats (STRIDE) · mitigations.
+#  The design-time security gate (wp-150) fails closed when a change
+#  touching auth/secrets/crypto/input-parsing/network/payments/PII has
+#  no `## Threat model` section.
 ## Addenda                   (appended ONLY by implement agent on deviation)
 | ts | planned | did | reason |
 ```
@@ -237,7 +246,7 @@ split_proposed, split_approved, split_materialized, survey_started,
 survey_completed, dossier_updated, dossier_edited, gap_reported,
 provenance_amended, item_captured, board_synthesized,
 initiative_planned, replanned, reparented, released, verify_failed,
-discarded`
+discarded, import_reconciled, import_drift_detected`
 
 (The last nine are the D27/D29 additions — emitters for the capture,
 synthesis, re-plan, verify, and discard flows land with the wp-09x+
@@ -694,6 +703,47 @@ Rules the ingest enforces (§15.3, wp-143):
 - The preservation lint (`packages/lints/src/extraction.ts`) flags a
   negation/qualifier cue in the source that no covering statement
   preserved — a dropped "not" silently inverts a requirement.
+## 23. Import reconciliation — findings + provenance (PRD §15.3, wp-139)
+
+Imported items land on an `import`-type board and never enter
+autonomous development until reconciled. Provenance is a tri-state on
+requirements/items — `inferred | source-backed | stakeholder-verified`;
+**`inferred` never auto-approves** (`PROVENANCE_AUTO_APPROVABLE` in
+`packages/core/src/enums.ts`).
+
+`ReconciliationFinding` (persisted as an `import`-board `board_item`
+note + a `gate_items` row `gate: import-reconcile`, kind `review`):
+
+```json
+{
+  "id": "recon-drift-SR-0042",
+  "kind": "drift",
+  "decision": "open",
+  "provenance": "inferred",
+  "subject": "SR-0042",
+  "related": [],
+  "detail": "title: imported \"…\" ≠ source \"…\"",
+  "source_ref": { "system": "github", "kind": "issue", "url": "…" },
+  "created_at": "…",
+  "resolved_at": null
+}
+```
+
+- `kind` ∈ `duplicate | conflict | drift | completed | clarification`
+  (`RECONCILIATION_KINDS`); `decision` ∈ `open | merged | kept-both |
+  superseded | source-accepted | imported-kept | dismissed`
+  (`RECONCILIATION_DECISIONS`).
+- Clustering signals: metadata (title token Jaccard) + explicit
+  relations (`parent`/`depends_on`) + embeddings (cosine) — vector
+  similarity *retrieves*, the human decides authority.
+- Drift between an imported artifact and its source of record is
+  **surfaced, never silently overwritten**.
+- The reconciled flag is the `import-reconcile` gate; a clean import
+  auto-clears it (provenance `source-backed`), a finding holds it
+  (`inferred`). Resolution by a human re-proves the item
+  (`stakeholder-verified`).
+- Post-reconciliation the board converts to an ordinary board
+  (`convertImportBoard`) with import history preserved.
 
 ## Appendix A. Vocabulary mapping — old → new (wp-132)
 

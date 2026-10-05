@@ -490,6 +490,11 @@ export async function materializeSplit(args: {
         parent: ticketId,
         depends_on: depIds,
         source: parent?.source ?? null,
+        // §15.7 (wp-151): children inherit the parent's taxonomy —
+        // a split does not silently re-classify the work.
+        work_type: parent?.work_type ?? null,
+        origin: parent?.origin ?? null,
+        severity: parent?.severity ?? null,
         forced: false,
         spec_score: null,
         spec_hash: null,

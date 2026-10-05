@@ -18,6 +18,7 @@ export {
   type PrComment,
   type PrCreateOptions,
   type PrInfo,
+  type PrMergeOptions,
   ShellGhClient,
   parsePrUrl,
 } from './gh.js';
