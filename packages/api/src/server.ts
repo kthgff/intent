@@ -862,8 +862,10 @@ export function createServer(opts: ServerOptions): ApiServer {
     const scopeApproved =
       (APPROVED_SCOPE_ORIGINS as readonly string[]).includes(origin) ||
       body.scope_ref !== undefined;
+    // §15.7 direct-create rules: a type that isn't directly creatable
+    // (story) needs approved scope; `needsScopeApproval` decides.
     if (
-      !directCreateAllowed(workType) ||
+      (!directCreateAllowed(workType) && !scopeApproved) ||
       needsScopeApproval(workType, origin, null, scopeApproved)
     ) {
       throw forbidden(
