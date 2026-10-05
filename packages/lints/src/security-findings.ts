@@ -72,10 +72,7 @@ export function securityFindingLint(findings: unknown): LintViolation[] {
       });
     }
     const asset = f.affected_asset ?? f.file;
-    if (
-      asset == null ||
-      (typeof asset === 'string' && asset.trim() === '')
-    ) {
+    if (asset == null || (typeof asset === 'string' && asset.trim() === '')) {
       violations.push({
         rule: 'security.missing-asset',
         message: `security finding ${id} is missing affected_asset`,

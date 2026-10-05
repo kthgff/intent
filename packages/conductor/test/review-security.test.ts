@@ -155,9 +155,14 @@ describe('risk-tiered enforcement', () => {
 
 describe('security finding fields', () => {
   it('detects security findings by category or security_category', () => {
-    expect(isSecurityFinding({ category: 'security', security_category: null })).toBe(true);
     expect(
-      isSecurityFinding({ category: 'correctness', security_category: 'secrets' }),
+      isSecurityFinding({ category: 'security', security_category: null }),
+    ).toBe(true);
+    expect(
+      isSecurityFinding({
+        category: 'correctness',
+        security_category: 'secrets',
+      }),
     ).toBe(true);
     expect(
       isSecurityFinding({ category: 'correctness', security_category: null }),
@@ -263,13 +268,12 @@ describe('securityGate', () => {
   it('a resolved critical finding no longer blocks', async () => {
     const reviewId = await seedSession();
     await upsertFinding(ctx(), findingRow({ finding_id: 'f-crit' }));
-    await store.upsertReviewFinding({
-      ...(await store.getReviewFinding({
-        workspace: WS,
-        finding_id: 'f-crit',
-      }))!,
-      status: 'resolved',
+    const current = await store.getReviewFinding({
+      workspace: WS,
+      finding_id: 'f-crit',
     });
+    if (!current) throw new Error('finding missing');
+    await store.upsertReviewFinding({ ...current, status: 'resolved' });
     const gate = await securityGate(ctx(), { reviewId });
     expect(gate.blocked).toBe(false);
   });
@@ -292,7 +296,10 @@ describe('securityGate', () => {
 
   it('high tier does not block but requires a designated reviewer', async () => {
     const reviewId = await seedSession();
-    await upsertFinding(ctx(), findingRow({ finding_id: 'f-high', severity: 'major' }));
+    await upsertFinding(
+      ctx(),
+      findingRow({ finding_id: 'f-high', severity: 'major' }),
+    );
     const gate = await securityGate(ctx(), { reviewId });
     expect(gate.blocked).toBe(false);
     expect(gate.tier).toBe('high');
@@ -334,13 +341,28 @@ describe('security exceptions', () => {
     };
     await upsertFinding(ctx(), findingRow({ finding_id: 'f-crit' }));
     await expect(
-      grantSecurityException(ctx(), { ...base, owner: '', expiresAt: '2999-01-01T00:00:00Z', rationale: 'x' }),
+      grantSecurityException(ctx(), {
+        ...base,
+        owner: '',
+        expiresAt: '2999-01-01T00:00:00Z',
+        rationale: 'x',
+      }),
     ).rejects.toMatchObject({ code: 'invalid-transition' });
     await expect(
-      grantSecurityException(ctx(), { ...base, owner: 'keith', expiresAt: 'nope', rationale: 'x' }),
+      grantSecurityException(ctx(), {
+        ...base,
+        owner: 'keith',
+        expiresAt: 'nope',
+        rationale: 'x',
+      }),
     ).rejects.toMatchObject({ code: 'invalid-transition' });
     await expect(
-      grantSecurityException(ctx(), { ...base, owner: 'keith', expiresAt: '2999-01-01T00:00:00Z', rationale: '  ' }),
+      grantSecurityException(ctx(), {
+        ...base,
+        owner: 'keith',
+        expiresAt: '2999-01-01T00:00:00Z',
+        rationale: '  ',
+      }),
     ).rejects.toMatchObject({ code: 'invalid-transition' });
     await expect(
       grantSecurityException(ctx(), {
@@ -378,10 +400,15 @@ describe('security exceptions', () => {
     expect(gate.active_exceptions).toEqual([debt.debt_id]);
 
     // The audit event is present.
-    const events = await store.listEvents({ workspace: WS, ticket_id: 'SR-0001' });
+    const events = await store.listEvents({
+      workspace: WS,
+      ticket_id: 'SR-0001',
+    });
     expect(
       events.some(
-        (e) => e.data?.reason === 'security-exception' && e.data?.finding_id === 'f-crit',
+        (e) =>
+          e.data?.reason === 'security-exception' &&
+          e.data?.finding_id === 'f-crit',
       ),
     ).toBe(true);
   });
@@ -412,7 +439,10 @@ describe('security exceptions', () => {
     expect(persisted?.status).toBe('expired');
 
     // Expiry is loud + audited, and the finding blocks again.
-    const events = await store.listEvents({ workspace: WS, ticket_id: 'SR-0001' });
+    const events = await store.listEvents({
+      workspace: WS,
+      ticket_id: 'SR-0001',
+    });
     expect(
       events.some((e) => e.data?.reason === 'security-exception-expired'),
     ).toBe(true);
@@ -460,7 +490,10 @@ describe('designSecurityGate', () => {
   it('fires on sensitive scope with no threat model', () => {
     const reasons = sensitiveScopeReasons(['src/auth/login.ts']);
     expect(reasons).toContain('authentication/authorization');
-    const gate = designSecurityGate({ files: ['src/auth/login.ts'], tddMd: '# TDD\n## Architecture\n' });
+    const gate = designSecurityGate({
+      files: ['src/auth/login.ts'],
+      tddMd: '# TDD\n## Architecture\n',
+    });
     expect(gate.required).toBe(true);
     expect(gate.satisfied).toBe(false);
     expect(gate.blocked).toBe(true);
@@ -468,9 +501,13 @@ describe('designSecurityGate', () => {
   });
 
   it('passes when the TDD carries a threat-model section', () => {
-    const tdd = '# TDD\n## Architecture\n## Threat model\nassets: session tokens\n';
+    const tdd =
+      '# TDD\n## Architecture\n## Threat model\nassets: session tokens\n';
     expect(threatModelPresent(tdd)).toBe(true);
-    const gate = designSecurityGate({ files: ['src/billing/checkout.ts'], tddMd: tdd });
+    const gate = designSecurityGate({
+      files: ['src/billing/checkout.ts'],
+      tddMd: tdd,
+    });
     expect(gate.required).toBe(true);
     expect(gate.blocked).toBe(false);
   });
@@ -509,7 +546,8 @@ describe('scanner mapping', () => {
     );
     expect(blocked).toBe(false);
     expect(findings).toHaveLength(1);
-    const f = findings[0]!;
+    const f = findings[0];
+    if (!f) throw new Error('expected a finding');
     expect(f.category).toBe('security');
     expect(f.severity).toBe('blocker');
     expect(f.file).toBe('src/config.ts');
@@ -520,7 +558,9 @@ describe('scanner mapping', () => {
     expect(f.evidence ?? '').not.toContain(secret);
     // …and the derived field set is complete.
     expect(deriveSecurityFields(f).security_category).toBe('secrets');
-    expect(findingsFromScanner({ scanner: 'gitleaks', ok: true, findings: [] })).toEqual([]);
+    expect(
+      findingsFromScanner({ scanner: 'gitleaks', ok: true, findings: [] }),
+    ).toEqual([]);
   });
 
   it('maps trufflehog findings (nested source metadata)', () => {
@@ -532,7 +572,9 @@ describe('scanner mapping', () => {
           DetectorName: 'PrivateKey',
           Verified: true,
           Raw: '-----BEGIN PRIVATE KEY-----',
-          SourceMetadata: { Data: { Filesystem: { file: 'deploy/key.pem', line: 3 } } },
+          SourceMetadata: {
+            Data: { Filesystem: { file: 'deploy/key.pem', line: 3 } },
+          },
         },
       ],
     });
@@ -542,7 +584,11 @@ describe('scanner mapping', () => {
   });
 
   it('fails CLOSED on a scanner error or malformed output', () => {
-    const errored = scannerGate({ scanner: 'gitleaks', ok: false, error: 'command not found' });
+    const errored = scannerGate({
+      scanner: 'gitleaks',
+      ok: false,
+      error: 'command not found',
+    });
     expect(errored.blocked).toBe(true);
     expect(errored.reasons.join(' ')).toContain('fail-closed');
     expect(errored.findings).toEqual([]);
@@ -555,7 +601,9 @@ describe('scanner mapping', () => {
     expect(malformed.blocked).toBe(true);
 
     // A clean scan is a legitimate, non-blocking pass.
-    expect(scannerGate({ scanner: 'gitleaks', ok: true, findings: [] }).blocked).toBe(false);
+    expect(
+      scannerGate({ scanner: 'gitleaks', ok: true, findings: [] }).blocked,
+    ).toBe(false);
   });
 });
 

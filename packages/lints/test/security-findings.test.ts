@@ -54,7 +54,11 @@ describe('securityFindingLint', () => {
       ]),
     ).toEqual([]);
     const v = securityFindingLint([
-      { thread_id: 'f-5', category: 'security', security_category: 'injection' },
+      {
+        thread_id: 'f-5',
+        category: 'security',
+        security_category: 'injection',
+      },
     ]);
     expect(v.map((x) => x.rule)).toEqual(['security.missing-asset']);
   });

@@ -26,7 +26,13 @@ import type {
 } from '@sprint-runner/core';
 import { securityGate } from '../security.js';
 import { requireSession, rollupSessionStatus } from './session.js';
-import { type StudioCtx, badRequest, conflict, forbidden, notFound } from './types.js';
+import {
+  type StudioCtx,
+  badRequest,
+  conflict,
+  forbidden,
+  notFound,
+} from './types.js';
 
 export interface RecordDecisionResult {
   decision: ReviewDecisionRow;

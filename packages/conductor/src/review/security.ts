@@ -29,11 +29,11 @@
  * the API.
  */
 import {
-  SECURITY_CATEGORIES,
   type AgentFinding,
   type FindingSeverity,
   type QualityDebtRow,
   type ReviewFindingRow,
+  SECURITY_CATEGORIES,
   type SecurityCategory,
 } from '@sprint-runner/core';
 import type { FindingActorKind } from './studio/findings.js';
@@ -140,8 +140,6 @@ export function riskTierForSeverity(
       return 'high';
     case 'minor':
       return 'medium';
-    case 'nit':
-    case 'question':
     default:
       return 'low';
   }
@@ -465,7 +463,9 @@ function coveringExceptions(
   findingId: string,
 ): string[] {
   return exceptions
-    .filter((e) => e.meta.finding_id === null || e.meta.finding_id === findingId)
+    .filter(
+      (e) => e.meta.finding_id === null || e.meta.finding_id === findingId,
+    )
     .map((e) => e.debt.debt_id);
 }
 
@@ -776,7 +776,8 @@ export async function securityGate(
   const blocksThisPhase =
     (phase === 'merge' && enforcement.blocks_merge) ||
     (phase === 'release' && enforcement.blocks_release);
-  const blocked = malformed.length > 0 || (blocksThisPhase && blocking.length > 0);
+  const blocked =
+    malformed.length > 0 || (blocksThisPhase && blocking.length > 0);
 
   const reasons: string[] = [];
   if (malformed.length > 0) {
@@ -790,7 +791,9 @@ export async function securityGate(
     );
   }
   if (!blocked && enforcement.designated_reviewer && security.length > 0) {
-    reasons.push('high-risk security surface — a designated reviewer must sign off');
+    reasons.push(
+      'high-risk security surface — a designated reviewer must sign off',
+    );
   }
 
   return {
@@ -812,14 +815,38 @@ export async function securityGate(
 
 /** File-path / text signals that mark a change as security-sensitive. */
 const SENSITIVE_SIGNALS: { reason: string; re: RegExp }[] = [
-  { reason: 'authentication/authorization', re: /auth|login|session|oauth|jwt|sso|rbac|permission|access[-_]?control/i },
-  { reason: 'secrets/credentials', re: /secret|credential|password|passwd|api[-_]?key|private[-_]?key|\.env|token/i },
-  { reason: 'cryptography', re: /crypt|cipher|encrypt|decrypt|hash|hmac|tls|ssl|certificate/i },
-  { reason: 'input parsing/untrusted data', re: /parse|deserial|decode|unmarshal|sanitiz|validate[-_]?input|request[-_]?body|query[-_]?param/i },
-  { reason: 'command/query execution', re: /exec|spawn|child_process|sql|query|eval|shell/i },
-  { reason: 'network boundary', re: /http|fetch|webhook|proxy|ssrf|redirect|url/i },
-  { reason: 'payments/money', re: /payment|billing|checkout|stripe|invoice|price|currency/i },
-  { reason: 'personal data', re: /pii|gdpr|user[-_]?data|personal[-_]?data|email|phone|address/i },
+  {
+    reason: 'authentication/authorization',
+    re: /auth|login|session|oauth|jwt|sso|rbac|permission|access[-_]?control/i,
+  },
+  {
+    reason: 'secrets/credentials',
+    re: /secret|credential|password|passwd|api[-_]?key|private[-_]?key|\.env|token/i,
+  },
+  {
+    reason: 'cryptography',
+    re: /crypt|cipher|encrypt|decrypt|hash|hmac|tls|ssl|certificate/i,
+  },
+  {
+    reason: 'input parsing/untrusted data',
+    re: /parse|deserial|decode|unmarshal|sanitiz|validate[-_]?input|request[-_]?body|query[-_]?param/i,
+  },
+  {
+    reason: 'command/query execution',
+    re: /exec|spawn|child_process|sql|query|eval|shell/i,
+  },
+  {
+    reason: 'network boundary',
+    re: /http|fetch|webhook|proxy|ssrf|redirect|url/i,
+  },
+  {
+    reason: 'payments/money',
+    re: /payment|billing|checkout|stripe|invoice|price|currency/i,
+  },
+  {
+    reason: 'personal data',
+    re: /pii|gdpr|user[-_]?data|personal[-_]?data|email|phone|address/i,
+  },
 ];
 
 /** Sensitive-scope reasons a change triggers (empty ⇒ not sensitive). */
