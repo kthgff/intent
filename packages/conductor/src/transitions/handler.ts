@@ -44,6 +44,7 @@ import {
 import { emitEvent } from '../events/index.js';
 import type { EmitArgs } from '../events/index.js';
 import { gateForStatus, gateKindFor } from '../gates/index.js';
+import { IMPORT_RECONCILE_GATE } from '../import/reconcile.js';
 import { parseTicketMd } from '../import/parse.js';
 import { retryDecision } from '../loop/retry.js';
 import {
@@ -209,6 +210,18 @@ export class RealTransitionHandler implements TransitionHandler {
       switch (status) {
         // ---- auto chains (non-gate transitions always fire) ----
         case 'imported': {
+          // wp-139 reconciled-before-autonomy: a tracker-imported ticket
+          // (one carrying `source_ref`) must clear its `import-reconcile`
+          // gate before it can leave the import board. Seeded/legacy
+          // tickets without a source_ref keep the old auto-advance.
+          if (ticket.source_ref) {
+            const recon = await ctx.store.getGateItem({
+              workspace: ctx.workspace,
+              subject: id,
+              gate: IMPORT_RECONCILE_GATE,
+            });
+            if (recon && !recon.cleared_at) return null;
+          }
           await this.#inlineSpecLint(ticket, ctx);
           await this.#setStatus(ctx, id, 'triage');
           return { stage: 'triage' };

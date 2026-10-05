@@ -24,11 +24,15 @@ import {
   type ConductorWorkspace,
   type RunnerTask,
   type ToolCtx,
+  DEFAULT_IMPORT_BOARD,
   applyTicketStatus,
+  convertImportBoard,
   fetchIssues,
   preview,
   queuePendingRun,
+  reconcileImport,
   renderLogMd,
+  resolveReconciliationFinding,
   upsertFrontmatterKeys,
 } from '@sprint-runner/conductor';
 import {
@@ -45,6 +49,7 @@ import {
   type DocKind,
   type EventName,
   type GateItem,
+  RECONCILIATION_DECISIONS,
   type Store,
   type TicketPriority,
   type TicketRow,
@@ -133,6 +138,33 @@ const CaptureBodySchema = z
     title: z.string().min(1),
     body: z.string().optional(),
     serves: z.union([z.string(), z.array(z.string())]).optional(),
+  })
+  .passthrough();
+
+/** wp-139: (re)run import reconciliation for a workspace. */
+const ReconcileBodySchema = z
+  .object({
+    workspace: WorkspaceNameSchema,
+    board: z.string().optional(),
+    ticketIds: z.array(z.string()).optional(),
+  })
+  .passthrough();
+
+/** wp-139: resolve one reconciliation finding. */
+const ResolveFindingBodySchema = z
+  .object({
+    workspace: WorkspaceNameSchema,
+    decision: z.string().min(1),
+    actor: z.string().optional(),
+  })
+  .passthrough();
+
+/** wp-139: convert the import board to an ordinary board. */
+const ConvertBoardBodySchema = z
+  .object({
+    workspace: WorkspaceNameSchema,
+    board: z.string().optional(),
+    to: z.enum(['enhancement', 'modernization', 'quality']).optional(),
   })
   .passthrough();
 
@@ -1558,6 +1590,95 @@ export function createServer(opts: ServerOptions): ApiServer {
       },
     });
     return reply.status(202).send({ run, subject: `import:${body.source}` });
+  });
+
+  // ------------------------------------------------------------------
+  // /import/reconcile — wp-139 import reconciliation surface
+  // ------------------------------------------------------------------
+
+  /** The import board + its reviewable items (ticket cards + findings). */
+  app.get('/api/v1/import/board', async (req) => {
+    const { workspace: wsName, board } = req.query as {
+      workspace?: string;
+      board?: string;
+    };
+    const slug = board ?? DEFAULT_IMPORT_BOARD;
+    if (!wsName) {
+      // Every import board across workspaces (org-level inbox view).
+      const projects = await store.listProjects();
+      const boards: Awaited<ReturnType<typeof store.listBoards>> = [];
+      for (const p of projects) {
+        for (const b of await store.listBoards(p.workspace)) {
+          if (b.board_type === 'import') boards.push(b);
+        }
+      }
+      return { boards };
+    }
+    const row = await store.getBoard(wsName, slug);
+    const items = await store.listBoardItems({ workspace: wsName, board: slug });
+    return { board: row, items };
+  });
+
+  /** (Re)run reconciliation: cluster imported items, detect drift vs the
+   *  source of record, surface findings, set the reconciled flag. */
+  app.post('/api/v1/import/reconcile', async (req) => {
+    const body = parseBody(ReconcileBodySchema, req.body, 'reconcile');
+    const ws = workspace(body.workspace);
+    const result = await reconcileImport({
+      workspace: ws.name,
+      store,
+      actor,
+      ...(body.board ? { board: body.board } : {}),
+      ...(body.ticketIds ? { ticketIds: body.ticketIds } : {}),
+    });
+    return { result };
+  });
+
+  /** Resolve a finding. `inferred` findings require a human (provenance
+   *  enforcement — inferred never auto-approves). */
+  app.post('/api/v1/import/findings/:findingId/resolve', async (req) => {
+    const params = req.params as { findingId: string };
+    const body = parseBody(
+      ResolveFindingBodySchema,
+      req.body,
+      'resolve-finding',
+    );
+    if (!(RECONCILIATION_DECISIONS as readonly string[]).includes(body.decision)) {
+      throw badRequest(
+        `unknown decision '${body.decision}' (expected ${RECONCILIATION_DECISIONS.join('|')})`,
+      );
+    }
+    if (body.decision === 'open') {
+      throw badRequest('resolve-finding: decision must be a resolution, not `open`');
+    }
+    const ws = workspace(body.workspace);
+    try {
+      const out = await resolveReconciliationFinding({
+        workspace: ws.name,
+        store,
+        findingId: params.findingId,
+        decision: body.decision,
+        actor: body.actor ?? actor,
+        human: true,
+      });
+      return out;
+    } catch (e) {
+      throw badRequest((e as Error).message);
+    }
+  });
+
+  /** Convert the import board to an ordinary board (history preserved). */
+  app.post('/api/v1/import/convert', async (req) => {
+    const body = parseBody(ConvertBoardBodySchema, req.body, 'convert');
+    const ws = workspace(body.workspace);
+    const out = await convertImportBoard({
+      workspace: ws.name,
+      store,
+      actor,
+      ...(body.board ? { board: body.board } : {}),
+      ...(body.to ? { to: body.to } : {}),
+    });
+    return out;
   });
 
   // ------------------------------------------------------------------
