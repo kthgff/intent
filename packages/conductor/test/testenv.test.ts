@@ -20,17 +20,14 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { resolveConfig } from '@sprint-runner/config';
-import {
-  type TestEnvSpec,
-  type TicketRow,
-} from '@sprint-runner/core';
+import type { TestEnvSpec, TicketRow } from '@sprint-runner/core';
 import { PostgresStore } from '@sprint-runner/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { TransitionContext } from '../src/contracts.js';
 import {
   type TestEnvCtx,
-  type TestEnvExecutor,
   TestEnvError,
+  type TestEnvExecutor,
   createTestEnvRequest,
   ensureTestEnvForStage,
   expireTestEnvRequests,
@@ -237,7 +234,10 @@ describe('test-env request lifecycle', () => {
       spec: SPEC,
     });
     await expect(
-      fulfilTestEnvRequest(envCtx(), { requestId: req.request_id, evidence: '  ' }),
+      fulfilTestEnvRequest(envCtx(), {
+        requestId: req.request_id,
+        evidence: '  ',
+      }),
     ).rejects.toThrow(TestEnvError);
 
     const done = await fulfilTestEnvRequest(envCtx(), {
@@ -272,7 +272,10 @@ describe('test-env request lifecycle', () => {
       spec: SPEC,
     });
     await expect(
-      waiveTestEnvRequest(envCtx(), { requestId: req.request_id, rationale: '' }),
+      waiveTestEnvRequest(envCtx(), {
+        requestId: req.request_id,
+        rationale: '',
+      }),
     ).rejects.toThrow(/rationale/);
 
     const waived = await waiveTestEnvRequest(envCtx(), {
@@ -361,9 +364,10 @@ describe('ensureTestEnvForStage', () => {
     });
     expect(first.status).toBe('blocked');
     expect(first.request?.request_id).toBe('TE-0001');
+    if (!first.request) throw new Error('expected a test-env request');
 
     await fulfilTestEnvRequest(envCtx(), {
-      requestId: first.request!.request_id,
+      requestId: first.request.request_id,
       evidence: 'env ready',
     });
     const after = await ensureTestEnvForStage(envCtx(), {
@@ -441,7 +445,8 @@ describe('RealTransitionHandler — implement blocks on the test-env gate', () =
 
     const req = (
       await store.listTestEnvRequests({ workspace: WS, subject: 'SR-0001' })
-    )[0]!;
+    )[0];
+    if (!req) throw new Error('expected a test-env request');
     await fulfilTestEnvRequest(envCtx(), {
       requestId: req.request_id,
       evidence: 'env ready',
@@ -468,7 +473,8 @@ describe('RealTransitionHandler — implement blocks on the test-env gate', () =
     await handler.nextStage(ticket, transitionCtx());
     const req = (
       await store.listTestEnvRequests({ workspace: WS, subject: 'SR-0001' })
-    )[0]!;
+    )[0];
+    if (!req) throw new Error('expected a test-env request');
     await waiveTestEnvRequest(envCtx(), {
       requestId: req.request_id,
       rationale: 'reuse staging',
@@ -639,7 +645,7 @@ describe('materializeTestEnvForRun', () => {
       subject: 'SR-0001',
       ticketId: 'SR-0001',
       stage: 'implement',
-      spec: ticket.test_env!,
+      spec: ticket.test_env ?? {},
     });
     await fulfilTestEnvRequest(envCtx(), {
       requestId: req.request_id,

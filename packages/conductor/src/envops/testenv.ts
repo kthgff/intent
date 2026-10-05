@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 /**
  * testenv.ts — durable test-environment requests (PRD §15.10, wp-157).
  *
@@ -32,8 +33,14 @@
  * deferred (PRD §15.10 follow-up).
  */
 import { copyFile, mkdir, stat } from 'node:fs/promises';
-import { spawn } from 'node:child_process';
-import { dirname, isAbsolute, join, normalize, relative, resolve } from 'node:path';
+import {
+  dirname,
+  isAbsolute,
+  join,
+  normalize,
+  relative,
+  resolve,
+} from 'node:path';
 import {
   type FeatureRow,
   type Store,
@@ -191,7 +198,10 @@ async function surfaceGate(
 }
 
 /** Clear the `test-env` gate item (fulfil/waive/expire). */
-async function clearGate(ctx: TestEnvCtx, req: TestEnvRequestRow): Promise<void> {
+async function clearGate(
+  ctx: TestEnvCtx,
+  req: TestEnvRequestRow,
+): Promise<void> {
   const ts = nowIso(ctx);
   const existing = await ctx.store.getGateItem({
     workspace: ctx.workspace,
@@ -233,11 +243,13 @@ export async function createTestEnvRequest(
   ctx: TestEnvCtx,
   opts: CreateTestEnvRequestOptions,
 ): Promise<TestEnvRequestRow> {
-  const open = (await ctx.store.listTestEnvRequests({
-    workspace: ctx.workspace,
-    subject: opts.subject,
-    status: 'pending',
-  }))[0];
+  const open = (
+    await ctx.store.listTestEnvRequests({
+      workspace: ctx.workspace,
+      subject: opts.subject,
+      status: 'pending',
+    })
+  )[0];
   if (open) return open;
 
   const spec = TestEnvSpecSchema.parse(opts.spec);
@@ -254,7 +266,9 @@ export async function createTestEnvRequest(
     org: null,
     request_id: requestId,
     subject: opts.subject,
-    ticket_id: opts.ticketId ?? null,
+    // Event linkage: a ticket-initiated request keys its lifecycle
+    // events to the ticket — never leave them orphaned on `null`.
+    ticket_id: opts.ticketId ?? opts.subject,
     feature: opts.feature ?? null,
     stage: opts.stage,
     run_id: opts.runId ?? null,
@@ -412,11 +426,7 @@ export async function expireTestEnvRequests(
 // gate integration — the "does the stage need an env" decision
 // ---------------------------------------------------------------------------
 
-export type TestEnvDecisionStatus =
-  | 'no-spec'
-  | 'ready'
-  | 'waived'
-  | 'blocked';
+export type TestEnvDecisionStatus = 'no-spec' | 'ready' | 'waived' | 'blocked';
 
 export interface TestEnvDecision {
   status: TestEnvDecisionStatus;
@@ -449,7 +459,9 @@ export async function ensureTestEnvForStage(
   },
 ): Promise<TestEnvDecision> {
   const feature =
-    opts.feature !== undefined ? opts.feature : await featureOf(ctx, opts.ticket);
+    opts.feature !== undefined
+      ? opts.feature
+      : await featureOf(ctx, opts.ticket);
   const spec = resolveTestEnvSpec(opts.ticket, feature);
   if (!spec) return { status: 'no-spec' };
 
@@ -519,7 +531,9 @@ export function resolveFixtureRef(
 ): { source: string; fixturesRoot: string } {
   const trimmed = ref.trim();
   if (trimmed === '' || isAbsolute(trimmed)) {
-    throw invalid(`fixture ref must be a relative path under fixtures/: '${ref}'`);
+    throw invalid(
+      `fixture ref must be a relative path under fixtures/: '${ref}'`,
+    );
   }
   const norm = normalize(trimmed);
   if (norm === '..' || norm.startsWith(`..${'/'}`) || norm.includes('/../')) {
@@ -559,11 +573,7 @@ export function planTestEnvMaterialization(
   }
 
   const seeds =
-    parsed.seed.length > 0
-      ? parsed.seed
-      : opts.cardSeed
-        ? [opts.cardSeed]
-        : [];
+    parsed.seed.length > 0 ? parsed.seed : opts.cardSeed ? [opts.cardSeed] : [];
   for (const command of seeds) {
     steps.push({
       kind: 'seed',
@@ -642,7 +652,12 @@ function shellRun(
     });
     child.on('error', (err) => {
       clearTimeout(timer);
-      res({ command, exitCode: null, stdout, stderr: `${stderr}${err.message}` });
+      res({
+        command,
+        exitCode: null,
+        stdout,
+        stderr: `${stderr}${err.message}`,
+      });
     });
     child.on('exit', (code) => {
       clearTimeout(timer);
