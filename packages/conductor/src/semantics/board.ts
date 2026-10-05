@@ -44,8 +44,8 @@ import {
   NOTE_KINDS,
   NOTE_STATUSES,
 } from '@sprint-runner/core';
-import { createChangeset } from '../changes/engine.js';
 import type { ChangesetRow } from '@sprint-runner/core';
+import { createChangeset } from '../changes/engine.js';
 import type { ChangesCtx } from '../changes/engine.js';
 import {
   type IngestExtractionResult,
@@ -107,7 +107,10 @@ export type BoardOutput =
   | 'release-plan';
 
 /** How a board's outputs get approved — never silent. */
-export type BoardApproval = 'human-gate' | 'human-gate+changeset' | 'review-studio';
+export type BoardApproval =
+  | 'human-gate'
+  | 'human-gate+changeset'
+  | 'review-studio';
 
 export interface BoardTypeConfig {
   board_type: BoardType;
@@ -130,8 +133,23 @@ export const BOARD_TYPE_CONFIG: Record<BoardType, BoardTypeConfig> = {
     board_type: 'new-project',
     label: 'New project',
     summary: 'Greenfield discovery: problem → Solution Brief → RS.',
-    inputs: ['sticky', 'text', 'document', 'link', 'voice', 'zone', 'connector', 'tray'],
-    capabilities: ['capture', 'clustering', 'duplicate-suggestion', 'synthesize', 'cross-board-reconcile'],
+    inputs: [
+      'sticky',
+      'text',
+      'document',
+      'link',
+      'voice',
+      'zone',
+      'connector',
+      'tray',
+    ],
+    capabilities: [
+      'capture',
+      'clustering',
+      'duplicate-suggestion',
+      'synthesize',
+      'cross-board-reconcile',
+    ],
     outputs: ['solution-brief', 'rs', 'features', 'tickets'],
     approval: 'human-gate',
     note_kinds: ALL_NOTES,
@@ -139,9 +157,15 @@ export const BOARD_TYPE_CONFIG: Record<BoardType, BoardTypeConfig> = {
   import: {
     board_type: 'import',
     label: 'Import',
-    summary: 'Reconcile imported work items into an RS; may outlive its first purpose.',
+    summary:
+      'Reconcile imported work items into an RS; may outlive its first purpose.',
     inputs: ['import', 'document', 'link', 'tray'],
-    capabilities: ['capture', 'clustering', 'duplicate-suggestion', 'synthesize'],
+    capabilities: [
+      'capture',
+      'clustering',
+      'duplicate-suggestion',
+      'synthesize',
+    ],
     outputs: ['solution-brief', 'rs', 'features', 'tickets'],
     approval: 'human-gate',
     note_kinds: ALL_NOTES,
@@ -149,9 +173,16 @@ export const BOARD_TYPE_CONFIG: Record<BoardType, BoardTypeConfig> = {
   enhancement: {
     board_type: 'enhancement',
     label: 'Enhancement',
-    summary: 'Change requests against an existing Solution — arrive as ChangeSets.',
+    summary:
+      'Change requests against an existing Solution — arrive as ChangeSets.',
     inputs: ['sticky', 'text', 'feedback', 'document', 'link', 'voice', 'tray'],
-    capabilities: ['capture', 'clustering', 'duplicate-suggestion', 'synthesize', 'cross-board-reconcile'],
+    capabilities: [
+      'capture',
+      'clustering',
+      'duplicate-suggestion',
+      'synthesize',
+      'cross-board-reconcile',
+    ],
     outputs: ['changeset', 'features', 'tickets'],
     approval: 'human-gate+changeset',
     note_kinds: ALL_NOTES,
@@ -161,7 +192,12 @@ export const BOARD_TYPE_CONFIG: Record<BoardType, BoardTypeConfig> = {
     label: 'Modernization',
     summary: 'Current-state survey → target state → sequenced ChangeSets.',
     inputs: ['sticky', 'text', 'document', 'survey', 'link', 'tray'],
-    capabilities: ['capture', 'clustering', 'synthesize', 'cross-board-reconcile'],
+    capabilities: [
+      'capture',
+      'clustering',
+      'synthesize',
+      'cross-board-reconcile',
+    ],
     outputs: ['solution-brief', 'rs', 'changeset', 'features', 'tickets'],
     approval: 'human-gate+changeset',
     note_kinds: ALL_NOTES,
@@ -171,7 +207,12 @@ export const BOARD_TYPE_CONFIG: Record<BoardType, BoardTypeConfig> = {
     label: 'Quality',
     summary: 'Defects, debt and risks → remediation ChangeSets.',
     inputs: ['sticky', 'text', 'feedback', 'survey', 'tray'],
-    capabilities: ['capture', 'clustering', 'duplicate-suggestion', 'synthesize'],
+    capabilities: [
+      'capture',
+      'clustering',
+      'duplicate-suggestion',
+      'synthesize',
+    ],
     outputs: ['changeset', 'tickets'],
     approval: 'human-gate+changeset',
     note_kinds: ['problem', 'constraint', 'feedback', 'idea'],
@@ -181,7 +222,13 @@ export const BOARD_TYPE_CONFIG: Record<BoardType, BoardTypeConfig> = {
     label: 'Feedback',
     summary: 'Shipped-entity feedback → clustered ChangeSets/proposals.',
     inputs: ['feedback', 'sticky', 'text', 'link', 'tray'],
-    capabilities: ['capture', 'clustering', 'duplicate-suggestion', 'synthesize', 'resurface'],
+    capabilities: [
+      'capture',
+      'clustering',
+      'duplicate-suggestion',
+      'synthesize',
+      'resurface',
+    ],
     outputs: ['changeset', 'features', 'tickets'],
     approval: 'human-gate+changeset',
     note_kinds: ['feedback', 'problem', 'want', 'idea'],
@@ -201,10 +248,24 @@ export const BOARD_TYPE_CONFIG: Record<BoardType, BoardTypeConfig> = {
     label: 'Exploration',
     summary: 'Open-ended capture; may promote to any other type.',
     inputs: [
-      'sticky', 'text', 'document', 'image', 'file', 'link', 'voice',
-      'zone', 'connector', 'tray',
+      'sticky',
+      'text',
+      'document',
+      'image',
+      'file',
+      'link',
+      'voice',
+      'zone',
+      'connector',
+      'tray',
     ],
-    capabilities: ['capture', 'clustering', 'duplicate-suggestion', 'synthesize', 'resurface'],
+    capabilities: [
+      'capture',
+      'clustering',
+      'duplicate-suggestion',
+      'synthesize',
+      'resurface',
+    ],
     outputs: ['solution-brief', 'rs'],
     approval: 'human-gate',
     note_kinds: ALL_NOTES,
@@ -241,9 +302,7 @@ function assertNoteKind(kind: string | null | undefined): NoteKind | null {
   }
   return kind as NoteKind;
 }
-function assertImportance(
-  v: string | null | undefined,
-): NoteImportance | null {
+function assertImportance(v: string | null | undefined): NoteImportance | null {
   if (v == null) return null;
   if (!(NOTE_IMPORTANCES as readonly string[]).includes(v)) {
     throw new BoardError(
@@ -462,9 +521,7 @@ export async function setBoardStatus(
 ): Promise<BoardRow> {
   const board = await store.getBoard(args.workspace, args.board);
   if (!board) {
-    throw new BoardError(
-      `no boards row for ${args.workspace}/${args.board}`,
-    );
+    throw new BoardError(`no boards row for ${args.workspace}/${args.board}`);
   }
   const next: BoardRow = {
     ...board,
@@ -477,7 +534,12 @@ export async function setBoardStatus(
 /** Defer a board — evidence, interview and decisions are retained. */
 export function deferBoard(
   store: Store,
-  args: { workspace: string; board: string; actor: StatementActor; now?: () => Date },
+  args: {
+    workspace: string;
+    board: string;
+    actor: StatementActor;
+    now?: () => Date;
+  },
 ): Promise<BoardRow> {
   return setBoardStatus(store, { ...args, status: 'deferred' });
 }
@@ -485,7 +547,12 @@ export function deferBoard(
 /** Archive a board (terminal; history preserved). */
 export function archiveBoard(
   store: Store,
-  args: { workspace: string; board: string; actor: StatementActor; now?: () => Date },
+  args: {
+    workspace: string;
+    board: string;
+    actor: StatementActor;
+    now?: () => Date;
+  },
 ): Promise<BoardRow> {
   return setBoardStatus(store, { ...args, status: 'archived' });
 }
@@ -555,7 +622,12 @@ export async function proposeResurface(
  *  re-enters discovery with all its evidence intact. */
 export async function acceptResurface(
   store: Store,
-  args: { workspace: string; board: string; actor: StatementActor; now?: () => Date },
+  args: {
+    workspace: string;
+    board: string;
+    actor: StatementActor;
+    now?: () => Date;
+  },
 ): Promise<BoardRow> {
   if (args.actor.type !== 'human') {
     throw new BoardError(
@@ -742,7 +814,10 @@ export interface ExtractBoardResult extends IngestExtractionResult {
 export async function boardSources(
   store: Store,
   args: { workspace: string; board: string; itemIds?: string[] },
-): Promise<{ items: BoardItem[]; sources: ReturnType<typeof sourceFromBoardItem>[] }> {
+): Promise<{
+  items: BoardItem[];
+  sources: ReturnType<typeof sourceFromBoardItem>[];
+}> {
   const all = await store.listBoardItems({
     workspace: args.workspace,
     board: args.board,
@@ -800,7 +875,10 @@ export async function extractBoard(
   return {
     ...result,
     itemIds: items.map((i) => i.id),
-    byItem: statementsByItem(result, items.map((i) => i.id)),
+    byItem: statementsByItem(
+      result,
+      items.map((i) => i.id),
+    ),
   };
 }
 
@@ -819,7 +897,9 @@ export async function statementsForItems(
   const all = await store.listStatements({ workspace });
   return all.filter((s) => {
     const ref = s.source_ref as { kind?: string; id?: string } | null;
-    return ref?.kind === 'board-item' && ref.id !== undefined && wanted.has(ref.id);
+    return (
+      ref?.kind === 'board-item' && ref.id !== undefined && wanted.has(ref.id)
+    );
   });
 }
 
@@ -914,7 +994,8 @@ export async function referenceApprovedItem(
     board: args.board,
     kind: 'note',
     ref: `${args.subject}:${args.doc}@v${head.version}`,
-    title: args.title ?? `Reference: ${args.subject} ${args.doc} v${head.version}`,
+    title:
+      args.title ?? `Reference: ${args.subject} ${args.doc} v${head.version}`,
     body: null,
     x: null,
     y: null,

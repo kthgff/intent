@@ -23,9 +23,9 @@ import {
   boardSources,
   boardSurface,
   boardTypeConfig,
+  changeRequestForApprovedItem,
   createBoard,
   createTypedNote,
-  changeRequestForApprovedItem,
   ingestExtraction,
   proposeResurface,
   referenceApprovedItem,
@@ -41,7 +41,12 @@ import type {
   Store,
   TicketRow,
 } from '@sprint-runner/core';
-import { BOARD_TYPES, NOTE_IMPORTANCES, NOTE_KINDS, NOTE_STATUSES } from '@sprint-runner/core';
+import {
+  BOARD_TYPES,
+  NOTE_IMPORTANCES,
+  NOTE_KINDS,
+  NOTE_STATUSES,
+} from '@sprint-runner/core';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { ApiError } from './server.js';
@@ -184,7 +189,15 @@ const PHASE_STATUSES: Record<Phase, readonly string[]> = {
   ],
   build: ['ready', 'in-progress', 'review', 'changes-requested'],
   review: ['approved', 'pr-open', 'ci-watch', 'verifying', 'verify_failed'],
-  done: ['merged', 'released', 'reverted', 'wont-do', 'aborted', 'split', 'discarded'],
+  done: [
+    'merged',
+    'released',
+    'reverted',
+    'wont-do',
+    'aborted',
+    'split',
+    'discarded',
+  ],
 };
 
 const STATUS_PHASE: Record<string, Phase> = Object.fromEntries(
@@ -227,17 +240,20 @@ export function derivePhase(
   return STATUS_PHASE[status] ?? 'backlog';
 }
 
-/** Allowed drag-drop targets for a card (server-authoritative, D21). */
-export function dropTargets(ticket: TicketRow): DropTarget[] {
-  const phase = STATUS_PHASE[ticket.status] ?? 'backlog';
+/** Allowed drag-drop targets for a card (server-authoritative, D21).
+ *  `phase` is the card's derived phase — failed/blocked tickets offer
+ *  only `retry` (into the phase they died in); abandoning a dead ticket
+ *  is a ticket-page action, not a board drag. */
+export function dropTargets(ticket: TicketRow, phase: Phase): DropTarget[] {
   const targets: DropTarget[] = [];
-  if (ticket.status === 'failed' || ticket.status === 'blocked') {
+  const dead = ticket.status === 'failed' || ticket.status === 'blocked';
+  if (dead) {
     targets.push({ column: phase, action: 'retry', confirm: true });
   }
   if (ticket.status === 'escalated') {
     targets.push({ column: phase, action: 'claim', confirm: false });
   }
-  if (!TERMINAL.has(ticket.status)) {
+  if (!dead && !TERMINAL.has(ticket.status)) {
     targets.push({
       column: 'done',
       action: IN_FLIGHT.has(ticket.status) ? 'aborted' : 'wont_do',
@@ -300,16 +316,17 @@ export function registerBoardRoutes(
             : [];
         const lastFrom =
           (events.at(-1)?.data as { from?: string } | undefined)?.from ?? null;
+        const phase = derivePhase(t.status, lastFrom);
         return {
           workspace: t.workspace,
           ref: key,
           ticket_id: t.ticket_id,
           title: t.title,
           status: t.status,
-          phase: derivePhase(t.status, lastFrom),
+          phase,
           priority: t.priority,
           attention: attentionByTicket.get(t.ticket_id) ?? [],
-          drop_targets: dropTargets(t),
+          drop_targets: dropTargets(t, phase),
         };
       }),
     );
@@ -334,7 +351,8 @@ export function registerBoardRoutes(
 
   app.get('/api/v1/boards', async (req) => {
     const { workspace: wsName } = req.query as { workspace?: string };
-    if (!wsName) throw new ApiError(400, 'bad_request', 'workspace is required');
+    if (!wsName)
+      throw new ApiError(400, 'bad_request', 'workspace is required');
     env.workspace(wsName);
     const boards = await store.listBoards(wsName);
     return {
@@ -368,10 +386,12 @@ export function registerBoardRoutes(
   app.get('/api/v1/boards/:board', async (req) => {
     const { board: boardSlug } = req.params as { board: string };
     const { workspace: wsName } = req.query as { workspace?: string };
-    if (!wsName) throw new ApiError(400, 'bad_request', 'workspace is required');
+    if (!wsName)
+      throw new ApiError(400, 'bad_request', 'workspace is required');
     env.workspace(wsName);
     const row = await store.getBoard(wsName, boardSlug);
-    if (!row) throw new ApiError(404, 'not_found', `no board ${wsName}/${boardSlug}`);
+    if (!row)
+      throw new ApiError(404, 'not_found', `no board ${wsName}/${boardSlug}`);
     const surface = await boardSurface(store, {
       workspace: wsName,
       board: boardSlug,
@@ -391,13 +411,19 @@ export function registerBoardRoutes(
       createTypedNote(store, {
         workspace: body.workspace,
         board: boardSlug,
-        ...(body.kind !== undefined ? { kind: body.kind as BoardItem['kind'] } : {}),
-        ...(body.note_kind !== undefined ? { note_kind: body.note_kind as never } : {}),
+        ...(body.kind !== undefined
+          ? { kind: body.kind as BoardItem['kind'] }
+          : {}),
+        ...(body.note_kind !== undefined
+          ? { note_kind: body.note_kind as never }
+          : {}),
         ...(body.topic !== undefined ? { topic: body.topic } : {}),
         ...(body.importance !== undefined
           ? { importance: body.importance as never }
           : {}),
-        ...(body.applies_to !== undefined ? { applies_to: body.applies_to } : {}),
+        ...(body.applies_to !== undefined
+          ? { applies_to: body.applies_to }
+          : {}),
         ...(body.note_status !== undefined
           ? { note_status: body.note_status as never }
           : {}),
@@ -493,8 +519,10 @@ export function registerBoardRoutes(
         'board extract: provide `output` (statements.json) or `statements`',
       );
     }
-    const output =
-      body.output ?? { schema: 1, statements: body.statements ?? [] };
+    const output = body.output ?? {
+      schema: 1,
+      statements: body.statements ?? [],
+    };
     const result = await board(async () => {
       const { items, sources } = await boardSources(store, {
         workspace: body.workspace,
@@ -512,7 +540,10 @@ export function registerBoardRoutes(
       return {
         ...res,
         itemIds: items.map((i) => i.id),
-        byItem: statementsByItem(res, items.map((i) => i.id)),
+        byItem: statementsByItem(
+          res,
+          items.map((i) => i.id),
+        ),
       };
     });
     return { result };
@@ -557,7 +588,8 @@ export function registerBoardRoutes(
   app.get('/api/v1/board-items/:id/statements', async (req) => {
     const { id } = req.params as { id: string };
     const { workspace: wsName } = req.query as { workspace?: string };
-    if (!wsName) throw new ApiError(400, 'bad_request', 'workspace is required');
+    if (!wsName)
+      throw new ApiError(400, 'bad_request', 'workspace is required');
     const item = await store.getBoardItem(id);
     if (!item || item.workspace !== wsName) {
       throw new ApiError(404, 'not_found', `no board item ${id}`);

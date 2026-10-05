@@ -13,7 +13,11 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Conductor, type ConductorDeps, StubTransitionHandler } from '@sprint-runner/conductor';
+import {
+  Conductor,
+  type ConductorDeps,
+  StubTransitionHandler,
+} from '@sprint-runner/conductor';
 import { resolveConfig } from '@sprint-runner/config';
 import type { BoardItem, GateItem, TicketRow } from '@sprint-runner/core';
 import { PostgresStore } from '@sprint-runner/store';
@@ -76,7 +80,9 @@ const ticketRow = (over: Partial<TicketRow>): TicketRow => ({
   ...over,
 });
 
-const boardItem = (over: Partial<BoardItem> & Pick<BoardItem, 'id'>): BoardItem => ({
+const boardItem = (
+  over: Partial<BoardItem> & Pick<BoardItem, 'id'>,
+): BoardItem => ({
   workspace: WS,
   board: 'ideas',
   kind: 'note',
@@ -156,7 +162,9 @@ describe('auth', () => {
 
 describe('GET /board', () => {
   it('groups tickets by derived phase with attention + drop_targets', async () => {
-    await store.upsertTicket(ticketRow({ ticket_id: 'SR-0001', status: 'triage' }));
+    await store.upsertTicket(
+      ticketRow({ ticket_id: 'SR-0001', status: 'triage' }),
+    );
     await store.upsertTicket(
       ticketRow({ ticket_id: 'SR-0002', status: 'prd-review' }),
     );
@@ -166,9 +174,13 @@ describe('GET /board', () => {
     await store.upsertTicket(
       ticketRow({ ticket_id: 'SR-0004', status: 'ci-watch' }),
     );
-    await store.upsertTicket(ticketRow({ ticket_id: 'SR-0005', status: 'merged' }));
+    await store.upsertTicket(
+      ticketRow({ ticket_id: 'SR-0005', status: 'merged' }),
+    );
     // A failed ticket that died in build.
-    await store.upsertTicket(ticketRow({ ticket_id: 'SR-0006', status: 'failed' }));
+    await store.upsertTicket(
+      ticketRow({ ticket_id: 'SR-0006', status: 'failed' }),
+    );
     await store.appendEvent({
       workspace: WS,
       ticket_id: 'SR-0006',
@@ -188,7 +200,9 @@ describe('GET /board', () => {
       duration_s: null,
       human_minutes: null,
     });
-    await store.upsertGateItem(gateItem({ subject: 'SR-0001', gate: 'prd-review' }));
+    await store.upsertGateItem(
+      gateItem({ subject: 'SR-0001', gate: 'prd-review' }),
+    );
 
     const app = makeServer();
     const res = await app.inject({
@@ -198,11 +212,18 @@ describe('GET /board', () => {
     });
     expect(res.statusCode).toBe(200);
     const body = res.json() as {
-      phases: { phase: string; count: number; cards: { ref: string; phase: string; attention: unknown[]; drop_targets: { action: string }[] }[] }[];
+      phases: {
+        phase: string;
+        count: number;
+        cards: {
+          ref: string;
+          phase: string;
+          attention: unknown[];
+          drop_targets: { action: string }[];
+        }[];
+      }[];
     };
-    const byPhase = Object.fromEntries(
-      body.phases.map((p) => [p.phase, p]),
-    );
+    const byPhase = Object.fromEntries(body.phases.map((p) => [p.phase, p]));
     expect(byPhase.backlog?.count).toBe(1);
     expect(byPhase.spec?.count).toBe(1);
     // in-progress + the failed ticket (died in build) both land in build.
@@ -327,7 +348,11 @@ describe('idea boards', () => {
       }),
     );
     await store.upsertBoardItem(
-      boardItem({ id: 'a2', board: 'ideas', title: 'Admins need an audit log' }),
+      boardItem({
+        id: 'a2',
+        board: 'ideas',
+        title: 'Admins need an audit log',
+      }),
     );
 
     const res = await app.inject({
@@ -381,7 +406,10 @@ describe('idea boards', () => {
       url: '/api/v1/boards/ideas?workspace=ws',
       headers: AUTH,
     });
-    const items = boardRes.json().items as { item: { id: string }; statements: unknown[] }[];
+    const items = boardRes.json().items as {
+      item: { id: string };
+      statements: unknown[];
+    }[];
     expect(items.find((i) => i.item.id === 'a1')?.statements).toHaveLength(2);
     expect(items.find((i) => i.item.id === 'a2')?.statements).toHaveLength(0);
 

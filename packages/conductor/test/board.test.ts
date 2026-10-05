@@ -555,7 +555,10 @@ describe('board → statements handoff', () => {
       actor: 'extractor',
       now,
     });
-    const surface = await boardSurface(store, { workspace: WS, board: 'ideas' });
+    const surface = await boardSurface(store, {
+      workspace: WS,
+      board: 'ideas',
+    });
     const a1 = surface.find((s) => s.item.id === 'a1');
     const a2 = surface.find((s) => s.item.id === 'a2');
     const a3 = surface.find((s) => s.item.id === 'a3');

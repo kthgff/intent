@@ -77,9 +77,9 @@ import Fastify, {
 } from 'fastify';
 import YAML from 'yaml';
 import { z } from 'zod';
+import { registerBoardRoutes } from './board.js';
 import { registerDesignRoutes } from './design.js';
 import { lineDiff } from './diff.js';
-import { registerBoardRoutes } from './board.js';
 import { registerReviewRoutes } from './review.js';
 import { StreamHub } from './sse.js';
 
