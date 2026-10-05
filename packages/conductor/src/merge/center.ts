@@ -74,7 +74,7 @@ export async function evaluateMergeCenter(
   return out;
 }
 
-/** True when a `merge_ready` event already exists for the ticket. */
+/** Earliest `merge_ready` event time for the ticket (FIFO order), or null. */
 async function mergeReadyAt(
   ctx: MergeCtx,
   ticketId: string,
@@ -85,6 +85,73 @@ async function mergeReadyAt(
     event: 'merge_ready',
   });
   return events[0]?.ts ?? null;
+}
+
+/** True when a gate item is already surfaced and open. */
+async function gateOpen(
+  ctx: MergeCtx,
+  subject: string,
+  gate: string,
+): Promise<boolean> {
+  const item = await ctx.deps.store.getGateItem({
+    workspace: ctx.ws.name,
+    subject,
+    gate,
+  });
+  return item != null && item.cleared_at == null;
+}
+
+/**
+ * Surface the gate items / follow-up runs a non-ready ticket needs:
+ * a `branch-protection` blocker → a `merge` gate (stop, never bypass);
+ * a `conflict` blocker → a `merge_conflict` gate + a `rebase` run.
+ * Idempotent: an already-open gate is not re-surfaced.
+ */
+async function surfaceBlockers(
+  ctx: MergeCtx,
+  tools: TransitionTools,
+  ticket: TicketRow,
+  readiness: MergeReadiness,
+  report: MergeCenterReport,
+): Promise<void> {
+  const id = ticket.ticket_id;
+  for (const item of readiness.blockers) {
+    if (item.id === 'branch-protection') {
+      if (await gateOpen(ctx, id, 'merge')) continue;
+      await tools.surfaceGateItem({
+        subject: id,
+        gate: 'merge',
+        kind: 'escalation',
+        blockedAgent: true,
+        payload: { reason: 'branch protection blocks the merge', detail: item.detail },
+      });
+      report.blocked.push(id);
+      report.actions.push(`${id}: branch protection → merge gate`);
+    } else if (item.id === 'conflict') {
+      if (await gateOpen(ctx, id, 'merge_conflict')) continue;
+      await tools.appendEvent({
+        ticketId: id,
+        event: 'merge_conflict',
+        data: { detail: item.detail ?? null, via: 'merge-center-checklist' },
+      });
+      await tools.surfaceGateItem({
+        subject: id,
+        gate: 'merge_conflict',
+        kind: 'escalation',
+        blockedAgent: true,
+        payload: { detail: item.detail ?? null },
+      });
+      // The rebase run owns the branch rewrite — never a silent force-push.
+      await tools.requestRun({
+        workspace: ctx.ws.name,
+        subject: id,
+        stage: 'rebase',
+        ticketId: id,
+      });
+      report.conflicts.push(id);
+      report.actions.push(`${id}: conflict → merge_conflict gate + rebase run`);
+    }
+  }
 }
 
 /** Latest merge_attempted head per repo — attempt dedup. */
@@ -131,6 +198,21 @@ export async function runMergeCenter(
 
   const readiness =
     opts.readiness ?? (await evaluateMergeCenter(ctx, opts));
+
+  // ---- 0. surface gate items for blocking checklist rows ----
+  for (const [id, r] of readiness) {
+    if (r.ready) continue;
+    const ticket = await store.getTicket({
+      workspace: ws.name,
+      ticket_id: id,
+    });
+    if (!ticket) continue;
+    try {
+      await surfaceBlockers(ctx, tools, ticket, r, report);
+    } catch (e) {
+      report.warnings.push(`${id}: ${(e as Error).message}`);
+    }
+  }
 
   // ---- 1. emit merge_ready once, collect ready tickets ----
   const readyTickets: { ticket: TicketRow; readyAt: string }[] = [];
