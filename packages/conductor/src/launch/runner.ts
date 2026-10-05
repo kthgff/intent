@@ -296,7 +296,18 @@ async function importOutcome(
       {
         imported: res.materialize.imported,
         collisions: res.materialize.collisions,
-      } satisfies MaterializeResult,
+        ...(res.reconcile
+          ? {
+              reconciliation: {
+                board: res.reconcile.board,
+                boardCreated: res.reconcile.boardCreated,
+                findings: res.reconcile.findings,
+                reconciled: res.reconcile.reconciled,
+                blocked: res.reconcile.blocked,
+              },
+            }
+          : {}),
+      } satisfies MaterializeResult & { reconciliation?: unknown },
       null,
       2,
     )}\n`;

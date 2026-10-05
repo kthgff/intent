@@ -26,6 +26,7 @@
  */
 import { createHash } from 'node:crypto';
 import {
+  type SourceRef,
   type Store,
   type TicketFrontmatter,
   TicketFrontmatterSchema,
@@ -37,6 +38,7 @@ import {
   reposFor,
   sourceFor,
 } from './preview.js';
+import { sourceRefFor } from './source-ref.js';
 import type { RawIssue } from './types.js';
 
 /** Gate instance name for import-surface failures (already-imported
@@ -134,6 +136,8 @@ export interface ImportedTicket {
   source: string;
   /** ticket.md doc_versions.version written (always 1 on first import). */
   docVersion: number;
+  /** Structured provenance (wp-139) — original system + id + kind. */
+  sourceRef: SourceRef;
 }
 
 export interface ImportCollision {
@@ -199,6 +203,9 @@ export async function materialize(
     const imported = await store.transaction(async (s) => {
       const id = await s.allocTicketId(workspace);
       const { frontmatter, contents } = renderTicketMd(issue, opts.repoMap, id);
+      // wp-139: preserve the original tracker identity — system + kind
+      // (issue ≠ PR) + url + import time + original status.
+      const sourceRef = sourceRefFor(issue, now);
       await s.upsertTicket({
         workspace,
         ticket_id: id,
@@ -213,6 +220,7 @@ export async function materialize(
         parent: frontmatter.parent ?? null,
         depends_on: frontmatter.depends_on,
         source,
+        source_ref: sourceRef,
         forced: frontmatter.forced,
         spec_score: null,
         spec_hash: sha256(contents),
@@ -238,7 +246,7 @@ export async function materialize(
           merged_sha: null,
         });
       }
-      return { id, source, docVersion: doc.version };
+      return { id, source, docVersion: doc.version, sourceRef };
     });
     bySource.set(source, imported.id);
     result.imported.push(imported);
