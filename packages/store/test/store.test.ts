@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { EventRow, RunRow } from '@sprint-runner/core';
+import type { ContainerRow, EventRow, RunRow } from '@sprint-runner/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createPgliteClient } from '../src/client.js';
 import { PostgresStore } from '../src/index.js';
@@ -70,6 +70,7 @@ describe('migrations + meta', () => {
       'embeddings',
       'usage_calls',
       'gate_items',
+      'containers',
       'schema_meta',
     ]) {
       expect(tables).toContain(t);
@@ -199,6 +200,74 @@ describe('runs registry', () => {
     r = await s().getRun(run().id);
     expect(r?.status).toBe('exited');
     expect(r?.sentinel).toBe('done');
+  });
+
+  it('container_id round-trips on runs rows (D30)', async () => {
+    await s().createRun(run({ container_id: 'docker-abc123' }));
+    expect((await s().getRun(run().id))?.container_id).toBe('docker-abc123');
+    await s().updateRun(run().id, { container_id: null });
+    expect((await s().getRun(run().id))?.container_id).toBeNull();
+  });
+});
+
+describe('containers (D30 subject lifecycle)', () => {
+  const crow = (over: Partial<ContainerRow> = {}): ContainerRow => ({
+    workspace: 'ws1',
+    subject: 'SR-0001',
+    container_id: 'cid-1',
+    image: 'veto/agent:latest',
+    state: 'running',
+    created_at: '2026-10-03T14:00:00Z',
+    stopped_at: null,
+    ...over,
+  });
+
+  it('upserts, reads, lists and transitions the subject row', async () => {
+    await s().upsertContainer(crow());
+    const row = await s().getContainer({
+      workspace: 'ws1',
+      subject: 'SR-0001',
+    });
+    expect(row?.container_id).toBe('cid-1');
+    expect(row?.state).toBe('running');
+
+    // state transition: running → stopped
+    await s().upsertContainer(
+      crow({ state: 'stopped', stopped_at: '2026-10-03T15:00:00Z' }),
+    );
+    expect(
+      (await s().getContainer({ workspace: 'ws1', subject: 'SR-0001' }))?.state,
+    ).toBe('stopped');
+
+    // recreate: new container id + fresh created_at
+    await s().upsertContainer(
+      crow({
+        container_id: 'cid-2',
+        state: 'running',
+        created_at: '2026-10-03T16:00:00Z',
+        stopped_at: null,
+      }),
+    );
+    const after = await s().getContainer({
+      workspace: 'ws1',
+      subject: 'SR-0001',
+    });
+    expect(after?.container_id).toBe('cid-2');
+    expect(after?.created_at).toBe('2026-10-03T16:00:00Z');
+
+    await s().upsertContainer(
+      crow({ subject: 'probe:code-repo', container_id: 'cid-9' }),
+    );
+    expect(await s().listContainers({ workspace: 'ws1' })).toHaveLength(2);
+    expect(
+      (await s().listContainers({ workspace: 'ws1', state: 'running' })).map(
+        (r) => r.subject,
+      ),
+    ).toEqual(['SR-0001', 'probe:code-repo']);
+    expect(
+      await s().getContainer({ workspace: 'ws1', subject: 'SR-9999' }),
+    ).toBeNull();
+    expect(await s().listContainers({ workspace: 'ws2' })).toHaveLength(0);
   });
 });
 

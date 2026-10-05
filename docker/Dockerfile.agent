@@ -1,0 +1,52 @@
+# syntax=docker/dockerfile:1
+#
+# veto/agent — the shared per-subject worker image (D30, wp-095).
+# One container per subject; the conductor's runs execute inside it via
+# `docker exec -w <worktree>` (wp-096). Worktrees are bind-mounted at
+# identical host/container paths, so paths in prompts/logs are stable.
+#
+# Contents (SETTINGS `containers.image` comment): git, gh, aider, and
+# node/python/go runtimes. Repo-specific toolchains install inside the
+# container via repo-card `setup` — this image stays generic.
+#
+# CMD parks PID1 between execs (`--init` at create gives tini, so
+# exec'd orphans get reaped).
+FROM node:22-bookworm-slim
+
+ARG GH_VERSION=2.62.0
+# BuildKit builtin (amd64|arm64); classic-builder fallback below.
+ARG TARGETARCH
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      bash \
+      ca-certificates \
+      curl \
+      git \
+      gnupg \
+      golang-go \
+      less \
+      openssh-client \
+      python3 \
+      python3-pip \
+      python3-venv \
+ && rm -rf /var/lib/apt/lists/*
+
+# GitHub CLI — release tarball (not in debian apt). TARGETARCH (amd64 /
+# arm64) lines up with gh's release-asset names; dpkg is the fallback.
+RUN arch="${TARGETARCH:-$(dpkg --print-architecture)}" \
+ && curl -fsSL \
+      "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${arch}.tar.gz" \
+      | tar -xz -C /usr/local --strip-components=1 \
+ && gh --version
+
+# aider — isolated venv (bookworm python is PEP-668 externally-managed;
+# pipx-level isolation without the extra dep).
+RUN python3 -m venv /opt/aider \
+ && /opt/aider/bin/pip install --no-cache-dir aider-chat \
+ && ln -sf /opt/aider/bin/aider /usr/local/bin/aider \
+ && aider --version
+
+# The container's only job between `docker exec` sessions is staying
+# alive; create passes this same argv explicitly (belt and suspenders).
+CMD ["sleep", "infinity"]

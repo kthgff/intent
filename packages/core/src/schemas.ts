@@ -11,6 +11,7 @@ import {
   BOARD_ITEM_STATUSES,
   CALL_USAGE_SOURCES,
   CI_STATES,
+  CONTAINER_STATES,
   COVERAGE_KINDS,
   DEPTH_TIERS,
   DEVIATION_REASON_KINDS,
@@ -522,6 +523,20 @@ export const RunRowSchema = z.object({
   run_dir: z.string().nullish(),
 });
 export type RunRow = z.infer<typeof RunRowSchema>;
+
+/** containers row (DB-SCHEMA, D30) — one per (workspace, subject);
+ *  the conductor-owned per-subject docker container. */
+export const ContainerRowSchema = z.object({
+  workspace: z.string().min(1),
+  subject: z.string().min(1),
+  /** Docker container id (last known — kept for audit after removal). */
+  container_id: z.string().min(1),
+  image: z.string().nullish(),
+  state: enumOf(CONTAINER_STATES),
+  created_at: z.string().nullish(),
+  stopped_at: z.string().nullish(),
+});
+export type ContainerRow = z.infer<typeof ContainerRowSchema>;
 
 export const TicketRowSchema = z.object({
   workspace: z.string().min(1),

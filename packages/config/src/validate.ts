@@ -47,7 +47,8 @@ const FIXED_KEYS: Record<string, readonly string[]> = {
   ui: ['bind', 'port', 'token_file', 'remote_access'],
   notifications: ['desktop', 'badge'],
   review: ['auto_fix_severities', 'auto_fix_rounds'],
-  'capabilities.*': ['can_exec', 'can_write_outside_tree', 'has_gh'],
+  containers: ['runtime', 'image', 'cpu', 'memory', 'stop_on_gate'],
+  'capabilities.*': ['can_exec', 'can_write_outside_tree', 'has_gh', 'runtime'],
   'repos.*': ['path', 'card'],
   'repos.*.card': [
     'test',

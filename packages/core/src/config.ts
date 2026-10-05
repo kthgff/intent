@@ -10,6 +10,8 @@ import {
   GATE_MODES,
   MERGE_STRATEGIES,
   PERMISSION_MODES,
+  RUNTIMES,
+  type Runtime,
 } from './enums.js';
 
 const enumOf = (values: readonly string[]) =>
@@ -46,8 +48,57 @@ export const CapabilitiesSchema = z.object({
   can_exec: z.boolean(),
   can_write_outside_tree: z.boolean(),
   has_gh: z.boolean(),
+  /** Per-backend runtime override (D30). Unset → the backend's declared
+   *  runtime decides: container-capable backends follow
+   *  `containers.runtime`, process-only backends stay `process`. */
+  runtime: enumOf(RUNTIMES).optional(),
 });
 export type Capabilities = z.infer<typeof CapabilitiesSchema>;
+
+/** `containers:` settings block (SETTINGS, D30) — per-subject docker
+ *  container runtime knobs. */
+export const ContainersConfigSchema = z.object({
+  /** Default runtime for container-capable backends; `process` =
+   *  detached-OS-process fallback for every backend. */
+  runtime: enumOf(RUNTIMES).default('container'),
+  /** Shared agent base image — built from `docker/Dockerfile.agent` or
+   *  pulled at conductor start when a container backend is in play. */
+  image: z.string().min(1).default('veto/agent:latest'),
+  /** `--cpus` cap for each subject container. */
+  cpu: z.number().positive().default(2),
+  /** `--memory` cap (docker units — `4g`, `512m`, …). */
+  memory: z.string().min(1).default('4g'),
+  /** `docker stop` the subject's container when it parks on a gate. */
+  stop_on_gate: z.boolean().default(true),
+});
+export type ContainersConfig = z.infer<typeof ContainersConfigSchema>;
+
+const asRuntime = (v: string | null | undefined): Runtime | null =>
+  v === 'container' || v === 'process' ? v : null;
+
+/**
+ * Resolve a backend's effective runtime (D30):
+ *   capabilities.<backend>.runtime override  — wins when set;
+ *   else the adapter's declared CapabilityFlags.runtime —
+ *     `container` (container-capable) → `containers.runtime` decides;
+ *     `process` / undeclared → `process` (a backend never gets promoted
+ *     into a container it didn't declare — fail-closed).
+ */
+export function resolveRuntime(opts: {
+  /** `capabilities.<backend>.runtime` from config. */
+  override?: string | null | undefined;
+  /** Adapter-declared `CapabilityFlags.runtime`. */
+  declared?: string | null | undefined;
+  /** `containers.runtime` global default. */
+  global?: string | undefined;
+}): Runtime {
+  const override = asRuntime(opts.override);
+  if (override !== null) return override;
+  if (asRuntime(opts.declared) === 'container') {
+    return asRuntime(opts.global) ?? 'container';
+  }
+  return asRuntime(opts.declared) ?? 'process';
+}
 
 export const SurveyConfigSchema = z.object({
   refresh: z.enum(['weekly', 'daily', 'manual']).default('weekly'),
@@ -119,6 +170,9 @@ export const ConfigSchema = z.object({
   review_model: z.string().nullish(),
   escalation_model: z.string().nullish(),
   capabilities: z.record(CapabilitiesSchema).default({}),
+  /** Per-subject docker containers (D30) — image, resource caps,
+   *  gate-park behavior, global runtime default. */
+  containers: ContainersConfigSchema.default({}),
   repos: z.record(RepoEntrySchema).default({}),
   products: z.record(ProductSchema).default({}),
   survey: SurveyConfigSchema.default({}),

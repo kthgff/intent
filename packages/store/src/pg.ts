@@ -24,6 +24,9 @@ import type {
   BoardRow,
   Claim,
   ClaimKey,
+  ContainerKey,
+  ContainerRow,
+  ContainerState,
   DocKey,
   DocVersion,
   DossierEntry,
@@ -478,6 +481,51 @@ export class PostgresStore implements Store {
       args,
     );
     return rows.map(rowToRun);
+  }
+
+  // ---- containers (D30) ----
+
+  async upsertContainer(row: ContainerRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO containers (workspace, subject, container_id, image,
+         state, created_at, stopped_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       ON CONFLICT (workspace, subject) DO UPDATE SET
+         container_id=$3, image=$4, state=$5, created_at=$6,
+         stopped_at=$7`,
+      [
+        row.workspace,
+        row.subject,
+        row.container_id,
+        row.image ?? null,
+        row.state,
+        row.created_at ?? now(),
+        row.stopped_at ?? null,
+      ],
+    );
+  }
+
+  async getContainer(key: ContainerKey): Promise<ContainerRow | null> {
+    const rows = await this.db.query(
+      'SELECT * FROM containers WHERE workspace=$1 AND subject=$2',
+      [key.workspace, key.subject],
+    );
+    return rows[0] ? rowToContainer(rows[0]) : null;
+  }
+
+  async listContainers(filter?: {
+    workspace?: string;
+    state?: ContainerState;
+  }): Promise<ContainerRow[]> {
+    const { where, args } = pgWhere({
+      workspace: filter?.workspace,
+      state: filter?.state,
+    });
+    const rows = await this.db.query(
+      `SELECT * FROM containers ${where} ORDER BY workspace, subject`,
+      args,
+    );
+    return rows.map(rowToContainer);
   }
 
   // ---- tickets ----
@@ -1653,6 +1701,18 @@ function rowToRun(row: Row): RunRow {
   for (const c of RUN_COLUMNS) r[c] = row[c] ?? null;
   r.request = row.request ? unj(row.request, null) : null;
   return r as unknown as RunRow;
+}
+
+function rowToContainer(row: Row): ContainerRow {
+  return {
+    workspace: row.workspace as string,
+    subject: row.subject as string,
+    container_id: row.container_id as string,
+    image: (row.image as string | null) ?? null,
+    state: row.state as ContainerRow['state'],
+    created_at: (row.created_at as string | null) ?? null,
+    stopped_at: (row.stopped_at as string | null) ?? null,
+  };
 }
 
 function rowToTicket(row: Row): TicketRow {

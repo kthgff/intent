@@ -8,10 +8,12 @@
  *
  * Signatures only — implementations live in packages/store (wp-091).
  */
+import type { ContainerState } from './enums.js';
 import type {
   BoardItem,
   BoardRow,
   Claim,
+  ContainerRow,
   DocVersion,
   DossierEntry,
   Embedding,
@@ -57,6 +59,12 @@ export interface GateItemKey {
 export interface TicketKey {
   workspace: string;
   ticket_id: string;
+}
+
+/** Container identity (DB-SCHEMA containers PK, D30). */
+export interface ContainerKey {
+  workspace: string;
+  subject: string;
 }
 
 export interface TicketRepoKey extends TicketKey {
@@ -172,6 +180,24 @@ export interface Store {
     ticket_id?: string;
     status?: string;
   }): Promise<RunRow[]>;
+
+  // ---- containers (D30 — per-subject docker lifecycle bookkeeping) ----
+
+  /**
+   * Upsert the subject's `containers` row (DB-SCHEMA containers). The
+   * row is bookkeeping for the conductor-owned docker container —
+   * worktrees, not containers, are durable (CONDUCTOR "Container
+   * lifecycle"). `state` transitions: created → running → stopped →
+   * removed (row retained for audit).
+   */
+  upsertContainer(row: ContainerRow): Promise<void>;
+  getContainer(key: ContainerKey): Promise<ContainerRow | null>;
+  /** All container rows (default) or scoped — the orphan sweep scans
+   *  every row to reconcile against `docker ps` (CONDUCTOR D30). */
+  listContainers(filter?: {
+    workspace?: string;
+    state?: ContainerState;
+  }): Promise<ContainerRow[]>;
 
   // ---- tickets (TRUTH rows — D29; no projection, no frontmatter) ----
 
