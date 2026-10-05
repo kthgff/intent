@@ -1,0 +1,37 @@
+{
+  "family": "rs-draft",
+  "cases": [
+    {
+      "case_id": "rs-01-sections",
+      "tags": [],
+      "input": {
+        "statements": ["s1", "s2"],
+        "brief": "solution-brief.md"
+      },
+      "expected": {
+        "sections": ["problem", "users", "chosen direction", "boundaries"]
+      },
+      "recorded": {
+        "sections": [
+          "problem",
+          "users",
+          "chosen direction",
+          "boundaries",
+          "open questions"
+        ],
+        "word_count": 640
+      }
+    },
+    {
+      "case_id": "rs-02-scope",
+      "tags": [],
+      "input": { "statements": ["s3"], "brief": null },
+      "expected": { "sections": ["problem", "users"], "cites_statements": true },
+      "recorded": {
+        "sections": ["problem", "users"],
+        "cites_statements": true,
+        "word_count": 410
+      }
+    }
+  ]
+}

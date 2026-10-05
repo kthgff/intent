@@ -1,0 +1,25 @@
+{
+  "family": "coverage",
+  "cases": [
+    {
+      "case_id": "cov-01-gap",
+      "tags": [],
+      "input": {
+        "requirements": ["AC-1", "AC-2", "AC-3"],
+        "cases": ["c1", "c2"]
+      },
+      "expected": { "uncovered": ["AC-2"] },
+      "recorded": {
+        "covered": ["AC-1", "AC-3"],
+        "uncovered": ["AC-2"]
+      }
+    },
+    {
+      "case_id": "cov-02-complete",
+      "tags": [],
+      "input": { "requirements": ["AC-1"], "cases": ["c1"] },
+      "expected": { "uncovered": [] },
+      "recorded": { "covered": ["AC-1"], "uncovered": [] }
+    }
+  ]
+}

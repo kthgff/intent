@@ -16,6 +16,7 @@ export {
   pinnedTable,
 } from './coverage.js';
 export { structuredDocLint } from './doc-lint.js';
+export * from './eval/index.js';
 export { type FilePlanDiffResult, filePlanVsDiff } from './file-plan.js';
 export {
   type FindingInput,

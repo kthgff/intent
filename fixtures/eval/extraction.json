@@ -1,0 +1,66 @@
+{
+  "family": "extraction",
+  "cases": [
+    {
+      "case_id": "ext-01-negation",
+      "tags": ["negation"],
+      "input": { "text": "Users must not be able to export data." },
+      "expected": {
+        "kind": "constraint",
+        "polarity": "negated",
+        "subject": "data export"
+      },
+      "recorded": {
+        "kind": "constraint",
+        "polarity": "negated",
+        "subject": "data export",
+        "confidence": 0.94
+      }
+    },
+    {
+      "case_id": "ext-02-qualifier",
+      "tags": ["qualifier"],
+      "input": { "text": "Admins can export data if MFA is enabled." },
+      "expected": {
+        "kind": "requirement",
+        "polarity": "affirmed",
+        "qualifier": "if MFA is enabled"
+      },
+      "recorded": {
+        "kind": "requirement",
+        "polarity": "affirmed",
+        "qualifier": "if MFA is enabled",
+        "subject": "data export",
+        "confidence": 0.9
+      }
+    },
+    {
+      "case_id": "ext-03-plain",
+      "tags": [],
+      "input": { "text": "The system records audit events." },
+      "expected": { "kind": "requirement", "polarity": "affirmed" },
+      "recorded": {
+        "kind": "requirement",
+        "polarity": "affirmed",
+        "subject": "audit events",
+        "confidence": 0.88
+      }
+    },
+    {
+      "case_id": "ext-04-negation-subject",
+      "tags": ["negation"],
+      "input": { "text": "Passwords must never be reused." },
+      "expected": {
+        "kind": "constraint",
+        "polarity": "negated",
+        "subject": "password reuse"
+      },
+      "recorded": {
+        "kind": "constraint",
+        "polarity": "negated",
+        "subject": "password reuse",
+        "confidence": 0.92
+      }
+    }
+  ]
+}
