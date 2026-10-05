@@ -108,7 +108,11 @@ export function compareAuthority(
  *  hasn't been rejected or superseded. `disputed` stays live: a
  *  contested truth still governs until the decision lands. */
 export function isLive(s: Pick<StatementRow, 'status'>): boolean {
-  return s.status === 'confirmed' || s.status === 'proposed' || s.status === 'disputed';
+  return (
+    s.status === 'confirmed' ||
+    s.status === 'proposed' ||
+    s.status === 'disputed'
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -268,9 +272,15 @@ export function resolveAuthority(
     const verdict = resolveEdge(rel, byId);
     verdicts.push(verdict);
     if (verdict.outcome === 'src') {
-      defeated.set(verdict.dst, `${verdict.predicate} by ${verdict.src} (${verdict.rule})`);
+      defeated.set(
+        verdict.dst,
+        `${verdict.predicate} by ${verdict.src} (${verdict.rule})`,
+      );
     } else if (verdict.outcome === 'dst') {
-      defeated.set(verdict.src, `${verdict.predicate} by ${verdict.dst} (${verdict.rule})`);
+      defeated.set(
+        verdict.src,
+        `${verdict.predicate} by ${verdict.dst} (${verdict.rule})`,
+      );
     }
     // 'unresolved' defeats nobody — fail-closed keeps both live.
   }

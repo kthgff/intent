@@ -24,9 +24,7 @@ export interface BuildExtractionPromptArgs {
 }
 
 /** Render the extraction prompt for a batch of evidence sources. */
-export function buildExtractionPrompt(
-  args: BuildExtractionPromptArgs,
-): string {
+export function buildExtractionPrompt(args: BuildExtractionPromptArgs): string {
   const known = args.knownStatements ?? [];
   const sourceBlocks = args.sources
     .map(

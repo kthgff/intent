@@ -650,6 +650,51 @@ entry — never a hardcoded model in a stage:
 ~1s TTFT) | `background` (quality-adjusted cost). Registry entries are
 versioned config — eval results (wp-156) feed route changes.
 
+## 22. statements.json — the `extract` stage's structured output (wp-143)
+
+The statement-extraction batch. **Fail-closed**: malformed output
+aborts the whole batch (nothing is written) — a partial ledger is worse
+than no ledger.
+
+```json
+{
+  "schema": 1,
+  "statements": [{
+    "key": "problem",
+    "text": "Password resets take 3 days",
+    "source": 0,
+    "source_text": "Password resets currently take 3 days.",
+    "span": [0, 39],
+    "intent": "problem",
+    "polarity": null,
+    "subject": "password-reset",
+    "strength": null,
+    "scope": null,
+    "scope_ref": null,
+    "confidence": 0.9,
+    "relations": [{"predicate": "derived-from", "target": "problem"}],
+    "clarification": null
+  }]
+}
+```
+
+Rules the ingest enforces (§15.3, wp-143):
+
+- `source_text` MUST be a verbatim substring of `sources[source].text`;
+  a paraphrase aborts the batch. When `span` is present it must slice
+  to exactly `source_text`.
+- `source` indexes the batch's source array (`board:<slug>`,
+  `session:<id>`, `import:<key>`, `doc:<subject>:<doc>`).
+- `relations[].target` is another statement's `key` in the same batch
+  or an existing `statement_id`; an unknown target aborts the batch.
+- `clarification` opens a `statement_clarifications` row — a question,
+  never a guess.
+- Provenance: extracted statements land `proposed` + `inferred`;
+  `stakeholder-verified` only ever comes from a human confirm.
+- The preservation lint (`packages/lints/src/extraction.ts`) flags a
+  negation/qualifier cue in the source that no covering statement
+  preserved — a dropped "not" silently inverts a requirement.
+
 ## Appendix A. Vocabulary mapping — old → new (wp-132)
 
 The addendum adopts the shared-chat vocabulary (PRD §15.2). Storage

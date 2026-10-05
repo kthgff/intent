@@ -127,10 +127,7 @@ function coversSentence(
 }
 
 /** Statement preserves the negation expressed in `sentence`? */
-function preservesNegation(
-  st: ExtractedStatementLike,
-  cue: string,
-): boolean {
+function preservesNegation(st: ExtractedStatementLike, cue: string): boolean {
   if (st.polarity === 'negate') return true;
   if (st.intent && NEGATING_INTENTS.has(st.intent)) return true;
   const text = `${st.text} ${st.source_text ?? ''}`.toLowerCase();
@@ -144,10 +141,7 @@ function preservesNegation(
 /** Statement preserves the qualifier expressed in `sentence`? The cue
  *  must appear in the statement's own words or its verbatim quote —
  *  polarity/intent cannot carry a scope qualifier. */
-function preservesQualifier(
-  st: ExtractedStatementLike,
-  cue: string,
-): boolean {
+function preservesQualifier(st: ExtractedStatementLike, cue: string): boolean {
   const text = `${st.text}\n${st.source_text ?? ''}`.toLowerCase();
   return text.includes(cue.toLowerCase());
 }
@@ -173,16 +167,15 @@ export function extractionPreservationLint(
     ] as const) {
       const cue = cueOf(re, s.sentence);
       if (cue === null) continue;
-      const covering = statements.filter((st) =>
-        coversSentence(st, source, s),
-      );
+      const covering = statements.filter((st) => coversSentence(st, source, s));
       const keep =
         rule === 'extraction.negation-dropped'
           ? preservesNegation
           : preservesQualifier;
       const preserved = covering.some((st) => keep(st, cue));
       if (preserved) continue;
-      const kind = rule === 'extraction.negation-dropped' ? 'negation' : 'qualifier';
+      const kind =
+        rule === 'extraction.negation-dropped' ? 'negation' : 'qualifier';
       const bound = covering[0]?.key;
       violations.push({
         rule,

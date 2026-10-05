@@ -15,7 +15,6 @@
  *    `confirmed` — a draft never retires confirmed truth.
  */
 import { randomUUID } from 'node:crypto';
-import { locateQuote } from '@sprint-runner/lints';
 import type {
   StatementDecisionRow,
   StatementIntent,
@@ -27,7 +26,8 @@ import type {
   StatementStrength,
   Store,
 } from '@sprint-runner/core';
-import { StatementError, type StatementActor } from './types.js';
+import { locateQuote } from '@sprint-runner/lints';
+import { type StatementActor, StatementError } from './types.js';
 
 type HeadWrite = Omit<StatementRow, 'version'>;
 
@@ -97,8 +97,7 @@ export async function proposeStatement(
   args: ProposeStatementArgs,
 ): Promise<StatementRow> {
   const ts = (args.now?.() ?? new Date()).toISOString();
-  const id =
-    args.statement_id ?? `st-man-${randomUUID().slice(0, 8)}`;
+  const id = args.statement_id ?? `st-man-${randomUUID().slice(0, 8)}`;
   const humanConfirm = args.actor.type === 'human' && args.confirm === true;
 
   let sourceRef: StatementSourceRef | null = args.source_ref ?? null;
@@ -305,7 +304,13 @@ export async function supersedeStatement(
         actor: args.actor,
         ...(args.now ? { now: args.now } : {}),
       });
-      await decideSupersedeDecisions(s, dst.statement_id, src.statement_id, args, ts);
+      await decideSupersedeDecisions(
+        s,
+        dst.statement_id,
+        src.statement_id,
+        args,
+        ts,
+      );
       return { applied: true };
     }
     if (dst.status === 'confirmed') {
@@ -358,7 +363,13 @@ async function applySupersedes(
       continue;
     }
     await writeStatus(s, dst, 'superseded', args);
-    await decideSupersedeDecisions(s, dst.statement_id, src.statement_id, args, ts);
+    await decideSupersedeDecisions(
+      s,
+      dst.statement_id,
+      src.statement_id,
+      args,
+      ts,
+    );
   }
 }
 
@@ -408,7 +419,8 @@ export async function askStatementClarification(
   await head(store, args.workspace, args.statement_id);
   const ts = (args.now?.() ?? new Date()).toISOString();
   const id =
-    args.clarification_id ?? `cl-${args.statement_id}-${randomUUID().slice(0, 8)}`;
+    args.clarification_id ??
+    `cl-${args.statement_id}-${randomUUID().slice(0, 8)}`;
   await store.upsertStatementClarification({
     workspace: args.workspace,
     org: args.org ?? null,
@@ -443,9 +455,7 @@ export async function answerStatementClarification(
     const rows = await s.listStatementClarifications({
       workspace: args.workspace,
     });
-    const row = rows.find(
-      (r) => r.clarification_id === args.clarification_id,
-    );
+    const row = rows.find((r) => r.clarification_id === args.clarification_id);
     if (!row) {
       throw new StatementError(
         `answerStatementClarification: no clarification ${args.clarification_id} in ${args.workspace}`,

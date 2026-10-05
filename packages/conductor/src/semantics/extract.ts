@@ -43,11 +43,8 @@ import {
   extractionPreservationLint,
   locateQuote,
 } from '@sprint-runner/lints';
-import {
-  EXTRACT_PROMPT_VERSION,
-  buildExtractionPrompt,
-} from './prompt.js';
-import { StatementError, type ExtractionSource } from './types.js';
+import { EXTRACT_PROMPT_VERSION, buildExtractionPrompt } from './prompt.js';
+import { type ExtractionSource, StatementError } from './types.js';
 
 /** Binding intents whose assertions shape what may be built — these
  *  are "consequential interpretations" (§15.3) that require a human
@@ -305,67 +302,142 @@ export async function ingestExtraction(
   const statements: StatementRow[] = [];
 
   return store.transaction(async (s) => {
-      await s.insertExtractionRun({
+    await s.insertExtractionRun({
+      workspace: args.workspace,
+      org: args.org ?? null,
+      extraction_run_id: runId,
+      run: args.run ?? null,
+      subject: args.subject ?? null,
+      model: args.model ?? null,
+      prompt_version: args.promptVersion ?? null,
+      stats: {
+        sources: args.sources.length,
+        statements: planned.length,
+        relations: plannedRelations.length,
+        violations: violations.map((v) => ({
+          rule: v.rule,
+          cue: v.cue,
+          statement: v.statement ?? null,
+        })),
+      },
+      created_at: ts,
+    });
+
+    // Statement heads — `proposed`/`source-backed` always: AI
+    // proposes, humans confirm; the span was verified verbatim.
+    for (const { st, id, sourceRef } of planned) {
+      const head = await s.upsertStatement({
         workspace: args.workspace,
         org: args.org ?? null,
-        extraction_run_id: runId,
-        run: args.run ?? null,
-        subject: args.subject ?? null,
-        model: args.model ?? null,
-        prompt_version: args.promptVersion ?? null,
-        stats: {
-          sources: args.sources.length,
-          statements: planned.length,
-          relations: plannedRelations.length,
-          violations: violations.map((v) => ({
-            rule: v.rule,
-            cue: v.cue,
-            statement: v.statement ?? null,
-          })),
-        },
+        statement_id: id,
+        text: st.text,
+        source_text: st.source_text,
+        source_ref: sourceRef,
+        intent: st.intent ?? null,
+        polarity: st.polarity ?? null,
+        subject: st.subject ?? null,
+        strength: st.strength ?? null,
+        scope: st.scope ?? null,
+        scope_ref: st.scope_ref ?? null,
+        status: 'proposed',
+        confidence: st.confidence ?? null,
+        provenance: 'source-backed',
+        extraction_run: runId,
+        created_by: actor,
         created_at: ts,
+        updated_at: ts,
       });
+      statements.push(head);
 
-      // Statement heads — `proposed`/`source-backed` always: AI
-      // proposes, humans confirm; the span was verified verbatim.
-      for (const { st, id, sourceRef } of planned) {
-        const head = await s.upsertStatement({
+      // Consequential interpretation → open decision item (the
+      // confirmation request) — never silent truth.
+      if (isConsequential(st)) {
+        const decisionId = `sd-${id}-confirm`;
+        await s.upsertStatementDecision({
           workspace: args.workspace,
           org: args.org ?? null,
+          decision_id: decisionId,
           statement_id: id,
-          text: st.text,
-          source_text: st.source_text,
-          source_ref: sourceRef,
-          intent: st.intent ?? null,
-          polarity: st.polarity ?? null,
-          subject: st.subject ?? null,
-          strength: st.strength ?? null,
-          scope: st.scope ?? null,
-          scope_ref: st.scope_ref ?? null,
-          status: 'proposed',
-          confidence: st.confidence ?? null,
-          provenance: 'source-backed',
-          extraction_run: runId,
+          decision: null,
+          status: 'open',
+          rationale: `AI-proposed ${st.intent ?? 'statement'}${
+            st.strength === 'must' ? ' (must)' : ''
+          } requires human confirmation — consequential interpretations never land silently (§15.9)`,
+          decided_by: null,
+          decided_at: null,
           created_by: actor,
           created_at: ts,
-          updated_at: ts,
         });
-        statements.push(head);
+        decisions.push(decisionId);
+      }
 
-        // Consequential interpretation → open decision item (the
-        // confirmation request) — never silent truth.
-        if (isConsequential(st)) {
-          const decisionId = `sd-${id}-confirm`;
+      if (st.clarification) {
+        const cid = `cl-${id}`;
+        await s.upsertStatementClarification({
+          workspace: args.workspace,
+          org: args.org ?? null,
+          clarification_id: cid,
+          statement_id: id,
+          question: st.clarification,
+          answer: null,
+          asked_by: actor,
+          answered_by: null,
+          created_at: ts,
+          answered_at: null,
+        });
+        clarifications.push(cid);
+      }
+
+      // Preservation-lint violations bound to this statement → a
+      // clarification each (the meaning is contested, not corrected).
+      const bound = lintByKey.get(st.key) ?? [];
+      for (let i = 0; i < bound.length; i++) {
+        const cid = `cl-${id}-lint${i}`;
+        await s.upsertStatementClarification({
+          workspace: args.workspace,
+          org: args.org ?? null,
+          clarification_id: cid,
+          statement_id: id,
+          question: `[extraction lint] ${bound[i]?.message}`,
+          answer: null,
+          asked_by: 'extraction-lint',
+          answered_by: null,
+          created_at: ts,
+          answered_at: null,
+        });
+        clarifications.push(cid);
+      }
+    }
+
+    // Typed edges + their authority side-effects.
+    for (const rel of plannedRelations) {
+      await s.upsertStatementRelation(rel);
+      relations.push(rel);
+
+      if (rel.predicate === 'contradicts') {
+        // A live target is now contested — flag it disputed and open
+        // a decision item (§15.9: disagreement → decision, never a
+        // silent merge). Dead targets stay dead.
+        const dst = await s.getStatement({
+          workspace: args.workspace,
+          statement_id: rel.dst,
+        });
+        if (dst && (dst.status === 'proposed' || dst.status === 'confirmed')) {
+          await s.upsertStatement({
+            ...stripVersion(dst),
+            status: 'disputed',
+            created_by: actor,
+            updated_at: ts,
+          });
+          const decisionId = `sd-${rel.dst}-dispute-${slugKey(rel.src)}`;
           await s.upsertStatementDecision({
             workspace: args.workspace,
             org: args.org ?? null,
             decision_id: decisionId,
-            statement_id: id,
+            statement_id: rel.dst,
             decision: null,
             status: 'open',
-            rationale:
-              `AI-proposed ${st.intent ?? 'statement'}${st.strength === 'must' ? ' (must)' : ''}` +
-              ' requires human confirmation — consequential interpretations never land silently (§15.9)',
+            rationale: `contradicted by ${rel.src}`,
             decided_by: null,
             decided_at: null,
             created_by: actor,
@@ -373,118 +445,43 @@ export async function ingestExtraction(
           });
           decisions.push(decisionId);
         }
-
-        if (st.clarification) {
-          const cid = `cl-${id}`;
-          await s.upsertStatementClarification({
+      } else if (rel.predicate === 'supersedes') {
+        // Only a confirmed target is protected — drafts supersede
+        // provisionally (the edge records the claim; confirmation of
+        // src applies it via the lifecycle).
+        const dst = await s.getStatement({
+          workspace: args.workspace,
+          statement_id: rel.dst,
+        });
+        if (dst?.status === 'confirmed') {
+          const decisionId = `sd-${rel.dst}-supersede-${slugKey(rel.src)}`;
+          await s.upsertStatementDecision({
             workspace: args.workspace,
             org: args.org ?? null,
-            clarification_id: cid,
-            statement_id: id,
-            question: st.clarification,
-            answer: null,
-            asked_by: actor,
-            answered_by: null,
+            decision_id: decisionId,
+            statement_id: rel.dst,
+            decision: null,
+            status: 'open',
+            rationale: `proposed ${rel.src} claims to supersede a confirmed statement — human ruling required (fail-closed)`,
+            decided_by: null,
+            decided_at: null,
+            created_by: actor,
             created_at: ts,
-            answered_at: null,
           });
-          clarifications.push(cid);
-        }
-
-        // Preservation-lint violations bound to this statement → a
-        // clarification each (the meaning is contested, not corrected).
-        const bound = lintByKey.get(st.key) ?? [];
-        for (let i = 0; i < bound.length; i++) {
-          const cid = `cl-${id}-lint${i}`;
-          await s.upsertStatementClarification({
-            workspace: args.workspace,
-            org: args.org ?? null,
-            clarification_id: cid,
-            statement_id: id,
-            question: `[extraction lint] ${bound[i]?.message}`,
-            answer: null,
-            asked_by: 'extraction-lint',
-            answered_by: null,
-            created_at: ts,
-            answered_at: null,
-          });
-          clarifications.push(cid);
+          decisions.push(decisionId);
         }
       }
+    }
 
-      // Typed edges + their authority side-effects.
-      for (const rel of plannedRelations) {
-        await s.upsertStatementRelation(rel);
-        relations.push(rel);
-
-        if (rel.predicate === 'contradicts') {
-          // A live target is now contested — flag it disputed and open
-          // a decision item (§15.9: disagreement → decision, never a
-          // silent merge). Dead targets stay dead.
-          const dst = await s.getStatement({
-            workspace: args.workspace,
-            statement_id: rel.dst,
-          });
-          if (dst && (dst.status === 'proposed' || dst.status === 'confirmed')) {
-            await s.upsertStatement({
-              ...stripVersion(dst),
-              status: 'disputed',
-              created_by: actor,
-              updated_at: ts,
-            });
-            const decisionId = `sd-${rel.dst}-dispute-${slugKey(rel.src)}`;
-            await s.upsertStatementDecision({
-              workspace: args.workspace,
-              org: args.org ?? null,
-              decision_id: decisionId,
-              statement_id: rel.dst,
-              decision: null,
-              status: 'open',
-              rationale: `contradicted by ${rel.src}`,
-              decided_by: null,
-              decided_at: null,
-              created_by: actor,
-              created_at: ts,
-            });
-            decisions.push(decisionId);
-          }
-        } else if (rel.predicate === 'supersedes') {
-          // Only a confirmed target is protected — drafts supersede
-          // provisionally (the edge records the claim; confirmation of
-          // src applies it via the lifecycle).
-          const dst = await s.getStatement({
-            workspace: args.workspace,
-            statement_id: rel.dst,
-          });
-          if (dst?.status === 'confirmed') {
-            const decisionId = `sd-${rel.dst}-supersede-${slugKey(rel.src)}`;
-            await s.upsertStatementDecision({
-              workspace: args.workspace,
-              org: args.org ?? null,
-              decision_id: decisionId,
-              statement_id: rel.dst,
-              decision: null,
-              status: 'open',
-              rationale: `proposed ${rel.src} claims to supersede a confirmed statement — human ruling required (fail-closed)`,
-              decided_by: null,
-              decided_at: null,
-              created_by: actor,
-              created_at: ts,
-            });
-            decisions.push(decisionId);
-          }
-        }
-      }
-
-      return {
-        extraction_run_id: runId,
-        statements,
-        ids,
-        relations,
-        clarifications,
-        decisions,
-        violations,
-      };
+    return {
+      extraction_run_id: runId,
+      statements,
+      ids,
+      relations,
+      clarifications,
+      decisions,
+      violations,
+    };
   });
 }
 
@@ -499,10 +496,8 @@ function stripVersion(row: StatementRow): Omit<StatementRow, 'version'> {
 // runExtraction — the LLM-assist seam (§15.9 "LLM interprets/proposes")
 // ---------------------------------------------------------------------------
 
-export interface RunExtractionArgs extends Omit<
-  IngestExtractionArgs,
-  'output' | 'promptVersion'
-> {
+export interface RunExtractionArgs
+  extends Omit<IngestExtractionArgs, 'output' | 'promptVersion'> {
   /**
    * The caller's LLM surface — receives the deterministic extraction
    * prompt, returns raw model text. wp-145's interview orchestrator
