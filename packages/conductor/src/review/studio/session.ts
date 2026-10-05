@@ -211,8 +211,7 @@ export async function approvalState(
       currency =
         latest &&
         decision.head_sha === latest.head_sha &&
-        baselineKey(decision.baseline ?? null) ===
-          baselineKey(latest.baseline)
+        baselineKey(decision.baseline ?? null) === baselineKey(latest.baseline)
           ? 'current'
           : 'stale';
     }

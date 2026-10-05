@@ -22,8 +22,8 @@ import type {
   ReviewRevisionRow,
   RunBaseline,
 } from '@sprint-runner/core';
-import { baselineKey, badRequest, notFound, type StudioCtx } from './types.js';
 import { requireSession } from './session.js';
+import { type StudioCtx, badRequest, baselineKey, notFound } from './types.js';
 
 /** One repo slice of the server-side diff. */
 export interface RepoDiff {
@@ -40,10 +40,7 @@ export interface ChangesDelta {
   head: { from_sha: string; to_sha: string };
   baseline_changed: boolean;
   /** Field-level baseline diff (only fields whose values moved). */
-  baseline_changes: Record<
-    string,
-    { from: unknown; to: unknown }
-  >;
+  baseline_changes: Record<string, { from: unknown; to: unknown }>;
   /** Findings first seen on revisions after `from_revision`. */
   findings_added: ReviewFindingRow[];
   /** Lifecycle audit rows landed after the bound revision's pin time. */
@@ -81,10 +78,7 @@ export async function changesSince(
     reviewId: string;
     reviewer?: string;
     fromRevision?: number;
-    diffFn?: (
-      fromSha: string,
-      toSha: string,
-    ) => Promise<RepoDiff[]>;
+    diffFn?: (fromSha: string, toSha: string) => Promise<RepoDiff[]>;
   },
 ): Promise<ChangesDelta> {
   await requireSession(ctx, args.reviewId);
@@ -125,9 +119,7 @@ export async function changesSince(
     from = revisions.find((r) => r.revision === last.revision);
   }
   if (!from) {
-    throw notFound(
-      `bound revision for review '${args.reviewId}' is missing`,
-    );
+    throw notFound(`bound revision for review '${args.reviewId}' is missing`);
   }
 
   const findings = await ctx.store.listReviewFindings({

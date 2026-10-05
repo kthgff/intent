@@ -37,10 +37,7 @@ import type { TransitionContext } from '../../contracts.js';
 import { readReviewJson } from '../../transitions/actions.js';
 import { transitionFinding, upsertFinding } from './findings.js';
 import { ensureSession, recordRevision } from './session.js';
-import {
-  type StudioCtx,
-  findingIdFor,
-} from './types.js';
+import { type StudioCtx, findingIdFor } from './types.js';
 
 /** Thread statuses the sync understands (SCHEMAS §6 review.json). */
 type ThreadStatus =
@@ -113,8 +110,7 @@ export async function studioBaseline(
   const version = async (doc: string) =>
     (await ctx.store.getDoc({ workspace: ctx.workspace, subject, doc }))
       ?.version ?? null;
-  const rsVersion =
-    (await version('rs.md')) ?? (await version('prd.md'));
+  const rsVersion = (await version('rs.md')) ?? (await version('prd.md'));
   const ticketRev = await version('ticket.md');
   const designRev = await version('tdd.md');
   const acIds = new Set<string>();
@@ -287,7 +283,11 @@ export async function syncReviewHead(
     return { revision_created: false, stale_approvals: [] };
   }
   const baseline = await studioBaseline(ctx, args.ticketId);
-  const r = await recordRevision(ctx, { reviewId, headSha: head_sha, baseline });
+  const r = await recordRevision(ctx, {
+    reviewId,
+    headSha: head_sha,
+    baseline,
+  });
   return {
     revision_created: r.created,
     stale_approvals: r.stale_approvals.map((d) => d.decision_id),

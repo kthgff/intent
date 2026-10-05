@@ -17,6 +17,8 @@
  *     rows record correspondences only.
  */
 import { randomUUID } from 'node:crypto';
+import { studio } from '@sprint-runner/conductor';
+import type { ConductorWorkspace } from '@sprint-runner/conductor';
 import type {
   ReviewFindingStatus,
   RunBaseline,
@@ -25,8 +27,6 @@ import type {
 } from '@sprint-runner/core';
 import { REVIEW_ACTIONS } from '@sprint-runner/core';
 import { git } from '@sprint-runner/gitops';
-import { studio } from '@sprint-runner/conductor';
-import type { ConductorWorkspace } from '@sprint-runner/conductor';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { ApiError } from './server.js';
@@ -240,8 +240,12 @@ export function registerReviewRoutes(
     const out: { repo: string; diff: string }[] = [];
     for (const tr of rows) {
       if (!tr.worktree) continue;
-      const from = fromMap.get(tr.repo) ?? (fromMap.size === 1 && !fromSha.includes('@') ? fromSha : null);
-      const to = toMap.get(tr.repo) ?? (toMap.size === 1 && !toSha.includes('@') ? toSha : null);
+      const from =
+        fromMap.get(tr.repo) ??
+        (fromMap.size === 1 && !fromSha.includes('@') ? fromSha : null);
+      const to =
+        toMap.get(tr.repo) ??
+        (toMap.size === 1 && !toSha.includes('@') ? toSha : null);
       if (!from || !to) continue;
       try {
         const r = await git(['diff', '--stat', `${from}..${to}`], {
@@ -371,28 +375,29 @@ export function registerReviewRoutes(
 
   // ---- revisions (reviewable heads) ----
 
-  app.post('/api/v1/reviews/:workspace/:review/revisions', async (req, reply) => {
-    const { workspace: wsName, review } = req.params as {
-      workspace: string;
-      review: string;
-    };
-    const ws = env.workspace(wsName);
-    await sessionOr404(wsName, review);
-    const body = parseBody(RevisionBody, req.body, 'revisions.record');
-    const result = await recordRevision(ctxFor(ws), {
-      reviewId: review,
-      headSha: body.head_sha,
-      baseSha: body.base_sha ?? null,
-      baseline: (body.baseline as RunBaseline | undefined) ?? null,
-    }).catch(mapErr);
-    return reply
-      .status(result.created ? 201 : 200)
-      .send({
+  app.post(
+    '/api/v1/reviews/:workspace/:review/revisions',
+    async (req, reply) => {
+      const { workspace: wsName, review } = req.params as {
+        workspace: string;
+        review: string;
+      };
+      const ws = env.workspace(wsName);
+      await sessionOr404(wsName, review);
+      const body = parseBody(RevisionBody, req.body, 'revisions.record');
+      const result = await recordRevision(ctxFor(ws), {
+        reviewId: review,
+        headSha: body.head_sha,
+        baseSha: body.base_sha ?? null,
+        baseline: (body.baseline as RunBaseline | undefined) ?? null,
+      }).catch(mapErr);
+      return reply.status(result.created ? 201 : 200).send({
         revision: result.revision,
         created: result.created,
         stale_approvals: result.stale_approvals,
       });
-  });
+    },
+  );
 
   // ---- "Changes Since Your Review" delta ----
 
@@ -435,56 +440,63 @@ export function registerReviewRoutes(
     };
   });
 
-  app.post('/api/v1/reviews/:workspace/:review/findings', async (req, reply) => {
-    const { workspace: wsName, review } = req.params as {
-      workspace: string;
-      review: string;
-    };
-    const ws = env.workspace(wsName);
-    const session = await sessionOr404(wsName, review);
-    const body = parseBody(FindingBody, req.body, 'findings.create');
-    const findingId =
-      body.finding_id ?? `f-${review}-${randomUUID().slice(0, 8)}`;
-    const latest = await store.getReviewRevision({
-      workspace: wsName,
-      review_id: review,
-    });
-    const { finding, created } = await upsertFinding(ctxFor(ws), {
-      workspace: wsName,
-      org: session.org ?? null,
-      finding_id: findingId,
-      review_id: review,
-      revision: latest?.revision ?? null,
-      subject: body.subject ?? null,
-      status: 'open',
-      severity: (body.severity ?? null) as never,
-      category: (body.category ?? null) as never,
-      kind: (body.kind ?? null) as never,
-      thread_id: null,
-      file: body.file ?? null,
-      line: body.line ?? null,
-      symbol: body.symbol ?? null,
-      repo: body.repo ?? null,
-      body: body.body,
-      evidence: body.evidence ?? null,
-      suggested_fix: body.suggested_fix ?? null,
-      confidence: body.confidence ?? null,
-      blocking: body.blocking ?? false,
-      security_category: (body.security_category ?? null) as never,
-      affected_asset: body.affected_asset ?? null,
-      exposure: body.exposure ?? null,
-      policy_violated: body.policy_violated ?? null,
-      author: body.author ?? env.actor,
-      created_at: env.nowIso(),
-      updated_at: null,
-    }).catch(mapErr);
-    return reply.status(created ? 201 : 200).send({ finding });
-  });
+  app.post(
+    '/api/v1/reviews/:workspace/:review/findings',
+    async (req, reply) => {
+      const { workspace: wsName, review } = req.params as {
+        workspace: string;
+        review: string;
+      };
+      const ws = env.workspace(wsName);
+      const session = await sessionOr404(wsName, review);
+      const body = parseBody(FindingBody, req.body, 'findings.create');
+      const findingId =
+        body.finding_id ?? `f-${review}-${randomUUID().slice(0, 8)}`;
+      const latest = await store.getReviewRevision({
+        workspace: wsName,
+        review_id: review,
+      });
+      const { finding, created } = await upsertFinding(ctxFor(ws), {
+        workspace: wsName,
+        org: session.org ?? null,
+        finding_id: findingId,
+        review_id: review,
+        revision: latest?.revision ?? null,
+        subject: body.subject ?? null,
+        status: 'open',
+        severity: (body.severity ?? null) as never,
+        category: (body.category ?? null) as never,
+        kind: (body.kind ?? null) as never,
+        thread_id: null,
+        file: body.file ?? null,
+        line: body.line ?? null,
+        symbol: body.symbol ?? null,
+        repo: body.repo ?? null,
+        body: body.body,
+        evidence: body.evidence ?? null,
+        suggested_fix: body.suggested_fix ?? null,
+        confidence: body.confidence ?? null,
+        blocking: body.blocking ?? false,
+        security_category: (body.security_category ?? null) as never,
+        affected_asset: body.affected_asset ?? null,
+        exposure: body.exposure ?? null,
+        policy_violated: body.policy_violated ?? null,
+        author: body.author ?? env.actor,
+        created_at: env.nowIso(),
+        updated_at: null,
+      }).catch(mapErr);
+      return reply.status(created ? 201 : 200).send({ finding });
+    },
+  );
 
   app.get(
     '/api/v1/reviews/:workspace/:review/findings/:finding',
     async (req) => {
-      const { workspace: wsName, review, finding } = req.params as {
+      const {
+        workspace: wsName,
+        review,
+        finding,
+      } = req.params as {
         workspace: string;
         review: string;
         finding: string;
@@ -518,7 +530,11 @@ export function registerReviewRoutes(
   app.post(
     '/api/v1/reviews/:workspace/:review/findings/:finding/transition',
     async (req) => {
-      const { workspace: wsName, review, finding } = req.params as {
+      const {
+        workspace: wsName,
+        review,
+        finding,
+      } = req.params as {
         workspace: string;
         review: string;
         finding: string;
@@ -561,7 +577,11 @@ export function registerReviewRoutes(
   app.post(
     '/api/v1/reviews/:workspace/:review/findings/:finding/evidence',
     async (req, reply) => {
-      const { workspace: wsName, review, finding } = req.params as {
+      const {
+        workspace: wsName,
+        review,
+        finding,
+      } = req.params as {
         workspace: string;
         review: string;
         finding: string;
@@ -581,7 +601,12 @@ export function registerReviewRoutes(
   app.delete(
     '/api/v1/reviews/:workspace/:review/findings/:finding/evidence/:ref',
     async (req) => {
-      const { workspace: wsName, review, finding, ref } = req.params as {
+      const {
+        workspace: wsName,
+        review,
+        finding,
+        ref,
+      } = req.params as {
         workspace: string;
         review: string;
         finding: string;
@@ -614,33 +639,40 @@ export function registerReviewRoutes(
     };
   });
 
-  app.post('/api/v1/reviews/:workspace/:review/comments', async (req, reply) => {
-    const { workspace: wsName, review } = req.params as {
-      workspace: string;
-      review: string;
-    };
-    const ws = env.workspace(wsName);
-    const body = parseBody(CommentBody, req.body, 'comments.create');
-    const result = await addComment(ctxFor(ws), {
-      reviewId: review,
-      commentId: body.comment_id ?? `cm-${randomUUID().slice(0, 8)}`,
-      body: body.body,
-      author: body.author ?? env.actor,
-      type: (body.type ?? null) as never,
-      disposition: (body.disposition ?? null) as never,
-      file: body.file ?? null,
-      line: body.line ?? null,
-      subject: body.subject ?? null,
-      revision: body.revision ?? null,
-      aiClassification: body.ai_classification ?? null,
-    }).catch(mapErr);
-    return reply.status(201).send(result);
-  });
+  app.post(
+    '/api/v1/reviews/:workspace/:review/comments',
+    async (req, reply) => {
+      const { workspace: wsName, review } = req.params as {
+        workspace: string;
+        review: string;
+      };
+      const ws = env.workspace(wsName);
+      const body = parseBody(CommentBody, req.body, 'comments.create');
+      const result = await addComment(ctxFor(ws), {
+        reviewId: review,
+        commentId: body.comment_id ?? `cm-${randomUUID().slice(0, 8)}`,
+        body: body.body,
+        author: body.author ?? env.actor,
+        type: (body.type ?? null) as never,
+        disposition: (body.disposition ?? null) as never,
+        file: body.file ?? null,
+        line: body.line ?? null,
+        subject: body.subject ?? null,
+        revision: body.revision ?? null,
+        aiClassification: body.ai_classification ?? null,
+      }).catch(mapErr);
+      return reply.status(201).send(result);
+    },
+  );
 
   app.post(
     '/api/v1/reviews/:workspace/:review/comments/:comment/reclassify',
     async (req) => {
-      const { workspace: wsName, review, comment } = req.params as {
+      const {
+        workspace: wsName,
+        review,
+        comment,
+      } = req.params as {
         workspace: string;
         review: string;
         comment: string;
@@ -667,95 +699,102 @@ export function registerReviewRoutes(
     return { decisions: await listDecisions(ctxFor(ws), review) };
   });
 
-  app.post('/api/v1/reviews/:workspace/:review/decisions', async (req, reply) => {
-    const { workspace: wsName, review } = req.params as {
-      workspace: string;
-      review: string;
-    };
-    const ws = env.workspace(wsName);
-    const session = await sessionOr404(wsName, review);
-    const body = parseBody(DecisionBody, req.body, 'decisions.record');
+  app.post(
+    '/api/v1/reviews/:workspace/:review/decisions',
+    async (req, reply) => {
+      const { workspace: wsName, review } = req.params as {
+        workspace: string;
+        review: string;
+      };
+      const ws = env.workspace(wsName);
+      const session = await sessionOr404(wsName, review);
+      const body = parseBody(DecisionBody, req.body, 'decisions.record');
 
-    // Stale-write guard — the bound revision moved since the client's
-    // read (new commits landed): a 409, never a silently re-pinned
-    // approval (§15.8 — approvals bind head SHA + baseline).
-    if (body.expected_revision !== undefined) {
-      const latest = await store.getReviewRevision({
-        workspace: wsName,
-        review_id: review,
-      });
-      if ((latest?.revision ?? 0) !== body.expected_revision) {
-        throw new ApiError(
-          409,
-          'conflict',
-          `stale write: expected revision ${body.expected_revision}, ` +
-            `latest is ${latest?.revision ?? 'none'}`,
-        );
-      }
-    }
-
-    const result = await recordDecision(ctxFor(ws), {
-      reviewId: review,
-      decisionId: body.decision_id ?? `rd-${randomUUID().slice(0, 8)}`,
-      reviewer: body.reviewer ?? env.actor,
-      action: body.action,
-      rationale: body.rationale ?? null,
-      board: body.board ?? null,
-    }).catch(mapErr);
-
-    // ---- conductor-side effects the decision drives ----
-    const gates_cleared: string[] = [];
-    let run: string | null = null;
-    if (body.action === 'approve') {
-      // An internal approval clears the review gates the conductor
-      // surfaced — 'changes-requested' then 'approved' (the ticket
-      // advances through nextStage on the next tick).
-      for (const gate of ['changes-requested', 'approved']) {
-        const item = await store.getGateItem({
+      // Stale-write guard — the bound revision moved since the client's
+      // read (new commits landed): a 409, never a silently re-pinned
+      // approval (§15.8 — approvals bind head SHA + baseline).
+      if (body.expected_revision !== undefined) {
+        const latest = await store.getReviewRevision({
           workspace: wsName,
-          subject: session.subject,
-          gate,
+          review_id: review,
         });
-        if (item && !item.cleared_at) {
-          await env.clearGate({ ws, subject: session.subject, gate }).catch(
-            () => null,
+        if ((latest?.revision ?? 0) !== body.expected_revision) {
+          throw new ApiError(
+            409,
+            'conflict',
+            `stale write: expected revision ${body.expected_revision}, ` +
+              `latest is ${latest?.revision ?? 'none'}`,
           );
-          gates_cleared.push(gate);
         }
       }
-    }
-    let fix_already_running = false;
-    if (body.action === 'request-fix') {
-      // Request AI Fix → back into the fix loop. A live run fencing
-      // (subject, fix) is not an error — the decision is durable and
-      // the loop is already moving; report it, don't fail the write.
-      const ticket = await env.ticketOrNull(wsName, session.subject);
-      try {
-        run = await env.requestRun(wsName, {
-          subject: session.subject,
-          stage: 'fix',
-          ...(ticket ? { ticketId: ticket.ticket_id } : {}),
-        });
-      } catch (e) {
-        if (e instanceof ApiError && e.statusCode === 409) {
-          fix_already_running = true;
-        } else throw e;
+
+      const result = await recordDecision(ctxFor(ws), {
+        reviewId: review,
+        decisionId: body.decision_id ?? `rd-${randomUUID().slice(0, 8)}`,
+        reviewer: body.reviewer ?? env.actor,
+        action: body.action,
+        rationale: body.rationale ?? null,
+        board: body.board ?? null,
+      }).catch(mapErr);
+
+      // ---- conductor-side effects the decision drives ----
+      const gates_cleared: string[] = [];
+      let run: string | null = null;
+      if (body.action === 'approve') {
+        // An internal approval clears the review gates the conductor
+        // surfaced — 'changes-requested' then 'approved' (the ticket
+        // advances through nextStage on the next tick).
+        for (const gate of ['changes-requested', 'approved']) {
+          const item = await store.getGateItem({
+            workspace: wsName,
+            subject: session.subject,
+            gate,
+          });
+          if (item && !item.cleared_at) {
+            await env
+              .clearGate({ ws, subject: session.subject, gate })
+              .catch(() => null);
+            gates_cleared.push(gate);
+          }
+        }
       }
-    }
-    return reply.status(201).send({
-      ...result,
-      gates_cleared,
-      ...(run ? { run } : {}),
-      ...(fix_already_running ? { fix_already_running } : {}),
-    });
-  });
+      let fix_already_running = false;
+      if (body.action === 'request-fix') {
+        // Request AI Fix → back into the fix loop. A live run fencing
+        // (subject, fix) is not an error — the decision is durable and
+        // the loop is already moving; report it, don't fail the write.
+        const ticket = await env.ticketOrNull(wsName, session.subject);
+        try {
+          run = await env.requestRun(wsName, {
+            subject: session.subject,
+            stage: 'fix',
+            ...(ticket ? { ticketId: ticket.ticket_id } : {}),
+          });
+        } catch (e) {
+          if (e instanceof ApiError && e.statusCode === 409) {
+            fix_already_running = true;
+          } else throw e;
+        }
+      }
+      return reply.status(201).send({
+        ...result,
+        gates_cleared,
+        ...(run ? { run } : {}),
+        ...(fix_already_running ? { fix_already_running } : {}),
+      });
+    },
+  );
 
   // ---- requirement-first view ----
 
   app.get(
     '/api/v1/reviews/:workspace/:review/requirements/:ac',
     async (req) => {
-      const { workspace: wsName, review, ac } = req.params as {
+      const {
+        workspace: wsName,
+        review,
+        ac,
+      } = req.params as {
         workspace: string;
         review: string;
         ac: string;
@@ -785,19 +824,22 @@ export function registerReviewRoutes(
     };
   });
 
-  app.post('/api/v1/reviews/:workspace/:review/mappings', async (req, reply) => {
-    const { workspace: wsName, review } = req.params as {
-      workspace: string;
-      review: string;
-    };
-    const ws = env.workspace(wsName);
-    const body = parseBody(MappingBody, req.body, 'mappings.create');
-    const row = await mapExternal(ctxFor(ws), {
-      reviewId: review,
-      findingId: body.finding_id ?? null,
-      externalKind: body.external_kind,
-      externalId: body.external_id,
-    }).catch(mapErr);
-    return reply.status(201).send({ mapping: row });
-  });
+  app.post(
+    '/api/v1/reviews/:workspace/:review/mappings',
+    async (req, reply) => {
+      const { workspace: wsName, review } = req.params as {
+        workspace: string;
+        review: string;
+      };
+      const ws = env.workspace(wsName);
+      const body = parseBody(MappingBody, req.body, 'mappings.create');
+      const row = await mapExternal(ctxFor(ws), {
+        reviewId: review,
+        findingId: body.finding_id ?? null,
+        externalKind: body.external_kind,
+        externalId: body.external_id,
+      }).catch(mapErr);
+      return reply.status(201).send({ mapping: row });
+    },
+  );
 }

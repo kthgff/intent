@@ -24,13 +24,8 @@ import type {
   ReviewDecisionRow,
   ReviewSessionRow,
 } from '@sprint-runner/core';
-import {
-  type StudioCtx,
-  badRequest,
-  conflict,
-  notFound,
-} from './types.js';
 import { requireSession, rollupSessionStatus } from './session.js';
+import { type StudioCtx, badRequest, conflict, notFound } from './types.js';
 
 export interface RecordDecisionResult {
   decision: ReviewDecisionRow;
@@ -66,8 +61,7 @@ export async function recordDecision(
   });
   if (!latest) {
     throw conflict(
-      `review session '${args.reviewId}' has no revision pin — ` +
-        'record a reviewable head (head_sha + baseline) before deciding',
+      `review session '${args.reviewId}' has no revision pin — record a reviewable head (head_sha + baseline) before deciding`,
     );
   }
   if (!args.decisionId || !args.reviewer) {

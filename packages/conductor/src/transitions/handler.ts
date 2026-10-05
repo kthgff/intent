@@ -52,10 +52,7 @@ import {
   dismissalClaimsFromDeviations,
   planReviewRound,
 } from '../review/index.js';
-import {
-  syncReviewHead,
-  syncReviewStudio,
-} from '../review/studio/index.js';
+import { syncReviewHead, syncReviewStudio } from '../review/studio/index.js';
 import {
   type TriageSuggestions,
   applySuggestionsToTicketMd,

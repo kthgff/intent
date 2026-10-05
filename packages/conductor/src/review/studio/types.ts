@@ -55,8 +55,7 @@ export class ReviewStudioError extends Error {
 export const notFound = (m: string) => new ReviewStudioError('not-found', m);
 export const invalid = (m: string) =>
   new ReviewStudioError('invalid-transition', m);
-export const forbidden = (m: string) =>
-  new ReviewStudioError('forbidden', m);
+export const forbidden = (m: string) => new ReviewStudioError('forbidden', m);
 export const conflict = (m: string) => new ReviewStudioError('conflict', m);
 export const badRequest = (m: string) =>
   new ReviewStudioError('bad-request', m);

@@ -203,7 +203,9 @@ describe('transitionBlocked (pure)', () => {
       expect(transitionBlocked(f('open'), to, 'human')).toBeNull();
       expect(transitionBlocked(f('open'), to, 'agent')).toBeNull();
     }
-    expect(transitionBlocked(f('triaged'), 'in-remediation', 'human')).toBeNull();
+    expect(
+      transitionBlocked(f('triaged'), 'in-remediation', 'human'),
+    ).toBeNull();
     expect(transitionBlocked(f('open'), 'resolved', 'system')).toBeNull();
   });
 
@@ -524,9 +526,9 @@ describe('sessions, revisions, stale approvals', () => {
     expect(decision.head_sha).toBe('sha-a');
     expect(decision.baseline).toMatchObject({ rs_version: 3 });
     expect(session.status).toBe('approved');
-    expect(
-      (await approvalState(ctx(), review_id))[0]?.currency,
-    ).toBe('current');
+    expect((await approvalState(ctx(), review_id))[0]?.currency).toBe(
+      'current',
+    );
   });
 
   it('new commits after approval → stale approval + session falls back to open + ledger event', async () => {
@@ -556,17 +558,13 @@ describe('sessions, revisions, stale approvals', () => {
     expect(
       (await store.getReviewSession({ workspace: WS, review_id }))?.status,
     ).toBe('open');
-    expect(
-      (await approvalState(ctx(), review_id))[0]?.currency,
-    ).toBe('stale');
+    expect((await approvalState(ctx(), review_id))[0]?.currency).toBe('stale');
 
     const events = await store.listEvents({
       workspace: WS,
       ticket_id: 'SR-0001',
     });
-    const staleEvt = events.find(
-      (e) => e.data?.reason === 'stale-approval',
-    );
+    const staleEvt = events.find((e) => e.data?.reason === 'stale-approval');
     expect(staleEvt).toBeTruthy();
     expect(staleEvt?.data).toMatchObject({
       from: 'approved',
@@ -754,8 +752,9 @@ describe('changesSince', () => {
       fromRevision: 1,
     });
     expect(delta.from_revision).toBe(1);
-    await expect(changesSince(ctx(), { reviewId: review_id })).rejects
-      .toMatchObject({ code: 'bad-request' });
+    await expect(
+      changesSince(ctx(), { reviewId: review_id }),
+    ).rejects.toMatchObject({ code: 'bad-request' });
     await expect(
       changesSince(ctx(), { reviewId: review_id, reviewer: 'nobody' }),
     ).rejects.toMatchObject({ code: 'not-found' });
@@ -821,7 +820,8 @@ describe('comments + changeset routing', () => {
     });
     expect(
       events.some(
-        (e) => e.event === 'changeset_created' && e.data?.changeset_id === 'cs-cm-2',
+        (e) =>
+          e.event === 'changeset_created' && e.data?.changeset_id === 'cs-cm-2',
       ),
     ).toBe(true);
   });
@@ -928,9 +928,7 @@ describe('requirement-first view + evidence links + external mappings', () => {
       reviewId: review_id,
       acId: 'AC-1',
     });
-    expect(view.implementing.map((r) => r.object)).toEqual([
-      'ev_src_a_login',
-    ]);
+    expect(view.implementing.map((r) => r.object)).toEqual(['ev_src_a_login']);
     expect(view.test_edges.map((r) => r.object)).toEqual([
       'ev_test_login_spec',
     ]);

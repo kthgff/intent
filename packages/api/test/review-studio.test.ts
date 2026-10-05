@@ -114,7 +114,9 @@ describe('review sessions + revisions', () => {
       headers: AUTH,
     });
     expect(list.statusCode).toBe(200);
-    expect(list.json().sessions.map((s: { review_id: string }) => s.review_id)).toEqual([RV]);
+    expect(
+      list.json().sessions.map((s: { review_id: string }) => s.review_id),
+    ).toEqual([RV]);
 
     const detail = await app.inject({
       method: 'GET',
@@ -498,9 +500,9 @@ describe('delta + evidence + mappings', () => {
       headers: AUTH,
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json().implementing.map((r: { object: string }) => r.object)).toEqual([
-      'ev_code_unit_1',
-    ]);
+    expect(
+      res.json().implementing.map((r: { object: string }) => r.object),
+    ).toEqual(['ev_code_unit_1']);
     await app.close();
   });
 });

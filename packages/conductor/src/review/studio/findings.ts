@@ -26,12 +26,7 @@ import type {
   ReviewFindingRow,
   ReviewFindingStatus,
 } from '@sprint-runner/core';
-import {
-  type StudioCtx,
-  forbidden,
-  invalid,
-  notFound,
-} from './types.js';
+import { type StudioCtx, forbidden, invalid, notFound } from './types.js';
 
 /** Main lifecycle path, in order. */
 export const FINDING_MAIN_PATH = [
@@ -144,8 +139,7 @@ export async function transitionFinding(
   if (TERMINAL.has(args.to)) {
     if (actorKind !== 'human') {
       throw forbidden(
-        `finding ${args.findingId}: '${args.to}' is a permissioned terminal ` +
-          'disposition — a human must settle it',
+        `finding ${args.findingId}: '${args.to}' is a permissioned terminal disposition — a human must settle it`,
       );
     }
     if (!rationale || rationale.trim().length === 0) {
@@ -162,9 +156,7 @@ export async function transitionFinding(
     (args.to === 'resolved' || TERMINAL.has(args.to))
   ) {
     throw forbidden(
-      `finding ${args.findingId}: AI may propose resolution ` +
-        '(ready-for-verification) but never self-resolves a blocking ' +
-        'human finding',
+      `finding ${args.findingId}: AI may propose resolution (ready-for-verification) but never self-resolves a blocking human finding`,
     );
   }
 

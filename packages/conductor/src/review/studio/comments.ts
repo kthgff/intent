@@ -16,17 +16,14 @@
  * onward; this engine only performs the handoff (+ a
  * `changeset_created` event so the lifecycle can pick it up).
  */
-import type {
-  ReviewCommentRow,
-  ReviewCommentType,
-} from '@sprint-runner/core';
+import type { ReviewCommentRow, ReviewCommentType } from '@sprint-runner/core';
+import { requireSession } from './session.js';
 import {
+  type StudioCtx,
   badRequest,
   changesetIdFor,
   notFound,
-  type StudioCtx,
 } from './types.js';
-import { requireSession } from './session.js';
 
 /** Docs an out-of-scope baseline pin may target, in probe order —
  *  `rs.md` is the adopted vocabulary (wp-132), `prd.md` is the
@@ -69,9 +66,7 @@ export async function addComment(
   const proposed = args.aiClassification?.type;
   const effectiveType =
     args.type ??
-    (typeof proposed === 'string'
-      ? (proposed as ReviewCommentType)
-      : null);
+    (typeof proposed === 'string' ? (proposed as ReviewCommentType) : null);
 
   const ts = ctx.now().toISOString();
   const comment: ReviewCommentRow = {
@@ -176,9 +171,7 @@ export async function reclassifyComment(
   });
   const existing = list.find((c) => c.comment_id === args.commentId);
   if (!existing) {
-    throw notFound(
-      `no review comment '${args.commentId}' on ${args.reviewId}`,
-    );
+    throw notFound(`no review comment '${args.commentId}' on ${args.reviewId}`);
   }
   if (args.type === 'out-of-scope' && !existing.changeset_id) {
     // Route now — same write path as addComment's out-of-scope branch.
@@ -225,7 +218,11 @@ async function specBaselineRef(
   subject: string,
 ): Promise<{ subject: string; doc: string; version: number | null }> {
   for (const doc of SPEC_DOC_CANDIDATES) {
-    const v = await ctx.store.getDoc({ workspace: ctx.workspace, subject, doc });
+    const v = await ctx.store.getDoc({
+      workspace: ctx.workspace,
+      subject,
+      doc,
+    });
     if (v) return { subject, doc, version: v.version };
   }
   // No spec doc versioned yet — pin the subject anyway; wp-140's

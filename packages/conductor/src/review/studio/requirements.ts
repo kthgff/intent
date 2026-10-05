@@ -25,8 +25,8 @@ import type {
   Relation,
   ReviewEvidenceLinkRow,
 } from '@sprint-runner/core';
-import { notFound, type StudioCtx } from './types.js';
 import { requireSession } from './session.js';
+import { type StudioCtx, notFound } from './types.js';
 
 /** Predicates that resolve an AC's implementing code edges. */
 const CODE_PREDICATES = new Set(['implements', 'documents']);
@@ -63,9 +63,7 @@ export async function linkEvidence(
     finding_id: args.findingId,
   });
   if (!finding) {
-    throw notFound(
-      `no review finding '${args.findingId}' in ${ctx.workspace}`,
-    );
+    throw notFound(`no review finding '${args.findingId}' in ${ctx.workspace}`);
   }
   const row: ReviewEvidenceLinkRow = {
     workspace: ctx.workspace,
