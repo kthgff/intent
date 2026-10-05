@@ -2155,7 +2155,9 @@ export class PostgresStore implements Store {
 
   // ---- statement ledger (PRD §15.3/§15.9, wp-143) ----
 
-  async upsertStatement(row: Omit<StatementRow, 'version'>): Promise<StatementRow> {
+  async upsertStatement(
+    row: Omit<StatementRow, 'version'>,
+  ): Promise<StatementRow> {
     return this.db.transaction(async (tx): Promise<StatementRow> => {
       // doc_version discipline — serialize MAX(version)+1 per statement.
       await lockKey(tx, `statement:${row.workspace}:${row.statement_id}`);
@@ -4143,8 +4145,7 @@ function rowToChangesetItem(row: Row): ChangesetItemRow {
     base_version: (row.base_version as number | null) ?? null,
     proposed_version: (row.proposed_version as number | null) ?? null,
     change: unj<ChangesetItemRow['change']>(row.change, null),
-    status:
-      (row.status as ChangesetItemRow['status'] | null) ?? 'pending',
+    status: (row.status as ChangesetItemRow['status'] | null) ?? 'pending',
     applied_at: (row.applied_at as string | null) ?? null,
   };
 }
@@ -4292,8 +4293,7 @@ function rowToInterviewSession(row: Row): InterviewSessionRow {
     mode: (row.mode as InterviewSessionRow['mode'] | null) ?? null,
     status: row.status as InterviewSessionRow['status'],
     draft_ready: row.draft_ready === 1 || row.draft_ready === true,
-    approval_ready:
-      row.approval_ready === 1 || row.approval_ready === true,
+    approval_ready: row.approval_ready === 1 || row.approval_ready === true,
     knowledge_version: (row.knowledge_version as number | null) ?? null,
     created_by: (row.created_by as string | null) ?? null,
     created_at: (row.created_at as string | null) ?? null,

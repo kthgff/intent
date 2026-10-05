@@ -879,18 +879,13 @@ export const INTERVIEW_BRANCH_STATUSES = [
   'merged',
   'abandoned',
 ] as const;
-export type InterviewBranchStatus =
-  (typeof INTERVIEW_BRANCH_STATUSES)[number];
+export type InterviewBranchStatus = (typeof INTERVIEW_BRANCH_STATUSES)[number];
 
 /** Three input modes, switchable without loss (§15.9). */
 export const INTERVIEW_MODES = ['conversation', 'guided', 'bulk'] as const;
 export type InterviewMode = (typeof INTERVIEW_MODES)[number];
 
-export const INTERVIEW_MESSAGE_ROLES = [
-  'user',
-  'assistant',
-  'system',
-] as const;
+export const INTERVIEW_MESSAGE_ROLES = ['user', 'assistant', 'system'] as const;
 export type InterviewMessageRole = (typeof INTERVIEW_MESSAGE_ROLES)[number];
 
 /** question_candidates.status — `unanswerable` is a first-class
@@ -1083,7 +1078,12 @@ export const NOTE_KINDS = [
 ] as const;
 export type NoteKind = (typeof NOTE_KINDS)[number];
 
-export const NOTE_IMPORTANCES = ['must', 'should', 'nice', 'undecided'] as const;
+export const NOTE_IMPORTANCES = [
+  'must',
+  'should',
+  'nice',
+  'undecided',
+] as const;
 export type NoteImportance = (typeof NOTE_IMPORTANCES)[number];
 
 /** board_items.note_status — a note's own lightweight lifecycle
@@ -1159,5 +1159,9 @@ export type DesignApprovalStatus = (typeof DESIGN_APPROVAL_STATUSES)[number];
 /** Latency classes drive provider sort + prompt budgets (§15.12):
  *  `instant` = no LLM on path, `interactive` = streamed ~1s TTFT,
  *  `background` = quality-adjusted cost. */
-export const LATENCY_CLASSES = ['instant', 'interactive', 'background'] as const;
+export const LATENCY_CLASSES = [
+  'instant',
+  'interactive',
+  'background',
+] as const;
 export type LatencyClass = (typeof LATENCY_CLASSES)[number];

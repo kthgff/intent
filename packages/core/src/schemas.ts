@@ -53,8 +53,8 @@ import {
   NOTE_KINDS,
   NOTE_STATUSES,
   PARALLEL_SAFETIES,
-  PR_STATES,
   PROVENANCE_STATES,
+  PR_STATES,
   QUALITY_DEBT_KINDS,
   QUALITY_DEBT_STATUSES,
   QUESTION_CANDIDATE_STATUSES,
@@ -1190,8 +1190,9 @@ export const StatementClarificationRowSchema = z.object({
   created_at: z.string().nullish(),
   answered_at: z.string().nullish(),
 });
-export type StatementClarificationRow =
-  z.infer<typeof StatementClarificationRowSchema>;
+export type StatementClarificationRow = z.infer<
+  typeof StatementClarificationRowSchema
+>;
 
 /** Disagreement/consequential interpretation → decision item, never
  *  a silent merge (§15.9). */
@@ -1224,8 +1225,9 @@ export const StatementArtifactLinkRowSchema = z.object({
   created_by: z.string().nullish(),
   created_at: z.string().nullish(),
 });
-export type StatementArtifactLinkRow =
-  z.infer<typeof StatementArtifactLinkRowSchema>;
+export type StatementArtifactLinkRow = z.infer<
+  typeof StatementArtifactLinkRowSchema
+>;
 
 /** Extraction provenance — model + prompt version per batch
  *  (wp-143). */
@@ -1356,8 +1358,7 @@ export const QuestionCandidateRowSchema = z.object({
   created_at: z.string().nullish(),
   resolved_at: z.string().nullish(),
 });
-export type QuestionCandidateRow =
-  z.infer<typeof QuestionCandidateRowSchema>;
+export type QuestionCandidateRow = z.infer<typeof QuestionCandidateRowSchema>;
 
 /** Resumable-session snapshot (§15.9) — restart + diff briefing. */
 export const SessionSnapshotRowSchema = z.object({
@@ -1506,8 +1507,7 @@ export const ReviewEvidenceLinkRowSchema = z.object({
   kind: z.string().nullish(),
   created_at: z.string().nullish(),
 });
-export type ReviewEvidenceLinkRow =
-  z.infer<typeof ReviewEvidenceLinkRowSchema>;
+export type ReviewEvidenceLinkRow = z.infer<typeof ReviewEvidenceLinkRowSchema>;
 
 /** finding↔external-thread mapping — explicit + idempotent; GitHub
  *  stays authoritative for PR state (§15.8). */
@@ -1522,8 +1522,9 @@ export const ExternalReviewMappingRowSchema = z.object({
   external_id: z.string().min(1),
   created_at: z.string().nullish(),
 });
-export type ExternalReviewMappingRow =
-  z.infer<typeof ExternalReviewMappingRowSchema>;
+export type ExternalReviewMappingRow = z.infer<
+  typeof ExternalReviewMappingRowSchema
+>;
 
 /** Visual-AC / design approval — binds to a mockup revision; a
  *  material component change invalidates only affected approvals
@@ -1623,8 +1624,7 @@ export const DeliveryCommitmentRowSchema = z.object({
   created_by: z.string().nullish(),
   created_at: z.string().nullish(),
 });
-export type DeliveryCommitmentRow =
-  z.infer<typeof DeliveryCommitmentRowSchema>;
+export type DeliveryCommitmentRow = z.infer<typeof DeliveryCommitmentRowSchema>;
 
 // ---------- eval lab (PRD §15.12, wp-156) ----------
 
