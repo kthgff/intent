@@ -20,21 +20,41 @@ import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type {
+  AssumptionRow,
   BoardItem,
   BoardRow,
+  ChangesetItemRow,
+  ChangesetRow,
   Claim,
   ClaimKey,
+  ContainerKey,
+  ContainerRow,
+  ContainerState,
+  DeliveryCommitmentRow,
+  DeploymentRow,
+  DesignApprovalRow,
   DocKey,
   DocVersion,
   DossierEntry,
   Embedding,
   EmbeddingKey,
   Entity,
+  EvalCaseRow,
+  EvalResultRow,
+  EvalRunRow,
   EventRow,
+  ExternalReviewMappingRow,
+  ExtractionRunRow,
+  FeatureExposureRow,
   FeatureRow,
+  FindingResolutionRow,
   GateItem,
   GateItemKey,
   InitiativeRow,
+  InterviewBranchRow,
+  InterviewMessageRow,
+  InterviewSessionRow,
+  KnowledgeSlotRow,
   Lease,
   LeaseKey,
   NearestQuery,
@@ -42,15 +62,39 @@ import type {
   Notification,
   Presence,
   ProjectRow,
+  QualityDebtRow,
+  QuestionCandidateRow,
   Relation,
+  ReleaseApprovalRow,
+  ReleaseGateResultRow,
+  ReleaseItemRow,
+  ReleaseManifestRow,
+  ReleaseNoteRow,
+  ReleaseOutcomeRow,
+  ReleaseRow,
+  ReviewCommentRow,
+  ReviewDecisionRow,
+  ReviewEvidenceLinkRow,
+  ReviewFindingRow,
+  ReviewRevisionRow,
+  ReviewSessionRow,
   RunArtifact,
   RunRow,
+  SessionSnapshotRow,
+  StatementArtifactLinkRow,
+  StatementClarificationRow,
+  StatementDecisionRow,
+  StatementRelationRow,
+  StatementRow,
+  StatementVersionRow,
   Store,
   TicketKey,
   TicketRepoKey,
   TicketRepoRow,
   TicketRow,
   UsageCallRow,
+  WizardDefinitionRow,
+  WizardVersionRow,
 } from '@sprint-runner/core';
 import { type PgClient, createClient } from './client.js';
 
@@ -480,11 +524,57 @@ export class PostgresStore implements Store {
     return rows.map(rowToRun);
   }
 
+  // ---- containers (D30) ----
+
+  async upsertContainer(row: ContainerRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO containers (workspace, subject, container_id, image,
+         state, created_at, stopped_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       ON CONFLICT (workspace, subject) DO UPDATE SET
+         container_id=$3, image=$4, state=$5, created_at=$6,
+         stopped_at=$7`,
+      [
+        row.workspace,
+        row.subject,
+        row.container_id,
+        row.image ?? null,
+        row.state,
+        row.created_at ?? now(),
+        row.stopped_at ?? null,
+      ],
+    );
+  }
+
+  async getContainer(key: ContainerKey): Promise<ContainerRow | null> {
+    const rows = await this.db.query(
+      'SELECT * FROM containers WHERE workspace=$1 AND subject=$2',
+      [key.workspace, key.subject],
+    );
+    return rows[0] ? rowToContainer(rows[0]) : null;
+  }
+
+  async listContainers(filter?: {
+    workspace?: string;
+    state?: ContainerState;
+  }): Promise<ContainerRow[]> {
+    const { where, args } = pgWhere({
+      workspace: filter?.workspace,
+      state: filter?.state,
+    });
+    const rows = await this.db.query(
+      `SELECT * FROM containers ${where} ORDER BY workspace, subject`,
+      args,
+    );
+    return rows.map(rowToContainer);
+  }
+
   // ---- tickets ----
 
   async upsertTicket(row: TicketRow): Promise<void> {
     const p = [
       row.workspace,
+      row.org ?? null,
       row.ticket_id,
       row.feature ?? null,
       row.title,
@@ -498,6 +588,13 @@ export class PostgresStore implements Store {
       j(row.depends_on),
       j(row.serves ?? null),
       row.source ?? null,
+      row.work_type ?? null,
+      row.origin ?? null,
+      row.severity ?? null,
+      row.execution_readiness ?? 'unassessed',
+      row.parallel_safety ?? 'unknown',
+      row.source_ref ? j(row.source_ref) : null,
+      row.test_env ? j(row.test_env) : null,
       row.forced ? 1 : 0,
       row.spec_score ?? null,
       row.spec_hash ?? null,
@@ -506,17 +603,21 @@ export class PostgresStore implements Store {
       row.updated_at,
     ];
     await this.db.query(
-      `INSERT INTO tickets (workspace, ticket_id, feature, title, status,
-         priority, depth, backend, model, repos, parent, depends_on,
-         serves, source, forced, spec_score, spec_hash, blocked_reason,
-         created_at, updated_at)
+      `INSERT INTO tickets (workspace, org, ticket_id, feature, title,
+         status, priority, depth, backend, model, repos, parent,
+         depends_on, serves, source, work_type, origin, severity,
+         execution_readiness, parallel_safety, source_ref, test_env,
+         forced, spec_score, spec_hash, blocked_reason, created_at,
+         updated_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
-         $18,$19,$20)
+         $18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)
        ON CONFLICT (workspace, ticket_id) DO UPDATE SET
-         feature=$3, title=$4, status=$5, priority=$6, depth=$7,
-         backend=$8, model=$9, repos=$10, parent=$11, depends_on=$12,
-         serves=$13, source=$14, forced=$15, spec_score=$16, spec_hash=$17,
-         blocked_reason=$18, updated_at=$20`,
+         org=$2, feature=$4, title=$5, status=$6, priority=$7, depth=$8,
+         backend=$9, model=$10, repos=$11, parent=$12, depends_on=$13,
+         serves=$14, source=$15, work_type=$16, origin=$17, severity=$18,
+         execution_readiness=$19, parallel_safety=$20, source_ref=$21,
+         test_env=$22, forced=$23, spec_score=$24, spec_hash=$25,
+         blocked_reason=$26, updated_at=$28`,
       p,
     );
   }
@@ -1145,16 +1246,19 @@ export class PostgresStore implements Store {
 
   async upsertProject(row: ProjectRow): Promise<void> {
     await this.db.query(
-      `INSERT INTO projects (workspace, name, next_ticket_seq,
-         next_feature_seq, next_initiative_seq, settings, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)
-       ON CONFLICT (workspace) DO UPDATE SET name=$2, settings=$6`,
+      `INSERT INTO projects (workspace, org, name, next_ticket_seq,
+         next_feature_seq, next_initiative_seq, next_release_seq,
+         settings, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       ON CONFLICT (workspace) DO UPDATE SET org=$2, name=$3, settings=$8`,
       [
         row.workspace,
+        row.org ?? null,
         row.name ?? null,
         row.next_ticket_seq ?? 1,
         row.next_feature_seq ?? 1,
         row.next_initiative_seq ?? 1,
+        row.next_release_seq ?? 1,
         j(row.settings ?? {}),
         row.created_at ?? null,
       ],
@@ -1178,7 +1282,11 @@ export class PostgresStore implements Store {
 
   private async allocSeq(
     workspace: string,
-    column: 'next_ticket_seq' | 'next_feature_seq' | 'next_initiative_seq',
+    column:
+      | 'next_ticket_seq'
+      | 'next_feature_seq'
+      | 'next_initiative_seq'
+      | 'next_release_seq',
     prefix: string,
   ): Promise<string> {
     const bump = () =>
@@ -1203,17 +1311,19 @@ export class PostgresStore implements Store {
         );
         return r[0]?.n ?? 1;
       };
-      const [t, f, i] = await Promise.all([
+      const [t, f, i, rel] = await Promise.all([
         seqStart('tickets', 'ticket_id', 'SR'),
         seqStart('features', 'feature', 'F'),
         seqStart('initiatives', 'initiative', 'I'),
+        seqStart('releases', 'release_id', 'REL'),
       ]);
       await this.db.query(
         `INSERT INTO projects (workspace, name, next_ticket_seq,
-           next_feature_seq, next_initiative_seq, settings, created_at)
-         VALUES ($1, $1, $2, $3, $4, '{}', $5)
+           next_feature_seq, next_initiative_seq, next_release_seq,
+           settings, created_at)
+         VALUES ($1, $1, $2, $3, $4, $5, '{}', $6)
          ON CONFLICT (workspace) DO NOTHING`,
-        [workspace, t, f, i, new Date().toISOString()],
+        [workspace, t, f, i, rel, new Date().toISOString()],
       );
       rows = await bump();
     }
@@ -1238,14 +1348,28 @@ export class PostgresStore implements Store {
     return this.allocSeq(workspace, 'next_initiative_seq', 'I');
   }
 
+  allocReleaseId(workspace: string): Promise<string> {
+    return this.allocSeq(workspace, 'next_release_seq', 'REL');
+  }
+
   // ---- boards / canvas ----
 
   async upsertBoard(row: BoardRow): Promise<void> {
     await this.db.query(
-      `INSERT INTO boards (workspace, board, name, created_at)
-       VALUES ($1,$2,$3,$4)
-       ON CONFLICT (workspace, board) DO UPDATE SET name=$3`,
-      [row.workspace, row.board, row.name ?? null, row.created_at ?? null],
+      `INSERT INTO boards (workspace, org, board, name, board_type,
+         status, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       ON CONFLICT (workspace, board) DO UPDATE SET
+         org=$2, name=$4, board_type=$5, status=$6`,
+      [
+        row.workspace,
+        row.org ?? null,
+        row.board,
+        row.name ?? null,
+        row.board_type ?? null,
+        row.status ?? null,
+        row.created_at ?? null,
+      ],
     );
   }
 
@@ -1276,6 +1400,7 @@ export class PostgresStore implements Store {
     const p = [
       item.id,
       item.workspace,
+      item.org ?? null,
       item.board ?? null,
       item.kind,
       item.ref ?? null,
@@ -1289,18 +1414,29 @@ export class PostgresStore implements Store {
       j(item.serves ?? null),
       item.status,
       item.consumed_by ?? null,
+      item.note_kind ?? null,
+      item.topic ?? null,
+      item.importance ?? null,
+      item.applies_to ? j(item.applies_to) : null,
+      item.note_status ?? null,
+      item.rationale ?? null,
+      item.provenance ?? null,
       item.created_at ?? null,
       item.updated_at ?? null,
     ];
     await this.db.query(
-      `INSERT INTO board_items (id, workspace, board, kind, ref, title,
-         body, x, y, w, h, zone, serves, status, consumed_by, created_at,
-         updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+      `INSERT INTO board_items (id, workspace, org, board, kind, ref,
+         title, body, x, y, w, h, zone, serves, status, consumed_by,
+         note_kind, topic, importance, applies_to, note_status,
+         rationale, provenance, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
+         $18,$19,$20,$21,$22,$23,$24,$25)
        ON CONFLICT (id) DO UPDATE SET
-         board=$3, kind=$4, ref=$5, title=$6, body=$7, x=$8, y=$9, w=$10,
-         h=$11, zone=$12, serves=$13, status=$14, consumed_by=$15,
-         updated_at=$17`,
+         org=$3, board=$4, kind=$5, ref=$6, title=$7, body=$8, x=$9,
+         y=$10, w=$11, h=$12, zone=$13, serves=$14, status=$15,
+         consumed_by=$16, note_kind=$17, topic=$18, importance=$19,
+         applies_to=$20, note_status=$21, rationale=$22, provenance=$23,
+         updated_at=$25`,
       p,
     );
   }
@@ -1344,6 +1480,7 @@ export class PostgresStore implements Store {
   async upsertInitiative(row: InitiativeRow): Promise<void> {
     const p = [
       row.workspace,
+      row.org ?? null,
       row.initiative,
       row.board ?? null,
       row.title,
@@ -1356,13 +1493,13 @@ export class PostgresStore implements Store {
       row.updated_at ?? null,
     ];
     await this.db.query(
-      `INSERT INTO initiatives (workspace, initiative, board, title,
+      `INSERT INTO initiatives (workspace, org, initiative, board, title,
          status, owner, priority, serves, provenance, created_at,
          updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
        ON CONFLICT (workspace, initiative) DO UPDATE SET
-         board=$3, title=$4, status=$5, owner=$6, priority=$7,
-         serves=$8, provenance=$9, updated_at=$11`,
+         org=$2, board=$4, title=$5, status=$6, owner=$7, priority=$8,
+         serves=$9, provenance=$10, updated_at=$12`,
       p,
     );
   }
@@ -1398,6 +1535,7 @@ export class PostgresStore implements Store {
   async upsertFeature(row: FeatureRow): Promise<void> {
     const p = [
       row.workspace,
+      row.org ?? null,
       row.feature,
       row.initiative ?? null,
       row.title,
@@ -1405,16 +1543,18 @@ export class PostgresStore implements Store {
       row.owner ?? null,
       row.priority ?? null,
       j(row.serves ?? null),
+      row.test_env ? j(row.test_env) : null,
       row.created_at ?? null,
       row.updated_at ?? null,
     ];
     await this.db.query(
-      `INSERT INTO features (workspace, feature, initiative, title,
-         status, owner, priority, serves, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+      `INSERT INTO features (workspace, org, feature, initiative, title,
+         status, owner, priority, serves, test_env, created_at,
+         updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
        ON CONFLICT (workspace, feature) DO UPDATE SET
-         initiative=$3, title=$4, status=$5, owner=$6, priority=$7,
-         serves=$8, updated_at=$10`,
+         org=$2, initiative=$4, title=$5, status=$6, owner=$7,
+         priority=$8, serves=$9, test_env=$10, updated_at=$12`,
       p,
     );
   }
@@ -1559,6 +1699,1998 @@ export class PostgresStore implements Store {
     );
     return rows.map(rowToArtifact);
   }
+
+  // ---- delivery: releases (DELIVERY §3) ----
+
+  async upsertRelease(row: ReleaseRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO releases (workspace, org, release_id, title, status,
+         target, created_by, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       ON CONFLICT (workspace, release_id) DO UPDATE SET
+         org=$2, title=$4, status=$5, target=$6, updated_at=$9`,
+      [
+        row.workspace,
+        row.org ?? null,
+        row.release_id,
+        row.title,
+        row.status,
+        row.target ?? null,
+        row.created_by ?? null,
+        row.created_at ?? null,
+        row.updated_at ?? null,
+      ],
+    );
+  }
+
+  async getRelease(key: {
+    workspace: string;
+    release_id: string;
+  }): Promise<ReleaseRow | null> {
+    const rows = await this.db.query(
+      'SELECT * FROM releases WHERE workspace=$1 AND release_id=$2',
+      [key.workspace, key.release_id],
+    );
+    return rows[0] ? rowToRelease(rows[0]) : null;
+  }
+
+  async listReleases(filter?: {
+    workspace?: string;
+    status?: string;
+  }): Promise<ReleaseRow[]> {
+    const { where, args } = pgWhere({
+      workspace: filter?.workspace,
+      status: filter?.status,
+    });
+    const rows = await this.db.query(
+      `SELECT * FROM releases ${where} ORDER BY release_id`,
+      args,
+    );
+    return rows.map(rowToRelease);
+  }
+
+  async upsertReleaseItem(row: ReleaseItemRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO release_items (workspace, org, release_id, item_kind,
+         item_id, partial_ac, delivery_state, approved_by, added_by,
+         added_at, removed_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       ON CONFLICT (workspace, release_id, item_kind, item_id)
+       DO UPDATE SET
+         partial_ac=$6, delivery_state=$7, approved_by=$8,
+         removed_at=$11`,
+      [
+        row.workspace,
+        row.org ?? null,
+        row.release_id,
+        row.item_kind,
+        row.item_id,
+        row.partial_ac ? j(row.partial_ac) : null,
+        row.delivery_state ?? 'planned',
+        row.approved_by ?? null,
+        row.added_by ?? null,
+        row.added_at ?? null,
+        row.removed_at ?? null,
+      ],
+    );
+  }
+
+  async listReleaseItems(key: {
+    workspace: string;
+    release_id: string;
+  }): Promise<ReleaseItemRow[]> {
+    const rows = await this.db.query(
+      `SELECT * FROM release_items
+       WHERE workspace=$1 AND release_id=$2 AND removed_at IS NULL
+       ORDER BY item_kind, item_id`,
+      [key.workspace, key.release_id],
+    );
+    return rows.map(rowToReleaseItem);
+  }
+
+  async removeReleaseItem(
+    key: {
+      workspace: string;
+      release_id: string;
+      item_kind: string;
+      item_id: string;
+    },
+    removed_at: string,
+  ): Promise<void> {
+    await this.db.query(
+      `UPDATE release_items SET removed_at=$5
+       WHERE workspace=$1 AND release_id=$2 AND item_kind=$3 AND item_id=$4`,
+      [key.workspace, key.release_id, key.item_kind, key.item_id, removed_at],
+    );
+  }
+
+  async appendReleaseManifest(row: ReleaseManifestRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO release_manifests (workspace, org, release_id, version,
+         digest, items, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [
+        row.workspace,
+        row.org ?? null,
+        row.release_id,
+        row.version,
+        row.digest,
+        j(row.items),
+        row.created_at ?? null,
+      ],
+    );
+  }
+
+  async getReleaseManifest(
+    key: { workspace: string; release_id: string },
+    version?: number,
+  ): Promise<ReleaseManifestRow | null> {
+    const rows =
+      version === undefined
+        ? await this.db.query(
+            `SELECT * FROM release_manifests
+             WHERE workspace=$1 AND release_id=$2
+             ORDER BY version DESC LIMIT 1`,
+            [key.workspace, key.release_id],
+          )
+        : await this.db.query(
+            `SELECT * FROM release_manifests
+             WHERE workspace=$1 AND release_id=$2 AND version=$3`,
+            [key.workspace, key.release_id, version],
+          );
+    return rows[0] ? rowToReleaseManifest(rows[0]) : null;
+  }
+
+  async listReleaseManifests(key: {
+    workspace: string;
+    release_id: string;
+  }): Promise<ReleaseManifestRow[]> {
+    const rows = await this.db.query(
+      `SELECT * FROM release_manifests
+       WHERE workspace=$1 AND release_id=$2 ORDER BY version`,
+      [key.workspace, key.release_id],
+    );
+    return rows.map(rowToReleaseManifest);
+  }
+
+  async appendReleaseApproval(row: ReleaseApprovalRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO release_approvals (workspace, org, release_id,
+         manifest_version, approver, decision, rationale, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       ON CONFLICT (workspace, release_id, manifest_version, approver)
+       DO NOTHING`,
+      [
+        row.workspace,
+        row.org ?? null,
+        row.release_id,
+        row.manifest_version,
+        row.approver,
+        row.decision,
+        row.rationale ?? null,
+        row.created_at ?? null,
+      ],
+    );
+  }
+
+  async listReleaseApprovals(key: {
+    workspace: string;
+    release_id: string;
+    manifest_version?: number;
+  }): Promise<ReleaseApprovalRow[]> {
+    const rows = await this.db.query(
+      `SELECT * FROM release_approvals
+       WHERE workspace=$1 AND release_id=$2
+         AND ($3::int IS NULL OR manifest_version=$3)
+       ORDER BY manifest_version, approver`,
+      [key.workspace, key.release_id, key.manifest_version ?? null],
+    );
+    return rows.map(rowToReleaseApproval);
+  }
+
+  async upsertReleaseNote(row: ReleaseNoteRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO release_notes (workspace, org, release_id, audience,
+         doc_version, approved_by, approved_at, published_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       ON CONFLICT (workspace, release_id, audience) DO UPDATE SET
+         doc_version=$5, approved_by=$6, approved_at=$7, published_at=$8`,
+      [
+        row.workspace,
+        row.org ?? null,
+        row.release_id,
+        row.audience,
+        row.doc_version ?? null,
+        row.approved_by ?? null,
+        row.approved_at ?? null,
+        row.published_at ?? null,
+      ],
+    );
+  }
+
+  async getReleaseNote(key: {
+    workspace: string;
+    release_id: string;
+    audience: string;
+  }): Promise<ReleaseNoteRow | null> {
+    const rows = await this.db.query(
+      `SELECT * FROM release_notes
+       WHERE workspace=$1 AND release_id=$2 AND audience=$3`,
+      [key.workspace, key.release_id, key.audience],
+    );
+    return rows[0] ? rowToReleaseNote(rows[0]) : null;
+  }
+
+  async listReleaseNotes(key: {
+    workspace: string;
+    release_id: string;
+  }): Promise<ReleaseNoteRow[]> {
+    const rows = await this.db.query(
+      `SELECT * FROM release_notes
+       WHERE workspace=$1 AND release_id=$2 ORDER BY audience`,
+      [key.workspace, key.release_id],
+    );
+    return rows.map(rowToReleaseNote);
+  }
+
+  async appendReleaseGateResult(
+    row: Omit<ReleaseGateResultRow, 'id'>,
+  ): Promise<number> {
+    const rows = await this.db.query<{ id: number }>(
+      `INSERT INTO release_gate_results (workspace, org, release_id, gate,
+         result, evidence, checked_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+      [
+        row.workspace,
+        row.org ?? null,
+        row.release_id,
+        row.gate,
+        row.result,
+        row.evidence ? j(row.evidence) : null,
+        row.checked_at,
+      ],
+    );
+    return Number(rows[0]?.id ?? 0);
+  }
+
+  async listReleaseGateResults(key: {
+    workspace: string;
+    release_id: string;
+    gate?: string;
+  }): Promise<ReleaseGateResultRow[]> {
+    const rows = await this.db.query(
+      `SELECT * FROM release_gate_results
+       WHERE workspace=$1 AND release_id=$2
+         AND ($3::text IS NULL OR gate=$3)
+       ORDER BY id`,
+      [key.workspace, key.release_id, key.gate ?? null],
+    );
+    return rows.map(rowToReleaseGateResult);
+  }
+
+  async insertDeployment(row: DeploymentRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO deployments (workspace, org, deployment_id, release_id,
+         environment, sha, evidence, confirmed_by, confirmed_at, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+      [
+        row.workspace,
+        row.org ?? null,
+        row.deployment_id,
+        row.release_id,
+        row.environment,
+        row.sha,
+        j(row.evidence),
+        row.confirmed_by ?? null,
+        row.confirmed_at ?? null,
+        row.created_at ?? null,
+      ],
+    );
+  }
+
+  async confirmDeployment(
+    key: { workspace: string; deployment_id: string },
+    confirmed_by: string,
+    at: string,
+  ): Promise<void> {
+    await this.db.query(
+      `UPDATE deployments SET confirmed_by=$3, confirmed_at=$4
+       WHERE workspace=$1 AND deployment_id=$2`,
+      [key.workspace, key.deployment_id, confirmed_by, at],
+    );
+  }
+
+  async listDeployments(filter: {
+    workspace: string;
+    release_id?: string;
+    environment?: string;
+  }): Promise<DeploymentRow[]> {
+    const { where, args } = pgWhere({
+      workspace: filter.workspace,
+      release_id: filter.release_id,
+      environment: filter.environment,
+    });
+    const rows = await this.db.query(
+      `SELECT * FROM deployments ${where} ORDER BY deployment_id`,
+      args,
+    );
+    return rows.map(rowToDeployment);
+  }
+
+  async upsertFeatureExposure(row: FeatureExposureRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO feature_exposure (workspace, org, feature_id,
+         environment, state, audience, evidence, deployment_id, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       ON CONFLICT (workspace, feature_id, environment) DO UPDATE SET
+         state=$5, audience=$6, evidence=$7, deployment_id=$8, updated_at=$9`,
+      [
+        row.workspace,
+        row.org ?? null,
+        row.feature_id,
+        row.environment,
+        row.state,
+        row.audience ?? null,
+        row.evidence ?? null,
+        row.deployment_id ?? null,
+        row.updated_at ?? null,
+      ],
+    );
+  }
+
+  async getFeatureExposure(key: {
+    workspace: string;
+    feature_id: string;
+    environment: string;
+  }): Promise<FeatureExposureRow | null> {
+    const rows = await this.db.query(
+      `SELECT * FROM feature_exposure
+       WHERE workspace=$1 AND feature_id=$2 AND environment=$3`,
+      [key.workspace, key.feature_id, key.environment],
+    );
+    return rows[0] ? rowToFeatureExposure(rows[0]) : null;
+  }
+
+  async listFeatureExposure(filter: {
+    workspace: string;
+    feature_id?: string;
+    environment?: string;
+  }): Promise<FeatureExposureRow[]> {
+    const { where, args } = pgWhere({
+      workspace: filter.workspace,
+      feature_id: filter.feature_id,
+      environment: filter.environment,
+    });
+    const rows = await this.db.query(
+      `SELECT * FROM feature_exposure ${where}
+       ORDER BY feature_id, environment`,
+      args,
+    );
+    return rows.map(rowToFeatureExposure);
+  }
+
+  async upsertReleaseOutcome(row: ReleaseOutcomeRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO release_outcomes (workspace, org, release_id, kpi,
+         data, measured_at)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       ON CONFLICT (workspace, release_id, kpi) DO UPDATE SET
+         data=$5, measured_at=$6`,
+      [
+        row.workspace,
+        row.org ?? null,
+        row.release_id,
+        row.kpi,
+        j(row.data),
+        row.measured_at ?? null,
+      ],
+    );
+  }
+
+  async listReleaseOutcomes(key: {
+    workspace: string;
+    release_id: string;
+  }): Promise<ReleaseOutcomeRow[]> {
+    const rows = await this.db.query(
+      `SELECT * FROM release_outcomes
+       WHERE workspace=$1 AND release_id=$2 ORDER BY kpi`,
+      [key.workspace, key.release_id],
+    );
+    return rows.map(rowToReleaseOutcome);
+  }
+
+  // ---- changesets (PRD §15.5, wp-140) ----
+
+  async upsertChangeset(row: ChangesetRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO changesets (workspace, org, changeset_id, title, request,
+         baseline, classification, status, analysis, decision,
+         decision_rationale, decided_by, decided_at, expires_on, emergency,
+         retro_ref, reconciliation, created_by, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+       ON CONFLICT (workspace, changeset_id) DO UPDATE SET
+         title=$4, classification=$7, status=$8, analysis=$9, decision=$10,
+         decision_rationale=$11, decided_by=$12, decided_at=$13,
+         expires_on=$14, emergency=$15, retro_ref=$16, reconciliation=$17,
+         updated_at=$20`,
+      [
+        row.workspace,
+        row.org ?? null,
+        row.changeset_id,
+        row.title ?? null,
+        row.request,
+        row.baseline ? j(row.baseline) : null,
+        row.classification ?? null,
+        row.status,
+        row.analysis ? j(row.analysis) : null,
+        row.decision ?? null,
+        row.decision_rationale ?? null,
+        row.decided_by ?? null,
+        row.decided_at ?? null,
+        row.expires_on ?? null,
+        row.emergency ? 1 : 0,
+        row.retro_ref ?? null,
+        row.reconciliation ? j(row.reconciliation) : null,
+        row.created_by ?? null,
+        row.created_at ?? null,
+        row.updated_at ?? null,
+      ],
+    );
+  }
+
+  async getChangeset(key: {
+    workspace: string;
+    changeset_id: string;
+  }): Promise<ChangesetRow | null> {
+    const rows = await this.db.query(
+      'SELECT * FROM changesets WHERE workspace=$1 AND changeset_id=$2',
+      [key.workspace, key.changeset_id],
+    );
+    return rows[0] ? rowToChangeset(rows[0]) : null;
+  }
+
+  async listChangesets(filter?: {
+    workspace?: string;
+    status?: string;
+  }): Promise<ChangesetRow[]> {
+    const { where, args } = pgWhere({
+      workspace: filter?.workspace,
+      status: filter?.status,
+    });
+    const rows = await this.db.query(
+      `SELECT * FROM changesets ${where} ORDER BY changeset_id`,
+      args,
+    );
+    return rows.map(rowToChangeset);
+  }
+
+  async upsertChangesetItem(row: ChangesetItemRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO changeset_items (workspace, org, changeset_id, seq,
+         subject, doc, base_version, proposed_version, change, status,
+         applied_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       ON CONFLICT (workspace, changeset_id, seq) DO UPDATE SET
+         subject=$5, doc=$6, base_version=$7, proposed_version=$8,
+         change=$9, status=$10, applied_at=$11`,
+      [
+        row.workspace,
+        row.org ?? null,
+        row.changeset_id,
+        row.seq,
+        row.subject,
+        row.doc ?? null,
+        row.base_version ?? null,
+        row.proposed_version ?? null,
+        row.change ? j(row.change) : null,
+        row.status ?? 'pending',
+        row.applied_at ?? null,
+      ],
+    );
+  }
+
+  async listChangesetItems(key: {
+    workspace: string;
+    changeset_id: string;
+  }): Promise<ChangesetItemRow[]> {
+    const rows = await this.db.query(
+      `SELECT * FROM changeset_items
+       WHERE workspace=$1 AND changeset_id=$2 ORDER BY seq`,
+      [key.workspace, key.changeset_id],
+    );
+    return rows.map(rowToChangesetItem);
+  }
+
+  // ---- statement ledger (PRD §15.3/§15.9, wp-143) ----
+
+  async upsertStatement(
+    row: Omit<StatementRow, 'version'>,
+  ): Promise<StatementRow> {
+    return this.db.transaction(async (tx): Promise<StatementRow> => {
+      // doc_version discipline — serialize MAX(version)+1 per statement.
+      await lockKey(tx, `statement:${row.workspace}:${row.statement_id}`);
+      const v = await tx.query<{ version: number }>(
+        `INSERT INTO statement_versions (workspace, org, statement_id,
+           version, text, source_text, source_ref, intent, polarity,
+           subject, strength, scope, scope_ref, status, confidence,
+           provenance, extraction_run, edited_by, created_at)
+         SELECT $1,$2,$3,
+           COALESCE((
+             SELECT MAX(version) FROM statement_versions
+             WHERE workspace=$1 AND statement_id=$3
+           ), 0) + 1,
+           $4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18
+         RETURNING version`,
+        [
+          row.workspace,
+          row.org ?? null,
+          row.statement_id,
+          row.text,
+          row.source_text ?? null,
+          row.source_ref ? j(row.source_ref) : null,
+          row.intent ?? null,
+          row.polarity ?? null,
+          row.subject ?? null,
+          row.strength ?? null,
+          row.scope ?? null,
+          row.scope_ref ?? null,
+          row.status,
+          row.confidence ?? null,
+          row.provenance ?? null,
+          row.extraction_run ?? null,
+          row.created_by ?? null,
+          row.created_at ?? now(),
+        ],
+      );
+      const version = v[0]?.version ?? 1;
+      await tx.query(
+        `INSERT INTO semantic_statements (workspace, org, statement_id,
+           version, text, source_text, source_ref, intent, polarity,
+           subject, strength, scope, scope_ref, status, confidence,
+           provenance, extraction_run, created_by, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+         ON CONFLICT (workspace, statement_id) DO UPDATE SET
+           version=$4, text=$5, source_text=$6, source_ref=$7, intent=$8,
+           polarity=$9, subject=$10, strength=$11, scope=$12,
+           scope_ref=$13, status=$14, confidence=$15, provenance=$16,
+           extraction_run=$17, updated_at=$20`,
+        [
+          row.workspace,
+          row.org ?? null,
+          row.statement_id,
+          version,
+          row.text,
+          row.source_text ?? null,
+          row.source_ref ? j(row.source_ref) : null,
+          row.intent ?? null,
+          row.polarity ?? null,
+          row.subject ?? null,
+          row.strength ?? null,
+          row.scope ?? null,
+          row.scope_ref ?? null,
+          row.status,
+          row.confidence ?? null,
+          row.provenance ?? null,
+          row.extraction_run ?? null,
+          row.created_by ?? null,
+          row.created_at ?? now(),
+          row.updated_at ?? now(),
+        ],
+      );
+      return { ...row, version };
+    });
+  }
+
+  async getStatement(key: {
+    workspace: string;
+    statement_id: string;
+  }): Promise<StatementRow | null> {
+    const rows = await this.db.query(
+      'SELECT * FROM semantic_statements WHERE workspace=$1 AND statement_id=$2',
+      [key.workspace, key.statement_id],
+    );
+    return rows[0] ? rowToStatement(rows[0]) : null;
+  }
+
+  async listStatements(filter?: {
+    workspace?: string;
+    status?: string;
+    scope?: string;
+    scope_ref?: string;
+    intent?: string;
+  }): Promise<StatementRow[]> {
+    const { where, args } = pgWhere({
+      workspace: filter?.workspace,
+      status: filter?.status,
+      scope: filter?.scope,
+      scope_ref: filter?.scope_ref,
+      intent: filter?.intent,
+    });
+    const rows = await this.db.query(
+      `SELECT * FROM semantic_statements ${where} ORDER BY statement_id`,
+      args,
+    );
+    return rows.map(rowToStatement);
+  }
+
+  async listStatementVersions(key: {
+    workspace: string;
+    statement_id: string;
+  }): Promise<StatementVersionRow[]> {
+    const rows = await this.db.query(
+      `SELECT * FROM statement_versions
+       WHERE workspace=$1 AND statement_id=$2 ORDER BY version`,
+      [key.workspace, key.statement_id],
+    );
+    return rows.map(rowToStatementVersion);
+  }
+
+  async upsertStatementRelation(row: StatementRelationRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO statement_relations (workspace, org, src, predicate,
+         dst, created_by, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       ON CONFLICT (workspace, src, predicate, dst) DO NOTHING`,
+      [
+        row.workspace,
+        row.org ?? null,
+        row.src,
+        row.predicate,
+        row.dst,
+        row.created_by ?? null,
+        row.created_at ?? null,
+      ],
+    );
+  }
+
+  async listStatementRelations(filter: {
+    workspace: string;
+    src?: string;
+    dst?: string;
+    predicate?: string;
+  }): Promise<StatementRelationRow[]> {
+    const { where, args } = pgWhere({
+      workspace: filter.workspace,
+      src: filter.src,
+      dst: filter.dst,
+      predicate: filter.predicate,
+    });
+    const rows = await this.db.query(
+      `SELECT * FROM statement_relations ${where} ORDER BY src, predicate, dst`,
+      args,
+    );
+    return rows.map(rowToStatementRelation);
+  }
+
+  async deleteStatementRelation(key: {
+    workspace: string;
+    src: string;
+    predicate: string;
+    dst: string;
+  }): Promise<void> {
+    await this.db.query(
+      `DELETE FROM statement_relations
+       WHERE workspace=$1 AND src=$2 AND predicate=$3 AND dst=$4`,
+      [key.workspace, key.src, key.predicate, key.dst],
+    );
+  }
+
+  async upsertStatementClarification(
+    row: StatementClarificationRow,
+  ): Promise<void> {
+    await this.db.query(
+      `INSERT INTO statement_clarifications (workspace, org,
+         clarification_id, statement_id, question, answer, asked_by,
+         answered_by, created_at, answered_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+       ON CONFLICT (workspace, clarification_id) DO UPDATE SET
+         answer=$6, answered_by=$8, answered_at=$10`,
+      [
+        row.workspace,
+        row.org ?? null,
+        row.clarification_id,
+        row.statement_id,
+        row.question,
+        row.answer ?? null,
+        row.asked_by ?? null,
+        row.answered_by ?? null,
+        row.created_at ?? null,
+        row.answered_at ?? null,
+      ],
+    );
+  }
+
+  async listStatementClarifications(filter: {
+    workspace: string;
+    statement_id?: string;
+  }): Promise<StatementClarificationRow[]> {
+    const { where, args } = pgWhere({
+      workspace: filter.workspace,
+      statement_id: filter.statement_id,
+    });
+    const rows = await this.db.query(
+      `SELECT * FROM statement_clarifications ${where}
+       ORDER BY created_at, clarification_id`,
+      args,
+    );
+    return rows.map(rowToStatementClarification);
+  }
+
+  async upsertStatementDecision(row: StatementDecisionRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO statement_decisions (workspace, org, decision_id,
+         statement_id, decision, status, rationale, decided_by, decided_at,
+         created_by, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       ON CONFLICT (workspace, decision_id) DO UPDATE SET
+         decision=$5, status=$6, rationale=$7, decided_by=$8, decided_at=$9`,
+      [
+        row.workspace,
+        row.org ?? null,
+        row.decision_id,
+        row.statement_id,
+        row.decision ?? null,
+        row.status,
+        row.rationale ?? null,
+        row.decided_by ?? null,
+        row.decided_at ?? null,
+        row.created_by ?? null,
+        row.created_at ?? null,
+      ],
+    );
+  }
+
+  async getStatementDecision(key: {
+    workspace: string;
+    decision_id: string;
+  }): Promise<StatementDecisionRow | null> {
+    const rows = await this.db.query(
+      `SELECT * FROM statement_decisions
+       WHERE workspace=$1 AND decision_id=$2`,
+      [key.workspace, key.decision_id],
+    );
+    return rows[0] ? rowToStatementDecision(rows[0]) : null;
+  }
+
+  async listStatementDecisions(filter: {
+    workspace: string;
+    statement_id?: string;
+    status?: string;
+  }): Promise<StatementDecisionRow[]> {
+    const { where, args } = pgWhere({
+      workspace: filter.workspace,
+      statement_id: filter.statement_id,
+      status: filter.status,
+    });
+    const rows = await this.db.query(
+      `SELECT * FROM statement_decisions ${where}
+       ORDER BY created_at, decision_id`,
+      args,
+    );
+    return rows.map(rowToStatementDecision);
+  }
+
+  async upsertStatementArtifactLink(
+    row: StatementArtifactLinkRow,
+  ): Promise<void> {
+    await this.db.query(
+      `INSERT INTO statement_artifact_links (workspace, org, statement_id,
+         artifact, element, created_by, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       ON CONFLICT (workspace, statement_id, artifact, element)
+       DO NOTHING`,
+      [
+        row.workspace,
+        row.org ?? null,
+        row.statement_id,
+        row.artifact,
+        row.element ?? '',
+        row.created_by ?? null,
+        row.created_at ?? null,
+      ],
+    );
+  }
+
+  async listStatementArtifactLinks(filter: {
+    workspace: string;
+    statement_id?: string;
+    artifact?: string;
+  }): Promise<StatementArtifactLinkRow[]> {
+    const { where, args } = pgWhere({
+      workspace: filter.workspace,
+      statement_id: filter.statement_id,
+      artifact: filter.artifact,
+    });
+    const rows = await this.db.query(
+      `SELECT * FROM statement_artifact_links ${where}
+       ORDER BY statement_id, artifact, element`,
+      args,
+    );
+    return rows.map(rowToStatementArtifactLink);
+  }
+
+  async deleteStatementArtifactLink(key: {
+    workspace: string;
+    statement_id: string;
+    artifact: string;
+    element: string;
+  }): Promise<void> {
+    await this.db.query(
+      `DELETE FROM statement_artifact_links
+       WHERE workspace=$1 AND statement_id=$2 AND artifact=$3 AND element=$4`,
+      [key.workspace, key.statement_id, key.artifact, key.element],
+    );
+  }
+
+  async insertExtractionRun(row: ExtractionRunRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO semantic_extraction_runs (workspace, org,
+         extraction_run_id, run, subject, model, prompt_version, stats,
+         created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       ON CONFLICT (workspace, extraction_run_id) DO NOTHING`,
+      [
+        row.workspace,
+        row.org ?? null,
+        row.extraction_run_id,
+        row.run ?? null,
+        row.subject ?? null,
+        row.model ?? null,
+        row.prompt_version ?? null,
+        row.stats ? j(row.stats) : null,
+        row.created_at ?? null,
+      ],
+    );
+  }
+
+  async getExtractionRun(key: {
+    workspace: string;
+    extraction_run_id: string;
+  }): Promise<ExtractionRunRow | null> {
+    const rows = await this.db.query(
+      `SELECT * FROM semantic_extraction_runs
+       WHERE workspace=$1 AND extraction_run_id=$2`,
+      [key.workspace, key.extraction_run_id],
+    );
+    return rows[0] ? rowToExtractionRun(rows[0]) : null;
+  }
+
+  async listExtractionRuns(filter?: {
+    workspace?: string;
+    subject?: string;
+  }): Promise<ExtractionRunRow[]> {
+    const { where, args } = pgWhere({
+      workspace: filter?.workspace,
+      subject: filter?.subject,
+    });
+    const rows = await this.db.query(
+      `SELECT * FROM semantic_extraction_runs ${where}
+       ORDER BY created_at, extraction_run_id`,
+      args,
+    );
+    return rows.map(rowToExtractionRun);
+  }
+
+  // ---- interview orchestrator (PRD §15.9, wp-145) ----
+
+  async upsertWizardDefinition(row: WizardDefinitionRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO wizard_definitions (workspace, org, wizard_id, name,
+         description, current_version, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       ON CONFLICT (workspace, wizard_id) DO UPDATE SET
+         name=$4, description=$5, current_version=$6, updated_at=$8`,
+      [
+        row.workspace,
+        row.org ?? null,
+        row.wizard_id,
+        row.name ?? null,
+        row.description ?? null,
+        row.current_version ?? null,
+        row.created_at ?? null,
+        row.updated_at ?? null,
+      ],
+    );
+  }
+
+  async getWizardDefinition(key: {
+    workspace: string;
+    wizard_id: string;
+  }): Promise<WizardDefinitionRow | null> {
+    const rows = await this.db.query(
+      'SELECT * FROM wizard_definitions WHERE workspace=$1 AND wizard_id=$2',
+      [key.workspace, key.wizard_id],
+    );
+    return rows[0] ? rowToWizardDefinition(rows[0]) : null;
+  }
+
+  async appendWizardVersion(row: WizardVersionRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO wizard_versions (workspace, org, wizard_id, version,
+         definition, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [
+        row.workspace,
+        row.org ?? null,
+        row.wizard_id,
+        row.version,
+        j(row.definition),
+        row.created_at ?? null,
+      ],
+    );
+  }
+
+  async getWizardVersion(
+    key: { workspace: string; wizard_id: string },
+    version?: number,
+  ): Promise<WizardVersionRow | null> {
+    const rows =
+      version === undefined
+        ? await this.db.query(
+            `SELECT * FROM wizard_versions
+             WHERE workspace=$1 AND wizard_id=$2
+             ORDER BY version DESC LIMIT 1`,
+            [key.workspace, key.wizard_id],
+          )
+        : await this.db.query(
+            `SELECT * FROM wizard_versions
+             WHERE workspace=$1 AND wizard_id=$2 AND version=$3`,
+            [key.workspace, key.wizard_id, version],
+          );
+    return rows[0] ? rowToWizardVersion(rows[0]) : null;
+  }
+
+  async listWizardVersions(key: {
+    workspace: string;
+    wizard_id: string;
+  }): Promise<WizardVersionRow[]> {
+    const rows = await this.db.query(
+      `SELECT * FROM wizard_versions
+       WHERE workspace=$1 AND wizard_id=$2 ORDER BY version`,
+      [key.workspace, key.wizard_id],
+    );
+    return rows.map(rowToWizardVersion);
+  }
+
+  async upsertInterviewSession(row: InterviewSessionRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO interview_sessions (workspace, org, session_id,
+         wizard_id, wizard_version, subject, mode, status, draft_ready,
+         approval_ready, knowledge_version, created_by, created_at,
+         updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+       ON CONFLICT (workspace, session_id) DO UPDATE SET
+         wizard_id=$4, wizard_version=$5, subject=$6, mode=$7, status=$8,
+         draft_ready=$9, approval_ready=$10, knowledge_version=$11,
+         updated_at=$14`,
+      [
+        row.workspace,
+        row.org ?? null,
+        row.session_id,
+        row.wizard_id ?? null,
+        row.wizard_version ?? null,
+        row.subject ?? null,
+        row.mode ?? null,
+        row.status,
+        row.draft_ready ? 1 : 0,
+        row.approval_ready ? 1 : 0,
+        row.knowledge_version ?? null,
+        row.created_by ?? null,
+        row.created_at ?? null,
+        row.updated_at ?? null,
+      ],
+    );
+  }
+
+  async getInterviewSession(key: {
+    workspace: string;
+    session_id: string;
+  }): Promise<InterviewSessionRow | null> {
+    const rows = await this.db.query(
+      'SELECT * FROM interview_sessions WHERE workspace=$1 AND session_id=$2',
+      [key.workspace, key.session_id],
+    );
+    return rows[0] ? rowToInterviewSession(rows[0]) : null;
+  }
+
+  async listInterviewSessions(filter?: {
+    workspace?: string;
+    subject?: string;
+    status?: string;
+  }): Promise<InterviewSessionRow[]> {
+    const { where, args } = pgWhere({
+      workspace: filter?.workspace,
+      subject: filter?.subject,
+      status: filter?.status,
+    });
+    const rows = await this.db.query(
+      `SELECT * FROM interview_sessions ${where} ORDER BY created_at, session_id`,
+      args,
+    );
+    return rows.map(rowToInterviewSession);
+  }
+
+  async upsertInterviewBranch(row: InterviewBranchRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO interview_branches (workspace, org, session_id, branch,
+         role, status, created_at, merged_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       ON CONFLICT (workspace, session_id, branch) DO UPDATE SET
+         role=$5, status=$6, merged_at=$8`,
+      [
+        row.workspace,
+        row.org ?? null,
+        row.session_id,
+        row.branch,
+        row.role ?? null,
+        row.status,
+        row.created_at ?? null,
+        row.merged_at ?? null,
+      ],
+    );
+  }
+
+  async listInterviewBranches(key: {
+    workspace: string;
+    session_id: string;
+  }): Promise<InterviewBranchRow[]> {
+    const rows = await this.db.query(
+      `SELECT * FROM interview_branches
+       WHERE workspace=$1 AND session_id=$2 ORDER BY branch`,
+      [key.workspace, key.session_id],
+    );
+    return rows.map(rowToInterviewBranch);
+  }
+
+  async appendInterviewMessage(
+    row: Omit<InterviewMessageRow, 'seq'>,
+  ): Promise<number> {
+    return this.db.transaction(async (tx): Promise<number> => {
+      // Per-session monotonic seq — serialize max+1 like doc_versions.
+      await lockKey(tx, `interview:${row.workspace}:${row.session_id}`);
+      const rows = await tx.query<{ seq: number }>(
+        `INSERT INTO interview_messages (workspace, org, session_id, seq,
+           branch, role, content, created_at)
+         SELECT $1,$2,$3,
+           COALESCE((
+             SELECT MAX(seq) FROM interview_messages
+             WHERE workspace=$1 AND session_id=$3
+           ), 0) + 1,
+           $4,$5,$6,$7
+         RETURNING seq`,
+        [
+          row.workspace,
+          row.org ?? null,
+          row.session_id,
+          row.branch ?? null,
+          row.role,
+          row.content,
+          row.created_at ?? now(),
+        ],
+      );
+      return rows[0]?.seq ?? 1;
+    });
+  }
+
+  async listInterviewMessages(key: {
+    workspace: string;
+    session_id: string;
+    after?: number;
+  }): Promise<InterviewMessageRow[]> {
+    const rows = await this.db.query(
+      `SELECT * FROM interview_messages
+       WHERE workspace=$1 AND session_id=$2 AND seq > $3
+       ORDER BY seq`,
+      [key.workspace, key.session_id, key.after ?? 0],
+    );
+    return rows.map(rowToInterviewMessage);
+  }
+
+  async upsertKnowledgeSlot(row: KnowledgeSlotRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO knowledge_slots (workspace, org, session_id, slot,
+         state, value, statement_refs, confidence, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       ON CONFLICT (workspace, session_id, slot) DO UPDATE SET
+         state=$5, value=$6, statement_refs=$7, confidence=$8,
+         updated_at=$9`,
+      [
+        row.workspace,
+        row.org ?? null,
+        row.session_id,
+        row.slot,
+        row.state,
+        row.value ?? null,
+        row.statement_refs ? j(row.statement_refs) : null,
+        row.confidence ?? null,
+        row.updated_at ?? null,
+      ],
+    );
+  }
+
+  async getKnowledgeSlot(key: {
+    workspace: string;
+    session_id: string;
+    slot: string;
+  }): Promise<KnowledgeSlotRow | null> {
+    const rows = await this.db.query(
+      `SELECT * FROM knowledge_slots
+       WHERE workspace=$1 AND session_id=$2 AND slot=$3`,
+      [key.workspace, key.session_id, key.slot],
+    );
+    return rows[0] ? rowToKnowledgeSlot(rows[0]) : null;
+  }
+
+  async listKnowledgeSlots(key: {
+    workspace: string;
+    session_id: string;
+    state?: string;
+  }): Promise<KnowledgeSlotRow[]> {
+    const rows = await this.db.query(
+      `SELECT * FROM knowledge_slots
+       WHERE workspace=$1 AND session_id=$2
+         AND ($3::text IS NULL OR state=$3)
+       ORDER BY slot`,
+      [key.workspace, key.session_id, key.state ?? null],
+    );
+    return rows.map(rowToKnowledgeSlot);
+  }
+
+  async upsertQuestionCandidate(row: QuestionCandidateRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO question_candidates (workspace, org, session_id,
+         question_id, slot, question, scores, status, created_at,
+         resolved_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+       ON CONFLICT (workspace, session_id, question_id) DO UPDATE SET
+         slot=$5, question=$6, scores=$7, status=$8, resolved_at=$10`,
+      [
+        row.workspace,
+        row.org ?? null,
+        row.session_id,
+        row.question_id,
+        row.slot ?? null,
+        row.question,
+        row.scores ? j(row.scores) : null,
+        row.status,
+        row.created_at ?? null,
+        row.resolved_at ?? null,
+      ],
+    );
+  }
+
+  async listQuestionCandidates(filter: {
+    workspace: string;
+    session_id: string;
+    status?: string;
+  }): Promise<QuestionCandidateRow[]> {
+    const { where, args } = pgWhere({
+      workspace: filter.workspace,
+      session_id: filter.session_id,
+      status: filter.status,
+    });
+    const rows = await this.db.query(
+      `SELECT * FROM question_candidates ${where}
+       ORDER BY created_at, question_id`,
+      args,
+    );
+    return rows.map(rowToQuestionCandidate);
+  }
+
+  async appendSessionSnapshot(row: SessionSnapshotRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO session_snapshots (workspace, org, session_id, version,
+         snapshot, reason, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [
+        row.workspace,
+        row.org ?? null,
+        row.session_id,
+        row.version,
+        j(row.snapshot),
+        row.reason ?? null,
+        row.created_at ?? null,
+      ],
+    );
+  }
+
+  async getSessionSnapshot(
+    key: { workspace: string; session_id: string },
+    version?: number,
+  ): Promise<SessionSnapshotRow | null> {
+    const rows =
+      version === undefined
+        ? await this.db.query(
+            `SELECT * FROM session_snapshots
+             WHERE workspace=$1 AND session_id=$2
+             ORDER BY version DESC LIMIT 1`,
+            [key.workspace, key.session_id],
+          )
+        : await this.db.query(
+            `SELECT * FROM session_snapshots
+             WHERE workspace=$1 AND session_id=$2 AND version=$3`,
+            [key.workspace, key.session_id, version],
+          );
+    return rows[0] ? rowToSessionSnapshot(rows[0]) : null;
+  }
+
+  async listSessionSnapshots(key: {
+    workspace: string;
+    session_id: string;
+  }): Promise<SessionSnapshotRow[]> {
+    const rows = await this.db.query(
+      `SELECT * FROM session_snapshots
+       WHERE workspace=$1 AND session_id=$2 ORDER BY version`,
+      [key.workspace, key.session_id],
+    );
+    return rows.map(rowToSessionSnapshot);
+  }
+
+  // ---- review studio (PRD §15.8, wp-148/149/150) ----
+
+  async upsertReviewSession(row: ReviewSessionRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO review_sessions (workspace, org, review_id, subject,
+         status, created_by, created_at, closed_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       ON CONFLICT (workspace, review_id) DO UPDATE SET
+         status=$5, closed_at=$8`,
+      [
+        row.workspace,
+        row.org ?? null,
+        row.review_id,
+        row.subject,
+        row.status,
+        row.created_by ?? null,
+        row.created_at ?? null,
+        row.closed_at ?? null,
+      ],
+    );
+  }
+
+  async getReviewSession(key: {
+    workspace: string;
+    review_id: string;
+  }): Promise<ReviewSessionRow | null> {
+    const rows = await this.db.query(
+      'SELECT * FROM review_sessions WHERE workspace=$1 AND review_id=$2',
+      [key.workspace, key.review_id],
+    );
+    return rows[0] ? rowToReviewSession(rows[0]) : null;
+  }
+
+  async listReviewSessions(filter?: {
+    workspace?: string;
+    subject?: string;
+    status?: string;
+  }): Promise<ReviewSessionRow[]> {
+    const { where, args } = pgWhere({
+      workspace: filter?.workspace,
+      subject: filter?.subject,
+      status: filter?.status,
+    });
+    const rows = await this.db.query(
+      `SELECT * FROM review_sessions ${where}
+       ORDER BY created_at, review_id`,
+      args,
+    );
+    return rows.map(rowToReviewSession);
+  }
+
+  async appendReviewRevision(row: ReviewRevisionRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO review_revisions (workspace, org, review_id, revision,
+         head_sha, base_sha, baseline, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [
+        row.workspace,
+        row.org ?? null,
+        row.review_id,
+        row.revision,
+        row.head_sha,
+        row.base_sha ?? null,
+        row.baseline ? j(row.baseline) : null,
+        row.created_at ?? null,
+      ],
+    );
+  }
+
+  async getReviewRevision(
+    key: { workspace: string; review_id: string },
+    revision?: number,
+  ): Promise<ReviewRevisionRow | null> {
+    const rows =
+      revision === undefined
+        ? await this.db.query(
+            `SELECT * FROM review_revisions
+             WHERE workspace=$1 AND review_id=$2
+             ORDER BY revision DESC LIMIT 1`,
+            [key.workspace, key.review_id],
+          )
+        : await this.db.query(
+            `SELECT * FROM review_revisions
+             WHERE workspace=$1 AND review_id=$2 AND revision=$3`,
+            [key.workspace, key.review_id, revision],
+          );
+    return rows[0] ? rowToReviewRevision(rows[0]) : null;
+  }
+
+  async listReviewRevisions(key: {
+    workspace: string;
+    review_id: string;
+  }): Promise<ReviewRevisionRow[]> {
+    const rows = await this.db.query(
+      `SELECT * FROM review_revisions
+       WHERE workspace=$1 AND review_id=$2 ORDER BY revision`,
+      [key.workspace, key.review_id],
+    );
+    return rows.map(rowToReviewRevision);
+  }
+
+  async upsertReviewFinding(row: ReviewFindingRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO review_findings (workspace, org, finding_id, review_id,
+         revision, subject, status, severity, category, kind, thread_id,
+         file, line, symbol, repo, body, evidence, suggested_fix,
+         confidence, blocking, security_category, affected_asset,
+         exposure, policy_violated, author, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
+       ON CONFLICT (workspace, finding_id) DO UPDATE SET
+         revision=$5, subject=$6, status=$7, severity=$8, category=$9,
+         kind=$10, thread_id=$11, file=$12, line=$13, symbol=$14,
+         repo=$15, body=$16, evidence=$17, suggested_fix=$18,
+         confidence=$19, blocking=$20, security_category=$21,
+         affected_asset=$22, exposure=$23, policy_violated=$24,
+         author=$25, updated_at=$27`,
+      [
+        row.workspace,
+        row.org ?? null,
+        row.finding_id,
+        row.review_id,
+        row.revision ?? null,
+        row.subject ?? null,
+        row.status,
+        row.severity ?? null,
+        row.category ?? null,
+        row.kind ?? null,
+        row.thread_id ?? null,
+        row.file ?? null,
+        row.line ?? null,
+        row.symbol ?? null,
+        row.repo ?? null,
+        row.body,
+        row.evidence ?? null,
+        row.suggested_fix ?? null,
+        row.confidence ?? null,
+        row.blocking ? 1 : 0,
+        row.security_category ?? null,
+        row.affected_asset ?? null,
+        row.exposure ?? null,
+        row.policy_violated ?? null,
+        row.author ?? null,
+        row.created_at ?? null,
+        row.updated_at ?? null,
+      ],
+    );
+  }
+
+  async getReviewFinding(key: {
+    workspace: string;
+    finding_id: string;
+  }): Promise<ReviewFindingRow | null> {
+    const rows = await this.db.query(
+      'SELECT * FROM review_findings WHERE workspace=$1 AND finding_id=$2',
+      [key.workspace, key.finding_id],
+    );
+    return rows[0] ? rowToReviewFinding(rows[0]) : null;
+  }
+
+  async listReviewFindings(filter: {
+    workspace: string;
+    review_id?: string;
+    status?: string;
+    severity?: string;
+  }): Promise<ReviewFindingRow[]> {
+    const { where, args } = pgWhere({
+      workspace: filter.workspace,
+      review_id: filter.review_id,
+      status: filter.status,
+      severity: filter.severity,
+    });
+    const rows = await this.db.query(
+      `SELECT * FROM review_findings ${where} ORDER BY finding_id`,
+      args,
+    );
+    return rows.map(rowToReviewFinding);
+  }
+
+  async upsertReviewComment(row: ReviewCommentRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO review_comments (workspace, org, comment_id, review_id,
+         revision, subject, file, line, type, disposition,
+         ai_classification, body, author, changeset_id, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+       ON CONFLICT (workspace, comment_id) DO UPDATE SET
+         type=$9, disposition=$10, ai_classification=$11, body=$12,
+         changeset_id=$14`,
+      [
+        row.workspace,
+        row.org ?? null,
+        row.comment_id,
+        row.review_id,
+        row.revision ?? null,
+        row.subject ?? null,
+        row.file ?? null,
+        row.line ?? null,
+        row.type ?? null,
+        row.disposition ?? null,
+        row.ai_classification ? j(row.ai_classification) : null,
+        row.body,
+        row.author ?? null,
+        row.changeset_id ?? null,
+        row.created_at ?? null,
+      ],
+    );
+  }
+
+  async listReviewComments(filter: {
+    workspace: string;
+    review_id?: string;
+    subject?: string;
+  }): Promise<ReviewCommentRow[]> {
+    const { where, args } = pgWhere({
+      workspace: filter.workspace,
+      review_id: filter.review_id,
+      subject: filter.subject,
+    });
+    const rows = await this.db.query(
+      `SELECT * FROM review_comments ${where}
+       ORDER BY created_at, comment_id`,
+      args,
+    );
+    return rows.map(rowToReviewComment);
+  }
+
+  async appendReviewDecision(row: ReviewDecisionRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO review_decisions (workspace, org, decision_id, review_id,
+         revision, reviewer, action, head_sha, baseline, rationale,
+         created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       ON CONFLICT (workspace, decision_id) DO NOTHING`,
+      [
+        row.workspace,
+        row.org ?? null,
+        row.decision_id,
+        row.review_id,
+        row.revision ?? null,
+        row.reviewer,
+        row.action,
+        row.head_sha,
+        row.baseline ? j(row.baseline) : null,
+        row.rationale ?? null,
+        row.created_at ?? null,
+      ],
+    );
+  }
+
+  async listReviewDecisions(key: {
+    workspace: string;
+    review_id: string;
+  }): Promise<ReviewDecisionRow[]> {
+    const rows = await this.db.query(
+      `SELECT * FROM review_decisions
+       WHERE workspace=$1 AND review_id=$2
+       ORDER BY created_at, decision_id`,
+      [key.workspace, key.review_id],
+    );
+    return rows.map(rowToReviewDecision);
+  }
+
+  async appendFindingResolution(row: FindingResolutionRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO finding_resolutions (workspace, org, finding_id, seq,
+         status, rationale, actor, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [
+        row.workspace,
+        row.org ?? null,
+        row.finding_id,
+        row.seq,
+        row.status,
+        row.rationale ?? null,
+        row.actor,
+        row.created_at ?? now(),
+      ],
+    );
+  }
+
+  async listFindingResolutions(key: {
+    workspace: string;
+    finding_id: string;
+  }): Promise<FindingResolutionRow[]> {
+    const rows = await this.db.query(
+      `SELECT * FROM finding_resolutions
+       WHERE workspace=$1 AND finding_id=$2 ORDER BY seq`,
+      [key.workspace, key.finding_id],
+    );
+    return rows.map(rowToFindingResolution);
+  }
+
+  async insertReviewEvidenceLink(row: ReviewEvidenceLinkRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO review_evidence_links (workspace, org, review_id,
+         finding_id, evidence_ref, kind, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       ON CONFLICT (workspace, review_id, finding_id, evidence_ref)
+       DO NOTHING`,
+      [
+        row.workspace,
+        row.org ?? null,
+        row.review_id,
+        row.finding_id,
+        row.evidence_ref,
+        row.kind ?? null,
+        row.created_at ?? null,
+      ],
+    );
+  }
+
+  async listReviewEvidenceLinks(filter: {
+    workspace: string;
+    review_id?: string;
+    finding_id?: string;
+  }): Promise<ReviewEvidenceLinkRow[]> {
+    const { where, args } = pgWhere({
+      workspace: filter.workspace,
+      review_id: filter.review_id,
+      finding_id: filter.finding_id,
+    });
+    const rows = await this.db.query(
+      `SELECT * FROM review_evidence_links ${where}
+       ORDER BY review_id, finding_id, evidence_ref`,
+      args,
+    );
+    return rows.map(rowToReviewEvidenceLink);
+  }
+
+  async deleteReviewEvidenceLink(key: {
+    workspace: string;
+    review_id: string;
+    finding_id: string;
+    evidence_ref: string;
+  }): Promise<void> {
+    await this.db.query(
+      `DELETE FROM review_evidence_links
+       WHERE workspace=$1 AND review_id=$2 AND finding_id=$3
+         AND evidence_ref=$4`,
+      [key.workspace, key.review_id, key.finding_id, key.evidence_ref],
+    );
+  }
+
+  async upsertExternalReviewMapping(
+    row: ExternalReviewMappingRow,
+  ): Promise<void> {
+    await this.db.query(
+      `INSERT INTO external_review_mappings (workspace, org, review_id,
+         finding_id, external_kind, external_id, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       ON CONFLICT (workspace, external_kind, external_id) DO UPDATE SET
+         review_id=$3, finding_id=$4`,
+      [
+        row.workspace,
+        row.org ?? null,
+        row.review_id,
+        row.finding_id ?? null,
+        row.external_kind,
+        row.external_id,
+        row.created_at ?? null,
+      ],
+    );
+  }
+
+  async listExternalReviewMappings(filter: {
+    workspace: string;
+    review_id?: string;
+    finding_id?: string;
+  }): Promise<ExternalReviewMappingRow[]> {
+    const { where, args } = pgWhere({
+      workspace: filter.workspace,
+      review_id: filter.review_id,
+      finding_id: filter.finding_id,
+    });
+    const rows = await this.db.query(
+      `SELECT * FROM external_review_mappings ${where}
+       ORDER BY external_kind, external_id`,
+      args,
+    );
+    return rows.map(rowToExternalReviewMapping);
+  }
+
+  async upsertDesignApproval(row: DesignApprovalRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO design_approvals (workspace, org, approval_id, subject,
+         doc, doc_version, checklist, covers, reviewer, rationale, status,
+         created_at, invalidated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+       ON CONFLICT (workspace, approval_id) DO UPDATE SET
+         checklist=$7, covers=$8, status=$11, invalidated_at=$13`,
+      [
+        row.workspace,
+        row.org ?? null,
+        row.approval_id,
+        row.subject,
+        row.doc,
+        row.doc_version,
+        row.checklist ? j(row.checklist) : null,
+        row.covers ? j(row.covers) : null,
+        row.reviewer,
+        row.rationale ?? null,
+        row.status,
+        row.created_at ?? null,
+        row.invalidated_at ?? null,
+      ],
+    );
+  }
+
+  async getDesignApproval(key: {
+    workspace: string;
+    approval_id: string;
+  }): Promise<DesignApprovalRow | null> {
+    const rows = await this.db.query(
+      'SELECT * FROM design_approvals WHERE workspace=$1 AND approval_id=$2',
+      [key.workspace, key.approval_id],
+    );
+    return rows[0] ? rowToDesignApproval(rows[0]) : null;
+  }
+
+  async listDesignApprovals(filter: {
+    workspace: string;
+    subject?: string;
+    status?: string;
+  }): Promise<DesignApprovalRow[]> {
+    const { where, args } = pgWhere({
+      workspace: filter.workspace,
+      subject: filter.subject,
+      status: filter.status,
+    });
+    const rows = await this.db.query(
+      `SELECT * FROM design_approvals ${where}
+       ORDER BY created_at, approval_id`,
+      args,
+    );
+    return rows.map(rowToDesignApproval);
+  }
+
+  // ---- process machinery (PRD §15.10, wp-153) ----
+
+  async upsertAssumption(row: AssumptionRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO assumptions (workspace, org, assumption_id, subject,
+         statement, impact, impact_if_false, evidence_needed, affected,
+         status, owner, source, created_at, updated_at, resolved_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+       ON CONFLICT (workspace, assumption_id) DO UPDATE SET
+         subject=$4, statement=$5, impact=$6, impact_if_false=$7,
+         evidence_needed=$8, affected=$9, status=$10, owner=$11,
+         source=$12, updated_at=$14, resolved_at=$15`,
+      [
+        row.workspace,
+        row.org ?? null,
+        row.assumption_id,
+        row.subject ?? null,
+        row.statement,
+        row.impact ?? null,
+        row.impact_if_false ?? null,
+        row.evidence_needed ?? null,
+        row.affected ? j(row.affected) : null,
+        row.status,
+        row.owner ?? null,
+        row.source ?? null,
+        row.created_at ?? null,
+        row.updated_at ?? null,
+        row.resolved_at ?? null,
+      ],
+    );
+  }
+
+  async getAssumption(key: {
+    workspace: string;
+    assumption_id: string;
+  }): Promise<AssumptionRow | null> {
+    const rows = await this.db.query(
+      'SELECT * FROM assumptions WHERE workspace=$1 AND assumption_id=$2',
+      [key.workspace, key.assumption_id],
+    );
+    return rows[0] ? rowToAssumption(rows[0]) : null;
+  }
+
+  async listAssumptions(filter?: {
+    workspace?: string;
+    subject?: string;
+    status?: string;
+  }): Promise<AssumptionRow[]> {
+    const { where, args } = pgWhere({
+      workspace: filter?.workspace,
+      subject: filter?.subject,
+      status: filter?.status,
+    });
+    const rows = await this.db.query(
+      `SELECT * FROM assumptions ${where}
+       ORDER BY created_at, assumption_id`,
+      args,
+    );
+    return rows.map(rowToAssumption);
+  }
+
+  async upsertQualityDebt(row: QualityDebtRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO quality_debt (workspace, org, debt_id, subject, kind,
+         title, body, owner, revisit, expires_at, approved_by, approved_at,
+         consolidated_into, status, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+       ON CONFLICT (workspace, debt_id) DO UPDATE SET
+         subject=$4, kind=$5, title=$6, body=$7, owner=$8, revisit=$9,
+         expires_at=$10, approved_by=$11, approved_at=$12,
+         consolidated_into=$13, status=$14, updated_at=$16`,
+      [
+        row.workspace,
+        row.org ?? null,
+        row.debt_id,
+        row.subject ?? null,
+        row.kind,
+        row.title,
+        row.body ?? null,
+        row.owner ?? null,
+        row.revisit ?? null,
+        row.expires_at ?? null,
+        row.approved_by ?? null,
+        row.approved_at ?? null,
+        row.consolidated_into ?? null,
+        row.status,
+        row.created_at ?? null,
+        row.updated_at ?? null,
+      ],
+    );
+  }
+
+  async getQualityDebt(key: {
+    workspace: string;
+    debt_id: string;
+  }): Promise<QualityDebtRow | null> {
+    const rows = await this.db.query(
+      'SELECT * FROM quality_debt WHERE workspace=$1 AND debt_id=$2',
+      [key.workspace, key.debt_id],
+    );
+    return rows[0] ? rowToQualityDebt(rows[0]) : null;
+  }
+
+  async listQualityDebt(filter?: {
+    workspace?: string;
+    status?: string;
+    kind?: string;
+  }): Promise<QualityDebtRow[]> {
+    const { where, args } = pgWhere({
+      workspace: filter?.workspace,
+      status: filter?.status,
+      kind: filter?.kind,
+    });
+    const rows = await this.db.query(
+      `SELECT * FROM quality_debt ${where} ORDER BY created_at, debt_id`,
+      args,
+    );
+    return rows.map(rowToQualityDebt);
+  }
+
+  async commitDeliveryCommitment(
+    row: Omit<DeliveryCommitmentRow, 'version'>,
+  ): Promise<DeliveryCommitmentRow> {
+    return this.db.transaction(async (tx): Promise<DeliveryCommitmentRow> => {
+      // Versioned committed scope — max(version)+1 per commitment.
+      await lockKey(tx, `commitment:${row.workspace}:${row.commitment_id}`);
+      const rows = await tx.query<{ version: number }>(
+        `INSERT INTO delivery_commitments (workspace, org, commitment_id,
+           version, scope, target, success_criteria, exclusions,
+           assumptions, owner, status, created_by, created_at)
+         SELECT $1,$2,$3,
+           COALESCE((
+             SELECT MAX(version) FROM delivery_commitments
+             WHERE workspace=$1 AND commitment_id=$3
+           ), 0) + 1,
+           $4,$5,$6,$7,$8,$9,$10,$11,$12
+         RETURNING version`,
+        [
+          row.workspace,
+          row.org ?? null,
+          row.commitment_id,
+          j(row.scope),
+          row.target ?? null,
+          row.success_criteria ?? null,
+          row.exclusions ?? null,
+          row.assumptions ?? null,
+          row.owner ?? null,
+          row.status,
+          row.created_by ?? null,
+          row.created_at ?? now(),
+        ],
+      );
+      const version = rows[0]?.version ?? 1;
+      return { ...row, version };
+    });
+  }
+
+  async getDeliveryCommitment(
+    key: { workspace: string; commitment_id: string },
+    version?: number,
+  ): Promise<DeliveryCommitmentRow | null> {
+    const rows =
+      version === undefined
+        ? await this.db.query(
+            `SELECT * FROM delivery_commitments
+             WHERE workspace=$1 AND commitment_id=$2
+             ORDER BY version DESC LIMIT 1`,
+            [key.workspace, key.commitment_id],
+          )
+        : await this.db.query(
+            `SELECT * FROM delivery_commitments
+             WHERE workspace=$1 AND commitment_id=$2 AND version=$3`,
+            [key.workspace, key.commitment_id, version],
+          );
+    return rows[0] ? rowToDeliveryCommitment(rows[0]) : null;
+  }
+
+  async listDeliveryCommitments(filter?: {
+    workspace?: string;
+    status?: string;
+  }): Promise<DeliveryCommitmentRow[]> {
+    // Head rows (max version per commitment) — status filter applies
+    // to the head, not history.
+    const rows = await this.db.query(
+      `SELECT d.* FROM delivery_commitments d
+       WHERE d.workspace=$1
+         AND d.version = (
+           SELECT MAX(version) FROM delivery_commitments d2
+           WHERE d2.workspace=d.workspace
+             AND d2.commitment_id=d.commitment_id)
+         AND ($2::text IS NULL OR d.status=$2)
+       ORDER BY d.commitment_id`,
+      [filter?.workspace ?? '', filter?.status ?? null],
+    );
+    return rows.map(rowToDeliveryCommitment);
+  }
+
+  async listDeliveryCommitmentVersions(key: {
+    workspace: string;
+    commitment_id: string;
+  }): Promise<DeliveryCommitmentRow[]> {
+    const rows = await this.db.query(
+      `SELECT * FROM delivery_commitments
+       WHERE workspace=$1 AND commitment_id=$2 ORDER BY version`,
+      [key.workspace, key.commitment_id],
+    );
+    return rows.map(rowToDeliveryCommitment);
+  }
+
+  // ---- eval lab (PRD §15.12, wp-156) ----
+
+  async upsertEvalRun(row: EvalRunRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO eval_runs (workspace, org, eval_run_id, family, model,
+         prompt_version, policy_version, status, metrics, created_by,
+         created_at, completed_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+       ON CONFLICT (workspace, eval_run_id) DO UPDATE SET
+         status=$8, metrics=$9, completed_at=$12`,
+      [
+        row.workspace,
+        row.org ?? null,
+        row.eval_run_id,
+        row.family,
+        row.model ?? null,
+        row.prompt_version ?? null,
+        row.policy_version ?? null,
+        row.status,
+        row.metrics ? j(row.metrics) : null,
+        row.created_by ?? null,
+        row.created_at ?? null,
+        row.completed_at ?? null,
+      ],
+    );
+  }
+
+  async getEvalRun(key: {
+    workspace: string;
+    eval_run_id: string;
+  }): Promise<EvalRunRow | null> {
+    const rows = await this.db.query(
+      'SELECT * FROM eval_runs WHERE workspace=$1 AND eval_run_id=$2',
+      [key.workspace, key.eval_run_id],
+    );
+    return rows[0] ? rowToEvalRun(rows[0]) : null;
+  }
+
+  async listEvalRuns(filter?: {
+    workspace?: string;
+    family?: string;
+    status?: string;
+  }): Promise<EvalRunRow[]> {
+    const { where, args } = pgWhere({
+      workspace: filter?.workspace,
+      family: filter?.family,
+      status: filter?.status,
+    });
+    const rows = await this.db.query(
+      `SELECT * FROM eval_runs ${where} ORDER BY created_at, eval_run_id`,
+      args,
+    );
+    return rows.map(rowToEvalRun);
+  }
+
+  async upsertEvalCase(row: EvalCaseRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO eval_cases (workspace, org, family, case_id, input,
+         expected, tags, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       ON CONFLICT (workspace, family, case_id) DO UPDATE SET
+         input=$5, expected=$6, tags=$7`,
+      [
+        row.workspace,
+        row.org ?? null,
+        row.family,
+        row.case_id,
+        j(row.input),
+        j(row.expected),
+        row.tags ? j(row.tags) : null,
+        row.created_at ?? null,
+      ],
+    );
+  }
+
+  async listEvalCases(filter: {
+    workspace: string;
+    family?: string;
+  }): Promise<EvalCaseRow[]> {
+    const { where, args } = pgWhere({
+      workspace: filter.workspace,
+      family: filter.family,
+    });
+    const rows = await this.db.query(
+      `SELECT * FROM eval_cases ${where} ORDER BY family, case_id`,
+      args,
+    );
+    return rows.map(rowToEvalCase);
+  }
+
+  async appendEvalResult(row: EvalResultRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO eval_results (workspace, org, eval_run_id, family,
+         case_id, verdict, scores, detail, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [
+        row.workspace,
+        row.org ?? null,
+        row.eval_run_id,
+        row.family,
+        row.case_id,
+        row.verdict,
+        row.scores ? j(row.scores) : null,
+        row.detail ?? null,
+        row.created_at ?? null,
+      ],
+    );
+  }
+
+  async listEvalResults(key: {
+    workspace: string;
+    eval_run_id: string;
+  }): Promise<EvalResultRow[]> {
+    const rows = await this.db.query(
+      `SELECT * FROM eval_results
+       WHERE workspace=$1 AND eval_run_id=$2 ORDER BY family, case_id`,
+      [key.workspace, key.eval_run_id],
+    );
+    return rows.map(rowToEvalResult);
+  }
 }
 
 // ---------- shared row helpers ----------
@@ -1655,9 +3787,22 @@ function rowToRun(row: Row): RunRow {
   return r as unknown as RunRow;
 }
 
+function rowToContainer(row: Row): ContainerRow {
+  return {
+    workspace: row.workspace as string,
+    subject: row.subject as string,
+    container_id: row.container_id as string,
+    image: (row.image as string | null) ?? null,
+    state: row.state as ContainerRow['state'],
+    created_at: (row.created_at as string | null) ?? null,
+    stopped_at: (row.stopped_at as string | null) ?? null,
+  };
+}
+
 function rowToTicket(row: Row): TicketRow {
   return {
     workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
     ticket_id: row.ticket_id as string,
     feature: (row.feature as string | null) ?? null,
     title: row.title as string,
@@ -1671,6 +3816,15 @@ function rowToTicket(row: Row): TicketRow {
     depends_on: unj(row.depends_on, []),
     serves: unj(row.serves, null),
     source: (row.source as string | null) ?? null,
+    work_type: (row.work_type as TicketRow['work_type']) ?? null,
+    origin: (row.origin as TicketRow['origin']) ?? null,
+    severity: (row.severity as TicketRow['severity']) ?? null,
+    execution_readiness:
+      (row.execution_readiness as TicketRow['execution_readiness']) ?? null,
+    parallel_safety:
+      (row.parallel_safety as TicketRow['parallel_safety']) ?? null,
+    source_ref: unj(row.source_ref, null),
+    test_env: unj(row.test_env, null),
     forced: Boolean(row.forced),
     spec_score: (row.spec_score as number | null) ?? null,
     spec_hash: (row.spec_hash as string | null) ?? null,
@@ -1776,10 +3930,12 @@ function rowToEntity(row: Row): Entity {
 function rowToProject(row: Row): ProjectRow {
   return {
     workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
     name: (row.name as string | null) ?? null,
     next_ticket_seq: (row.next_ticket_seq as number) ?? 1,
     next_feature_seq: (row.next_feature_seq as number) ?? 1,
     next_initiative_seq: (row.next_initiative_seq as number) ?? 1,
+    next_release_seq: (row.next_release_seq as number) ?? 1,
     settings: unj(row.settings, {}),
     created_at: (row.created_at as string | null) ?? null,
   };
@@ -1788,8 +3944,11 @@ function rowToProject(row: Row): ProjectRow {
 function rowToBoard(row: Row): BoardRow {
   return {
     workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
     board: row.board as string,
     name: (row.name as string | null) ?? null,
+    board_type: (row.board_type as BoardRow['board_type']) ?? null,
+    status: (row.status as BoardRow['status']) ?? null,
     created_at: (row.created_at as string | null) ?? null,
   };
 }
@@ -1798,6 +3957,7 @@ function rowToBoardItem(row: Row): BoardItem {
   return {
     id: row.id as string,
     workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
     board: (row.board as string | null) ?? null,
     kind: row.kind as BoardItem['kind'],
     ref: (row.ref as string | null) ?? null,
@@ -1811,6 +3971,13 @@ function rowToBoardItem(row: Row): BoardItem {
     serves: unj(row.serves, null),
     status: row.status as BoardItem['status'],
     consumed_by: (row.consumed_by as string | null) ?? null,
+    note_kind: (row.note_kind as BoardItem['note_kind']) ?? null,
+    topic: (row.topic as string | null) ?? null,
+    importance: (row.importance as BoardItem['importance']) ?? null,
+    applies_to: unj(row.applies_to, null),
+    note_status: (row.note_status as BoardItem['note_status']) ?? null,
+    rationale: (row.rationale as string | null) ?? null,
+    provenance: (row.provenance as BoardItem['provenance']) ?? null,
     created_at: (row.created_at as string | null) ?? null,
     updated_at: (row.updated_at as string | null) ?? null,
   };
@@ -1819,6 +3986,7 @@ function rowToBoardItem(row: Row): BoardItem {
 function rowToInitiative(row: Row): InitiativeRow {
   return {
     workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
     initiative: row.initiative as string,
     board: (row.board as string | null) ?? null,
     title: row.title as string,
@@ -1835,6 +4003,7 @@ function rowToInitiative(row: Row): InitiativeRow {
 function rowToFeature(row: Row): FeatureRow {
   return {
     workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
     feature: row.feature as string,
     initiative: (row.initiative as string | null) ?? null,
     title: row.title as string,
@@ -1842,6 +4011,7 @@ function rowToFeature(row: Row): FeatureRow {
     owner: (row.owner as string | null) ?? null,
     priority: (row.priority as FeatureRow['priority']) ?? null,
     serves: unj(row.serves, null),
+    test_env: unj(row.test_env, null),
     created_at: (row.created_at as string | null) ?? null,
     updated_at: (row.updated_at as string | null) ?? null,
   };
@@ -1864,6 +4034,657 @@ function rowToArtifact(row: Row): RunArtifact {
     run_id: row.run_id as string,
     name: row.name as string,
     content: row.content as string,
+    created_at: (row.created_at as string | null) ?? null,
+  };
+}
+
+// ---------- delivery mappers (DELIVERY §3) ----------
+
+function rowToRelease(row: Row): ReleaseRow {
+  return {
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    release_id: row.release_id as string,
+    title: row.title as string,
+    status: row.status as ReleaseRow['status'],
+    target: (row.target as string | null) ?? null,
+    created_by: (row.created_by as string | null) ?? null,
+    created_at: (row.created_at as string | null) ?? null,
+    updated_at: (row.updated_at as string | null) ?? null,
+  };
+}
+
+function rowToReleaseItem(row: Row): ReleaseItemRow {
+  return {
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    release_id: row.release_id as string,
+    item_kind: row.item_kind as ReleaseItemRow['item_kind'],
+    item_id: row.item_id as string,
+    partial_ac: unj<string[] | null>(row.partial_ac, null),
+    delivery_state:
+      (row.delivery_state as ReleaseItemRow['delivery_state'] | null) ??
+      'planned',
+    approved_by: (row.approved_by as string | null) ?? null,
+    added_by: (row.added_by as string | null) ?? null,
+    added_at: (row.added_at as string | null) ?? null,
+    removed_at: (row.removed_at as string | null) ?? null,
+  };
+}
+
+function rowToReleaseManifest(row: Row): ReleaseManifestRow {
+  return {
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    release_id: row.release_id as string,
+    version: row.version as number,
+    digest: row.digest as string,
+    items: unj<ReleaseManifestRow['items']>(row.items, []),
+    created_at: (row.created_at as string | null) ?? null,
+  };
+}
+
+function rowToReleaseApproval(row: Row): ReleaseApprovalRow {
+  return {
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    release_id: row.release_id as string,
+    manifest_version: row.manifest_version as number,
+    approver: row.approver as string,
+    decision: row.decision as ReleaseApprovalRow['decision'],
+    rationale: (row.rationale as string | null) ?? null,
+    created_at: (row.created_at as string | null) ?? null,
+  };
+}
+
+function rowToReleaseNote(row: Row): ReleaseNoteRow {
+  return {
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    release_id: row.release_id as string,
+    audience: row.audience as ReleaseNoteRow['audience'],
+    doc_version: (row.doc_version as number | null) ?? null,
+    approved_by: (row.approved_by as string | null) ?? null,
+    approved_at: (row.approved_at as string | null) ?? null,
+    published_at: (row.published_at as string | null) ?? null,
+  };
+}
+
+function rowToReleaseGateResult(row: Row): ReleaseGateResultRow {
+  return {
+    id: row.id as number,
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    release_id: row.release_id as string,
+    gate: row.gate as string,
+    result: row.result as ReleaseGateResultRow['result'],
+    evidence: unj<ReleaseGateResultRow['evidence']>(row.evidence, null),
+    checked_at: row.checked_at as string,
+  };
+}
+
+function rowToDeployment(row: Row): DeploymentRow {
+  return {
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    deployment_id: row.deployment_id as string,
+    release_id: row.release_id as string,
+    environment: row.environment as string,
+    sha: row.sha as string,
+    evidence: unj<DeploymentRow['evidence']>(row.evidence, {
+      type: 'manual',
+    }) as DeploymentRow['evidence'],
+    confirmed_by: (row.confirmed_by as string | null) ?? null,
+    confirmed_at: (row.confirmed_at as string | null) ?? null,
+    created_at: (row.created_at as string | null) ?? null,
+  };
+}
+
+function rowToFeatureExposure(row: Row): FeatureExposureRow {
+  return {
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    feature_id: row.feature_id as string,
+    environment: row.environment as string,
+    state: row.state as FeatureExposureRow['state'],
+    audience: (row.audience as string | null) ?? null,
+    evidence: (row.evidence as string | null) ?? null,
+    deployment_id: (row.deployment_id as string | null) ?? null,
+    updated_at: (row.updated_at as string | null) ?? null,
+  };
+}
+
+function rowToReleaseOutcome(row: Row): ReleaseOutcomeRow {
+  return {
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    release_id: row.release_id as string,
+    kpi: row.kpi as string,
+    data: unj<ReleaseOutcomeRow['data']>(row.data, {}),
+    measured_at: (row.measured_at as string | null) ?? null,
+  };
+}
+
+function rowToChangeset(row: Row): ChangesetRow {
+  return {
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    changeset_id: row.changeset_id as string,
+    title: (row.title as string | null) ?? null,
+    request: row.request as string,
+    baseline: unj<ChangesetRow['baseline']>(row.baseline, null),
+    classification:
+      (row.classification as ChangesetRow['classification'] | null) ?? null,
+    status: row.status as ChangesetRow['status'],
+    analysis: unj<ChangesetRow['analysis']>(row.analysis, null),
+    decision: (row.decision as ChangesetRow['decision'] | null) ?? null,
+    decision_rationale: (row.decision_rationale as string | null) ?? null,
+    decided_by: (row.decided_by as string | null) ?? null,
+    decided_at: (row.decided_at as string | null) ?? null,
+    expires_on: (row.expires_on as string | null) ?? null,
+    emergency: row.emergency === 1 || row.emergency === true,
+    retro_ref: (row.retro_ref as string | null) ?? null,
+    reconciliation: unj<ChangesetRow['reconciliation']>(
+      row.reconciliation,
+      null,
+    ),
+    created_by: (row.created_by as string | null) ?? null,
+    created_at: (row.created_at as string | null) ?? null,
+    updated_at: (row.updated_at as string | null) ?? null,
+  };
+}
+
+function rowToChangesetItem(row: Row): ChangesetItemRow {
+  return {
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    changeset_id: row.changeset_id as string,
+    seq: row.seq as number,
+    subject: row.subject as string,
+    doc: (row.doc as string | null) ?? null,
+    base_version: (row.base_version as number | null) ?? null,
+    proposed_version: (row.proposed_version as number | null) ?? null,
+    change: unj<ChangesetItemRow['change']>(row.change, null),
+    status: (row.status as ChangesetItemRow['status'] | null) ?? 'pending',
+    applied_at: (row.applied_at as string | null) ?? null,
+  };
+}
+
+function stmtFields(row: Row) {
+  return {
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    statement_id: row.statement_id as string,
+    version: row.version as number,
+    text: row.text as string,
+    source_text: (row.source_text as string | null) ?? null,
+    source_ref: unj<StatementRow['source_ref']>(row.source_ref, null),
+    intent: (row.intent as StatementRow['intent'] | null) ?? null,
+    polarity: (row.polarity as StatementRow['polarity'] | null) ?? null,
+    subject: (row.subject as string | null) ?? null,
+    strength: (row.strength as StatementRow['strength'] | null) ?? null,
+    scope: (row.scope as StatementRow['scope'] | null) ?? null,
+    scope_ref: (row.scope_ref as string | null) ?? null,
+    status: row.status as StatementRow['status'],
+    confidence: (row.confidence as number | null) ?? null,
+    provenance: (row.provenance as StatementRow['provenance'] | null) ?? null,
+    extraction_run: (row.extraction_run as string | null) ?? null,
+  };
+}
+
+function rowToStatement(row: Row): StatementRow {
+  return {
+    ...stmtFields(row),
+    created_by: (row.created_by as string | null) ?? null,
+    created_at: (row.created_at as string | null) ?? null,
+    updated_at: (row.updated_at as string | null) ?? null,
+  };
+}
+
+function rowToStatementVersion(row: Row): StatementVersionRow {
+  return {
+    ...stmtFields(row),
+    edited_by: (row.edited_by as string | null) ?? null,
+    created_at: (row.created_at as string | null) ?? null,
+  };
+}
+
+function rowToStatementRelation(row: Row): StatementRelationRow {
+  return {
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    src: row.src as string,
+    predicate: row.predicate as StatementRelationRow['predicate'],
+    dst: row.dst as string,
+    created_by: (row.created_by as string | null) ?? null,
+    created_at: (row.created_at as string | null) ?? null,
+  };
+}
+
+function rowToStatementClarification(row: Row): StatementClarificationRow {
+  return {
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    clarification_id: row.clarification_id as string,
+    statement_id: row.statement_id as string,
+    question: row.question as string,
+    answer: (row.answer as string | null) ?? null,
+    asked_by: (row.asked_by as string | null) ?? null,
+    answered_by: (row.answered_by as string | null) ?? null,
+    created_at: (row.created_at as string | null) ?? null,
+    answered_at: (row.answered_at as string | null) ?? null,
+  };
+}
+
+function rowToStatementDecision(row: Row): StatementDecisionRow {
+  return {
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    decision_id: row.decision_id as string,
+    statement_id: row.statement_id as string,
+    decision: (row.decision as string | null) ?? null,
+    status: row.status as StatementDecisionRow['status'],
+    rationale: (row.rationale as string | null) ?? null,
+    decided_by: (row.decided_by as string | null) ?? null,
+    decided_at: (row.decided_at as string | null) ?? null,
+    created_by: (row.created_by as string | null) ?? null,
+    created_at: (row.created_at as string | null) ?? null,
+  };
+}
+
+function rowToStatementArtifactLink(row: Row): StatementArtifactLinkRow {
+  return {
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    statement_id: row.statement_id as string,
+    artifact: row.artifact as string,
+    element: (row.element as string | null) ?? '',
+    created_by: (row.created_by as string | null) ?? null,
+    created_at: (row.created_at as string | null) ?? null,
+  };
+}
+
+function rowToExtractionRun(row: Row): ExtractionRunRow {
+  return {
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    extraction_run_id: row.extraction_run_id as string,
+    run: (row.run as string | null) ?? null,
+    subject: (row.subject as string | null) ?? null,
+    model: (row.model as string | null) ?? null,
+    prompt_version: (row.prompt_version as string | null) ?? null,
+    stats: unj<ExtractionRunRow['stats']>(row.stats, null),
+    created_at: (row.created_at as string | null) ?? null,
+  };
+}
+
+function rowToWizardDefinition(row: Row): WizardDefinitionRow {
+  return {
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    wizard_id: row.wizard_id as string,
+    name: (row.name as string | null) ?? null,
+    description: (row.description as string | null) ?? null,
+    current_version: (row.current_version as number | null) ?? null,
+    created_at: (row.created_at as string | null) ?? null,
+    updated_at: (row.updated_at as string | null) ?? null,
+  };
+}
+
+function rowToWizardVersion(row: Row): WizardVersionRow {
+  return {
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    wizard_id: row.wizard_id as string,
+    version: row.version as number,
+    definition: unj<WizardVersionRow['definition']>(row.definition, {}),
+    created_at: (row.created_at as string | null) ?? null,
+  };
+}
+
+function rowToInterviewSession(row: Row): InterviewSessionRow {
+  return {
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    session_id: row.session_id as string,
+    wizard_id: (row.wizard_id as string | null) ?? null,
+    wizard_version: (row.wizard_version as number | null) ?? null,
+    subject: (row.subject as string | null) ?? null,
+    mode: (row.mode as InterviewSessionRow['mode'] | null) ?? null,
+    status: row.status as InterviewSessionRow['status'],
+    draft_ready: row.draft_ready === 1 || row.draft_ready === true,
+    approval_ready: row.approval_ready === 1 || row.approval_ready === true,
+    knowledge_version: (row.knowledge_version as number | null) ?? null,
+    created_by: (row.created_by as string | null) ?? null,
+    created_at: (row.created_at as string | null) ?? null,
+    updated_at: (row.updated_at as string | null) ?? null,
+  };
+}
+
+function rowToInterviewBranch(row: Row): InterviewBranchRow {
+  return {
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    session_id: row.session_id as string,
+    branch: row.branch as string,
+    role: (row.role as string | null) ?? null,
+    status: row.status as InterviewBranchRow['status'],
+    created_at: (row.created_at as string | null) ?? null,
+    merged_at: (row.merged_at as string | null) ?? null,
+  };
+}
+
+function rowToInterviewMessage(row: Row): InterviewMessageRow {
+  return {
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    session_id: row.session_id as string,
+    seq: row.seq as number,
+    branch: (row.branch as string | null) ?? null,
+    role: row.role as InterviewMessageRow['role'],
+    content: row.content as string,
+    created_at: (row.created_at as string | null) ?? null,
+  };
+}
+
+function rowToKnowledgeSlot(row: Row): KnowledgeSlotRow {
+  return {
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    session_id: row.session_id as string,
+    slot: row.slot as string,
+    state: row.state as KnowledgeSlotRow['state'],
+    value: (row.value as string | null) ?? null,
+    statement_refs: unj<KnowledgeSlotRow['statement_refs']>(
+      row.statement_refs,
+      null,
+    ),
+    confidence: (row.confidence as number | null) ?? null,
+    updated_at: (row.updated_at as string | null) ?? null,
+  };
+}
+
+function rowToQuestionCandidate(row: Row): QuestionCandidateRow {
+  return {
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    session_id: row.session_id as string,
+    question_id: row.question_id as string,
+    slot: (row.slot as string | null) ?? null,
+    question: row.question as string,
+    scores: unj<QuestionCandidateRow['scores']>(row.scores, null),
+    status: row.status as QuestionCandidateRow['status'],
+    created_at: (row.created_at as string | null) ?? null,
+    resolved_at: (row.resolved_at as string | null) ?? null,
+  };
+}
+
+function rowToSessionSnapshot(row: Row): SessionSnapshotRow {
+  return {
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    session_id: row.session_id as string,
+    version: row.version as number,
+    snapshot: unj<SessionSnapshotRow['snapshot']>(row.snapshot, {}),
+    reason: (row.reason as string | null) ?? null,
+    created_at: (row.created_at as string | null) ?? null,
+  };
+}
+
+function rowToReviewSession(row: Row): ReviewSessionRow {
+  return {
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    review_id: row.review_id as string,
+    subject: row.subject as string,
+    status: row.status as ReviewSessionRow['status'],
+    created_by: (row.created_by as string | null) ?? null,
+    created_at: (row.created_at as string | null) ?? null,
+    closed_at: (row.closed_at as string | null) ?? null,
+  };
+}
+
+function rowToReviewRevision(row: Row): ReviewRevisionRow {
+  return {
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    review_id: row.review_id as string,
+    revision: row.revision as number,
+    head_sha: row.head_sha as string,
+    base_sha: (row.base_sha as string | null) ?? null,
+    baseline: unj<ReviewRevisionRow['baseline']>(row.baseline, null),
+    created_at: (row.created_at as string | null) ?? null,
+  };
+}
+
+function rowToReviewFinding(row: Row): ReviewFindingRow {
+  return {
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    finding_id: row.finding_id as string,
+    review_id: row.review_id as string,
+    revision: (row.revision as number | null) ?? null,
+    subject: (row.subject as string | null) ?? null,
+    status: row.status as ReviewFindingRow['status'],
+    severity: (row.severity as ReviewFindingRow['severity'] | null) ?? null,
+    category: (row.category as ReviewFindingRow['category'] | null) ?? null,
+    kind: (row.kind as ReviewFindingRow['kind'] | null) ?? null,
+    thread_id: (row.thread_id as string | null) ?? null,
+    file: (row.file as string | null) ?? null,
+    line: (row.line as number | null) ?? null,
+    symbol: (row.symbol as string | null) ?? null,
+    repo: (row.repo as string | null) ?? null,
+    body: row.body as string,
+    evidence: (row.evidence as string | null) ?? null,
+    suggested_fix: (row.suggested_fix as string | null) ?? null,
+    confidence: (row.confidence as number | null) ?? null,
+    blocking: row.blocking === 1 || row.blocking === true,
+    security_category:
+      (row.security_category as ReviewFindingRow['security_category'] | null) ??
+      null,
+    affected_asset: (row.affected_asset as string | null) ?? null,
+    exposure: (row.exposure as string | null) ?? null,
+    policy_violated: (row.policy_violated as string | null) ?? null,
+    author: (row.author as string | null) ?? null,
+    created_at: (row.created_at as string | null) ?? null,
+    updated_at: (row.updated_at as string | null) ?? null,
+  };
+}
+
+function rowToReviewComment(row: Row): ReviewCommentRow {
+  return {
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    comment_id: row.comment_id as string,
+    review_id: row.review_id as string,
+    revision: (row.revision as number | null) ?? null,
+    subject: (row.subject as string | null) ?? null,
+    file: (row.file as string | null) ?? null,
+    line: (row.line as number | null) ?? null,
+    type: (row.type as ReviewCommentRow['type'] | null) ?? null,
+    disposition:
+      (row.disposition as ReviewCommentRow['disposition'] | null) ?? null,
+    ai_classification: unj<ReviewCommentRow['ai_classification']>(
+      row.ai_classification,
+      null,
+    ),
+    body: row.body as string,
+    author: (row.author as string | null) ?? null,
+    changeset_id: (row.changeset_id as string | null) ?? null,
+    created_at: (row.created_at as string | null) ?? null,
+  };
+}
+
+function rowToReviewDecision(row: Row): ReviewDecisionRow {
+  return {
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    decision_id: row.decision_id as string,
+    review_id: row.review_id as string,
+    revision: (row.revision as number | null) ?? null,
+    reviewer: row.reviewer as string,
+    action: row.action as ReviewDecisionRow['action'],
+    head_sha: row.head_sha as string,
+    baseline: unj<ReviewDecisionRow['baseline']>(row.baseline, null),
+    rationale: (row.rationale as string | null) ?? null,
+    created_at: (row.created_at as string | null) ?? null,
+  };
+}
+
+function rowToFindingResolution(row: Row): FindingResolutionRow {
+  return {
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    finding_id: row.finding_id as string,
+    seq: row.seq as number,
+    status: row.status as FindingResolutionRow['status'],
+    rationale: (row.rationale as string | null) ?? null,
+    actor: row.actor as string,
+    created_at: (row.created_at as string | null) ?? null,
+  };
+}
+
+function rowToReviewEvidenceLink(row: Row): ReviewEvidenceLinkRow {
+  return {
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    review_id: row.review_id as string,
+    finding_id: row.finding_id as string,
+    evidence_ref: row.evidence_ref as string,
+    kind: (row.kind as string | null) ?? null,
+    created_at: (row.created_at as string | null) ?? null,
+  };
+}
+
+function rowToExternalReviewMapping(row: Row): ExternalReviewMappingRow {
+  return {
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    review_id: row.review_id as string,
+    finding_id: (row.finding_id as string | null) ?? null,
+    external_kind: row.external_kind as string,
+    external_id: row.external_id as string,
+    created_at: (row.created_at as string | null) ?? null,
+  };
+}
+
+function rowToDesignApproval(row: Row): DesignApprovalRow {
+  return {
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    approval_id: row.approval_id as string,
+    subject: row.subject as string,
+    doc: row.doc as string,
+    doc_version: row.doc_version as number,
+    checklist: unj<DesignApprovalRow['checklist']>(row.checklist, null),
+    covers: unj<DesignApprovalRow['covers']>(row.covers, null),
+    reviewer: row.reviewer as string,
+    rationale: (row.rationale as string | null) ?? null,
+    status: row.status as DesignApprovalRow['status'],
+    created_at: (row.created_at as string | null) ?? null,
+    invalidated_at: (row.invalidated_at as string | null) ?? null,
+  };
+}
+
+function rowToAssumption(row: Row): AssumptionRow {
+  return {
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    assumption_id: row.assumption_id as string,
+    subject: (row.subject as string | null) ?? null,
+    statement: row.statement as string,
+    impact: (row.impact as AssumptionRow['impact'] | null) ?? null,
+    impact_if_false: (row.impact_if_false as string | null) ?? null,
+    evidence_needed: (row.evidence_needed as string | null) ?? null,
+    affected: unj<AssumptionRow['affected']>(row.affected, null),
+    status: row.status as AssumptionRow['status'],
+    owner: (row.owner as string | null) ?? null,
+    source: (row.source as string | null) ?? null,
+    created_at: (row.created_at as string | null) ?? null,
+    updated_at: (row.updated_at as string | null) ?? null,
+    resolved_at: (row.resolved_at as string | null) ?? null,
+  };
+}
+
+function rowToQualityDebt(row: Row): QualityDebtRow {
+  return {
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    debt_id: row.debt_id as string,
+    subject: (row.subject as string | null) ?? null,
+    kind: row.kind as QualityDebtRow['kind'],
+    title: row.title as string,
+    body: (row.body as string | null) ?? null,
+    owner: (row.owner as string | null) ?? null,
+    revisit: (row.revisit as string | null) ?? null,
+    expires_at: (row.expires_at as string | null) ?? null,
+    approved_by: (row.approved_by as string | null) ?? null,
+    approved_at: (row.approved_at as string | null) ?? null,
+    consolidated_into: (row.consolidated_into as string | null) ?? null,
+    status: row.status as QualityDebtRow['status'],
+    created_at: (row.created_at as string | null) ?? null,
+    updated_at: (row.updated_at as string | null) ?? null,
+  };
+}
+
+function rowToDeliveryCommitment(row: Row): DeliveryCommitmentRow {
+  return {
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    commitment_id: row.commitment_id as string,
+    version: row.version as number,
+    scope: unj<DeliveryCommitmentRow['scope']>(row.scope, {}),
+    target: (row.target as string | null) ?? null,
+    success_criteria: (row.success_criteria as string | null) ?? null,
+    exclusions: (row.exclusions as string | null) ?? null,
+    assumptions: (row.assumptions as string | null) ?? null,
+    owner: (row.owner as string | null) ?? null,
+    status: row.status as DeliveryCommitmentRow['status'],
+    created_by: (row.created_by as string | null) ?? null,
+    created_at: (row.created_at as string | null) ?? null,
+  };
+}
+
+function rowToEvalRun(row: Row): EvalRunRow {
+  return {
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    eval_run_id: row.eval_run_id as string,
+    family: row.family as string,
+    model: (row.model as string | null) ?? null,
+    prompt_version: (row.prompt_version as string | null) ?? null,
+    policy_version: (row.policy_version as string | null) ?? null,
+    status: row.status as EvalRunRow['status'],
+    metrics: unj<EvalRunRow['metrics']>(row.metrics, null),
+    created_by: (row.created_by as string | null) ?? null,
+    created_at: (row.created_at as string | null) ?? null,
+    completed_at: (row.completed_at as string | null) ?? null,
+  };
+}
+
+function rowToEvalCase(row: Row): EvalCaseRow {
+  return {
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    family: row.family as string,
+    case_id: row.case_id as string,
+    input: unj<EvalCaseRow['input']>(row.input, {}),
+    expected: unj<EvalCaseRow['expected']>(row.expected, {}),
+    tags: unj<EvalCaseRow['tags']>(row.tags, null),
+    created_at: (row.created_at as string | null) ?? null,
+  };
+}
+
+function rowToEvalResult(row: Row): EvalResultRow {
+  return {
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    eval_run_id: row.eval_run_id as string,
+    family: row.family as string,
+    case_id: row.case_id as string,
+    verdict: row.verdict as EvalResultRow['verdict'],
+    scores: unj<EvalResultRow['scores']>(row.scores, null),
+    detail: (row.detail as string | null) ?? null,
     created_at: (row.created_at as string | null) ?? null,
   };
 }

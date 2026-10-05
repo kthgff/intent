@@ -143,6 +143,45 @@ describe('precedence — frontmatter > repo > global > defaults', () => {
     expect(eff.importers.github?.token_env).toBe('GITHUB_TOKEN');
     expect(eff.ui.token_file).toContain('ui-token');
   });
+
+  it('containers block matches SETTINGS.md defaults; capabilities.runtime parses', () => {
+    const eff = resolveConfig(null, {
+      config: { schema: 1, actor: 'bot' },
+      warnings: [],
+      secrets: {},
+      files: [],
+    });
+    expect(eff.containers).toEqual({
+      runtime: 'container',
+      image: 'veto/agent:latest',
+      cpu: 2,
+      memory: '4g',
+      stop_on_gate: true,
+    });
+
+    const eff2 = resolveConfig(null, {
+      config: {
+        schema: 1,
+        actor: 'bot',
+        containers: { runtime: 'process', cpu: 4, memory: '8g' },
+        capabilities: {
+          aider: {
+            can_exec: true,
+            can_write_outside_tree: false,
+            has_gh: false,
+            runtime: 'process',
+          },
+        },
+      },
+      warnings: [],
+      secrets: {},
+      files: [],
+    });
+    expect(eff2.containers.runtime).toBe('process');
+    expect(eff2.containers.cpu).toBe(4);
+    expect(eff2.containers.stop_on_gate).toBe(true); // default preserved
+    expect(eff2.capabilities.aider?.runtime).toBe('process');
+  });
 });
 
 describe('unknown keys', () => {

@@ -2,7 +2,7 @@
 schema: 1
 id: wp-091
 title: Store v2 — postgres.js implementation, PGlite test path, new migrations
-status: todo
+status: done
 priority: high
 depth: standard
 repos: []

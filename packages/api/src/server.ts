@@ -15,9 +15,9 @@
  */
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, extname, join, resolve, sep } from 'node:path';
 import type { ConductorDeps, StreamEvent } from '@sprint-runner/conductor';
 import {
   type Conductor,
@@ -184,6 +184,13 @@ export interface ServerOptions {
   bind?: string;
   /** Path of the global config.yaml for PUT /settings persistence. */
   globalConfigPath?: string;
+  /**
+   * Built UI bundle (vite `dist/`, wp-099) — served static behind the
+   * same token auth on every route; absent/missing → the placeholder
+   * page stays. SPA fallback: extensionless GETs resolve to
+   * `index.html`; real file misses under it 404.
+   */
+  uiDist?: string;
 }
 
 export interface ApiServer extends FastifyInstance {
@@ -704,8 +711,73 @@ export function createServer(opts: ServerOptions): ApiServer {
   }
 
   // ------------------------------------------------------------------
-  // Root — bootstrap + static placeholder (auth required)
+  // Root + static UI mount (wp-099) — token bootstrap, then the built
+  // vite bundle. Every byte of it sits behind the same auth hook as
+  // the API + SSE (API.md): assets, root, and the SPA fallback all
+  // require bearer/session. Missing bundle → placeholder, same as
+  // before — the API must stay bootable without a UI build.
   // ------------------------------------------------------------------
+
+  const uiDist = opts.uiDist ? resolve(opts.uiDist) : null;
+  const uiMounted = uiDist !== null && existsSync(join(uiDist, 'index.html'));
+
+  const MIME: Record<string, string> = {
+    '.html': 'text/html; charset=utf-8',
+    '.js': 'text/javascript; charset=utf-8',
+    '.mjs': 'text/javascript; charset=utf-8',
+    '.css': 'text/css; charset=utf-8',
+    '.json': 'application/json; charset=utf-8',
+    '.map': 'application/json; charset=utf-8',
+    '.svg': 'image/svg+xml',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.webp': 'image/webp',
+    '.avif': 'image/avif',
+    '.ico': 'image/x-icon',
+    '.woff': 'font/woff',
+    '.woff2': 'font/woff2',
+    '.ttf': 'font/ttf',
+    '.otf': 'font/otf',
+    '.txt': 'text/plain; charset=utf-8',
+    '.webmanifest': 'application/manifest+json',
+    '.wasm': 'application/wasm',
+    '.mp4': 'video/mp4',
+  };
+
+  /**
+   * Serve one file out of uiDist. `pathname` is the request path minus
+   * the leading `/` — joined+resolved, then verified to still live
+   * under the dist root so `..` traversal can never escape. Returns
+   * false on any miss (absent, not a file, escape) — callers decide
+   * between SPA fallback and 404.
+   */
+  async function serveStaticFile(
+    reply: FastifyReply,
+    pathname: string,
+  ): Promise<boolean> {
+    if (!uiDist) return false;
+    const target = resolve(uiDist, `.${sep}${pathname}`);
+    if (target !== uiDist && !target.startsWith(uiDist + sep)) {
+      return false;
+    }
+    const s = await stat(target).catch(() => null);
+    if (!s?.isFile()) return false;
+    const body = await readFile(target);
+    void reply
+      .type(MIME[extname(target).toLowerCase()] ?? 'application/octet-stream')
+      .header(
+        'cache-control',
+        // Vite fingerprints /assets/* — immutable forever; index.html
+        // and friends revalidate every load.
+        target.includes(`${sep}assets${sep}`)
+          ? 'public, max-age=31536000, immutable'
+          : 'no-cache',
+      )
+      .send(body);
+    return true;
+  }
 
   app.get('/', async (req, reply) => {
     if (req.url.startsWith('/?token=')) {
@@ -721,11 +793,42 @@ export function createServer(opts: ServerOptions): ApiServer {
         );
       return;
     }
-    // Static placeholder — the UI shell package ships real assets.
+    if (uiMounted && (await serveStaticFile(reply, 'index.html'))) {
+      return;
+    }
     void reply
       .type('text/html')
-      .send('<html><body><h1>sprint-runner</h1></body></html>');
+      .send(
+        '<html><body><h1>sprint-runner</h1>' +
+          '<p>UI bundle not built — run ' +
+          '<code>pnpm -F @sprint-runner/ui build</code>.</p></body></html>',
+      );
   });
+
+  if (uiMounted) {
+    // SPA mount: GETs outside /api resolve to real files first;
+    // extensionless misses fall back to index.html so client-side
+    // routing works on reload; everything else is a clean 404.
+    app.get('/*', async (req, reply) => {
+      // Fastify already decodes params once; a literal `%` in a file
+      // name must not 500 on a second decode — fall back to raw.
+      const raw = (req.params as { '*': string })['*'];
+      let pathname = raw;
+      try {
+        pathname = decodeURIComponent(raw);
+      } catch {
+        /* raw path */
+      }
+      if (await serveStaticFile(reply, pathname)) return;
+      if (pathname === 'api' || pathname.startsWith('api/')) {
+        throw notFound(`no such API route: /${pathname}`);
+      }
+      if (!extname(pathname)) {
+        if (await serveStaticFile(reply, 'index.html')) return;
+      }
+      throw notFound(`no such asset: /${pathname}`);
+    });
+  }
 
   // ------------------------------------------------------------------
   // SSE — GET /api/v1/stream (API.md live channel)
@@ -1677,15 +1780,26 @@ export function createServer(opts: ServerOptions): ApiServer {
       );
     await mkdir(rootPath, { recursive: true });
     const ts = now();
-    if (!(await store.getProject(body.name))) {
+    const existing = await store.getProject(body.name);
+    if (!existing) {
       await store.upsertProject({
         workspace: body.name,
         name: body.name,
         next_ticket_seq: 1,
         next_feature_seq: 1,
         next_initiative_seq: 1,
-        settings: {},
+        // wp-099: persist the resolved root so daemon boots (and the
+        // CLI's project listing) can rebuild workspaces from the DB
+        // alone — `path` is the canonical field.
+        settings: { path: rootPath },
         created_at: ts,
+      });
+    } else if (existing.settings?.path !== rootPath) {
+      // Re-POSTing with an explicit path repairs/updates the row —
+      // keep every other settings key intact.
+      await store.upsertProject({
+        ...existing,
+        settings: { ...existing.settings, path: rootPath },
       });
     }
     conductor.deps.workspaces.push({

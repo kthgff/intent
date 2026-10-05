@@ -35,3 +35,8 @@ extraction (voice capture deferred).
 
 ## Contract change
 None.
+
+## Folded follow-up (TRACKER backlog)
+Also deliver S-19 Quick Capture + Project Tray: `/capture` ingest +
+tray list/mutation + optimistic-conflict handling per design doc
+`docs/design/s-19-capture-tray.md`.

@@ -2,7 +2,7 @@
 schema: 1
 id: wp-099
 title: Launch — `veto` CLI wires conductor + serves built UI
-status: todo
+status: done
 priority: high
 depth: standard
 repos: []
