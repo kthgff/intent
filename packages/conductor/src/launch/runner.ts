@@ -289,6 +289,9 @@ async function importOutcome(
       env: deps.config.secrets,
     },
     ...(deps.importFetch ? { fetchImpl: deps.importFetch } : {}),
+    // Late-bound: the API server swaps deps.notify in after conductor
+    // construction, so read it at emit time rather than capturing.
+    notify: (e) => deps.notify?.(e),
   });
   const files: Record<string, string> = {};
   if (res.materialize) {

@@ -27,6 +27,7 @@ import {
 } from '../shepherd/index.js';
 import type { ConductorDeps, ConductorWorkspace } from './deps.js';
 import { LeaseManager } from './lease.js';
+import { type TailState, newTailState, tailRunOutputs } from './tail.js';
 import type { ToolCtx } from './tools.js';
 
 export interface TickReport {
@@ -46,7 +47,18 @@ export class Conductor {
    *  `shepherd.poll_interval_s` — the tick fires ~10s, the poll
    *  default is 60s). */
   readonly #lastShepherdPoll = new Map<string, number>();
+  /** run_output tail offsets per workspace (wp-160). */
+  readonly #tailStates = new Map<string, TailState>();
   #gh: import('../shepherd/index.js').GhClient | null = null;
+
+  #tailState(name: string): TailState {
+    let st = this.#tailStates.get(name);
+    if (!st) {
+      st = newTailState();
+      this.#tailStates.set(name, st);
+    }
+    return st;
+  }
 
   constructor(deps: ConductorDeps) {
     this.deps = deps;
@@ -68,6 +80,14 @@ export class Conductor {
       report.reconcile.push(rr);
       report.claim.push(await claim(ctx));
       report.shepherd.push(await this.shepherdTick(ctx));
+      // wp-160: stream bounded run.log tails over the SSE channel
+      // (best-effort — the durable log is the truth, the stream is a
+      // latency optimization the UI may drop).
+      try {
+        await tailRunOutputs(ctx, ws, this.#tailState(ws.name));
+      } catch (e) {
+        this.deps.onError?.(e);
+      }
     }
     return report;
   }

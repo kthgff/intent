@@ -32,6 +32,7 @@ export {
   parsePartialConfig,
   validConfigPaths,
 } from './validate.js';
+export { mergeConfigFile } from './write.js';
 export type { PartialConfig } from './validate.js';
 
 /** Result of loading one or more config/env layers. */

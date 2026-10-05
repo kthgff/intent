@@ -32,10 +32,9 @@ import {
   upsertFrontmatterKeys,
 } from '@sprint-runner/conductor';
 import {
-  deepMerge,
   defaultGlobalConfigPath,
+  mergeConfigFile,
   parseEnv,
-  parsePartialConfig,
 } from '@sprint-runner/config';
 import type { EffectiveConfig } from '@sprint-runner/config';
 import {
@@ -55,9 +54,9 @@ import Fastify, {
   type FastifyReply,
   type FastifyRequest,
 } from 'fastify';
-import YAML from 'yaml';
 import { z } from 'zod';
 import { lineDiff } from './diff.js';
+import { deviationMetrics, gateDwell } from './metrics.js';
 import { StreamHub } from './sse.js';
 
 // ---------------------------------------------------------------------------
@@ -141,6 +140,19 @@ const ClaimBodySchema = z
     ttl_s: z.number().int().positive().optional(),
   })
   .passthrough();
+
+/** Snooze (D20): `{until: <ISO>}` absolute, or `{for_minutes: n}`
+ *  relative — exactly one meaningful knob, both optional in the schema
+ *  so the handler can 400 with a readable message. */
+const SnoozeBodySchema = z
+  .object({
+    until: z.string().min(1).optional(),
+    for_minutes: z.number().positive().optional(),
+  })
+  .passthrough()
+  .refine((b) => b.until !== undefined || b.for_minutes !== undefined, {
+    message: 'snooze requires {until} or {for_minutes}',
+  });
 
 // ---------------------------------------------------------------------------
 // Public surface types
@@ -259,6 +271,13 @@ const PRIORITY_RANK: Record<TicketPriority, number> = {
 };
 const prank = (p: string | null | undefined) =>
   PRIORITY_RANK[(p ?? 'medium') as TicketPriority] ?? 1;
+
+/** D20 snooze: an item with `snoozed_until` in the future stays open
+ *  but leaves the inbox and badge counts until then. */
+const isSnoozed = (item: GateItem, nowIso: string): boolean =>
+  item.snoozed_until !== null &&
+  item.snoozed_until !== undefined &&
+  item.snoozed_until > nowIso;
 
 /** S-01 ranking: blocking-first → priority → age (API.md /inbox). */
 function rankInbox(items: GateItem[]): GateItem[] {
@@ -693,11 +712,17 @@ export function createServer(opts: ServerOptions): ApiServer {
   // ------------------------------------------------------------------
 
   app.get('/api/v1/inbox', async (req) => {
-    const { workspace: wsName } = req.query as { workspace?: string };
+    const q = req.query as { workspace?: string; include_snoozed?: string };
+    const wsName = q.workspace;
+    const includeSnoozed =
+      q.include_snoozed === '1' || q.include_snoozed === 'true';
+    const nowIso = now();
     const items = rankInbox(
-      await store.listGateItems(
-        wsName ? { workspace: wsName, open: true } : { open: true },
-      ),
+      (
+        await store.listGateItems(
+          wsName ? { workspace: wsName, open: true } : { open: true },
+        )
+      ).filter((i) => includeSnoozed || !isSnoozed(i, nowIso)),
     );
     const out = await Promise.all(
       items.map(async (item) => {
@@ -885,6 +910,36 @@ export function createServer(opts: ServerOptions): ApiServer {
       // LOG.md is a derived render of the events rows (DB-SCHEMA).
       log_md: renderLogMd(ticket, events),
     };
+  });
+
+  // ---- S-08 review.json — latest review run_artifact (D19 gap) ----
+
+  app.get('/api/v1/tickets/:workspace/:ticket/review', async (req) => {
+    const { workspace: wsName, ticket } = req.params as {
+      workspace: string;
+      ticket: string;
+    };
+    workspace(wsName);
+    await getTicketOr404(wsName, ticket);
+    // review.json is a run_artifact under D29 — the same lookup the
+    // findings verdict route writes through (nested names included).
+    const art = await latestArtifact(wsName, ticket, 'review.json');
+    if (art === null) {
+      throw notFound(`no review.json for ${wsName}/${ticket}`);
+    }
+    let review: unknown;
+    try {
+      review = JSON.parse(art.content);
+    } catch {
+      // Fail-closed: a malformed artifact is an honest 5xx, never a
+      // half-parsed payload the UI mistakes for a clean review.
+      throw new ApiError(
+        502,
+        'artifact_corrupt',
+        `review.json on run ${art.runId} is not valid JSON`,
+      );
+    }
+    return { run_id: art.runId, name: art.name, review };
   });
 
   // ---- S-04 wizard answers → commit → re-run ----
@@ -1419,14 +1474,16 @@ export function createServer(opts: ServerOptions): ApiServer {
 
   app.get('/api/v1/workspaces', async () => {
     const pending = await store.listRuns({ status: 'pending' });
+    const nowIso = now();
     const workspaces = await Promise.all(
       conductor.deps.workspaces.map(async (ws) => ({
         name: ws.name,
         root_path: ws.rootPath,
         queue_depth: pending.filter((r) => r.workspace === ws.name).length,
+        // Badge semantics (D20): snoozed items don't demand attention.
         open_gate_items: (
           await store.listGateItems({ workspace: ws.name, open: true })
-        ).length,
+        ).filter((i) => !isSnoozed(i, nowIso)).length,
       })),
     );
     return { workspaces };
@@ -1628,23 +1685,12 @@ export function createServer(opts: ServerOptions): ApiServer {
     const warnings: string[] = [];
 
     if (body?.config && Object.keys(body.config).length > 0) {
-      let existing: Record<string, unknown> = {};
-      if (existsSync(globalConfigPath)) {
-        const parsed = YAML.parse(
-          await readFile(globalConfigPath, 'utf8'),
-        ) as unknown;
-        if (parsed && typeof parsed === 'object') {
-          existing = parsed as Record<string, unknown>;
-        }
-      }
-      const merged = deepMerge(existing, body.config) as Record<
-        string,
-        unknown
-      >;
-      // Fail-closed validation of the merged document.
-      parsePartialConfig(merged, `PUT /settings → ${globalConfigPath}`);
-      await mkdir(dirname(globalConfigPath), { recursive: true });
-      await writeFile(globalConfigPath, YAML.stringify(merged), 'utf8');
+      // Persist through the config package's write path: comment-
+      // preserving YAML merge + fail-closed validation before write.
+      const merged = mergeConfigFile(
+        globalConfigPath,
+        body.config as Record<string, unknown>,
+      );
       Object.assign(config, merged);
       const ui = (body.config as Record<string, unknown>).ui as
         | Record<string, unknown>
@@ -1743,9 +1789,11 @@ export function createServer(opts: ServerOptions): ApiServer {
   // ------------------------------------------------------------------
 
   app.get('/api/v1/metrics', async (req) => {
-    const { workspace: wsName } = req.query as { workspace?: string };
-    const workspaces = wsName
-      ? [wsName]
+    const q = req.query as { workspace?: string; since?: string };
+    const since =
+      q.since && !Number.isNaN(Date.parse(q.since)) ? q.since : null;
+    const workspaces = q.workspace
+      ? [q.workspace]
       : conductor.deps.workspaces.map((w) => w.name);
     const ticketsByStatus: Record<string, number> = {};
     const runsByStatus: Record<string, number> = {};
@@ -1758,13 +1806,32 @@ export function createServer(opts: ServerOptions): ApiServer {
       tokens_cached: 0,
       human_minutes: 0,
     };
+    const deviations = {
+      merged_tickets: 0,
+      tickets_with_deviations: 0,
+      deviations_total: 0,
+    };
+    const dwell = { cleared_minutes: 0, open_minutes: 0 };
+    const nowIso = now();
     for (const ws of workspaces) {
       for (const t of await store.listTickets({ workspace: ws })) {
         ticketsByStatus[t.status] = (ticketsByStatus[t.status] ?? 0) + 1;
       }
-      openGateItems += (
-        await store.listGateItems({ workspace: ws, open: true })
+      const gateItems = await store.listGateItems({ workspace: ws });
+      // Badge semantics: snoozed items are open but not demanding.
+      openGateItems += gateItems.filter(
+        (i) => !i.cleared_at && !isSnoozed(i, nowIso),
       ).length;
+      // human_minutes = gate dwell (PRD): surfaced → cleared, plus
+      // still-open items accruing to now. The stale path summed a
+      // human_minutes field off events that was never populated.
+      const dwellW = gateDwell(gateItems, { since });
+      dwell.cleared_minutes += dwellW.cleared_minutes;
+      dwell.open_minutes += dwellW.open_minutes;
+      const devW = await deviationMetrics(store, ws, since);
+      deviations.merged_tickets += devW.merged_tickets;
+      deviations.tickets_with_deviations += devW.tickets_with_deviations;
+      deviations.deviations_total += devW.deviations_total;
       const runs = await store.listRuns({ workspace: ws });
       for (const r of runs) {
         runsByStatus[r.status] = (runsByStatus[r.status] ?? 0) + 1;
@@ -1775,7 +1842,6 @@ export function createServer(opts: ServerOptions): ApiServer {
         totals.tokens_in += e.tokens_in ?? 0;
         totals.tokens_out += e.tokens_out ?? 0;
         totals.tokens_cached += e.tokens_cached ?? 0;
-        totals.human_minutes += e.human_minutes ?? 0;
       }
       // usage_calls is the per-call ledger — per-call latency totals
       // live there; token sums ride events (no double count).
@@ -1787,6 +1853,8 @@ export function createServer(opts: ServerOptions): ApiServer {
         }
       }
     }
+    totals.human_minutes = dwell.cleared_minutes + dwell.open_minutes;
+    const merged = deviations.merged_tickets;
     return {
       workspaces,
       tickets_by_status: ticketsByStatus,
@@ -1794,6 +1862,21 @@ export function createServer(opts: ServerOptions): ApiServer {
       events_by_name: eventsByName,
       open_gate_items: openGateItems,
       totals,
+      // PRD headline: merged tickets with ≥1 deviation ÷ merged tickets.
+      deviations: {
+        ...deviations,
+        deviation_rate:
+          merged > 0 ? deviations.tickets_with_deviations / merged : 0,
+        addenda_per_ticket:
+          merged > 0 ? deviations.deviations_total / merged : 0,
+      },
+      // Dwell detail so the honest-idle caveat is inspectable, not
+      // folded away into one number.
+      gate_dwell: {
+        ...dwell,
+        total_minutes: dwell.cleared_minutes + dwell.open_minutes,
+      },
+      since,
     };
   });
 
@@ -1877,6 +1960,87 @@ export function createServer(opts: ServerOptions): ApiServer {
         data: { gate, actor: claim.claimed_by },
       });
       return { released: true };
+    },
+  );
+
+  // ------------------------------------------------------------------
+  // gate_items.snoozed_until — D20: hide from inbox/badge until then
+  // ------------------------------------------------------------------
+
+  app.post(
+    '/api/v1/gate-items/:workspace/:subject/:gate/snooze',
+    async (req) => {
+      const {
+        workspace: wsName,
+        subject,
+        gate,
+      } = req.params as {
+        workspace: string;
+        subject: string;
+        gate: string;
+      };
+      const body = parseBody(SnoozeBodySchema, req.body, 'snooze');
+      const until =
+        body.until ??
+        new Date(Date.now() + (body.for_minutes ?? 0) * 60_000).toISOString();
+      const untilMs = Date.parse(until);
+      if (!Number.isFinite(untilMs)) {
+        throw badRequest('snooze: {until} must be an ISO timestamp');
+      }
+      if (untilMs <= Date.now()) {
+        throw badRequest('snooze: {until} must be in the future');
+      }
+      const ws = workspace(wsName);
+      const item = await store.getGateItem({
+        workspace: ws.name,
+        subject,
+        gate,
+      });
+      if (!item || item.cleared_at) {
+        throw notFound(`no open gate item '${gate}' for ${ws.name}/${subject}`);
+      }
+      // upsertGateItem rewrites the row — spread the current item so
+      // priority/blocked_agent/kind survive the snooze. No event row:
+      // EVENT_NAMES is a closed union (core) and the durable state is
+      // the snoozed_until field itself, read back through /inbox.
+      await store.upsertGateItem({
+        ...item,
+        snoozed_until: new Date(untilMs).toISOString(),
+      });
+      return {
+        item: await store.getGateItem({ workspace: ws.name, subject, gate }),
+      };
+    },
+  );
+
+  app.delete(
+    '/api/v1/gate-items/:workspace/:subject/:gate/snooze',
+    async (req) => {
+      const {
+        workspace: wsName,
+        subject,
+        gate,
+      } = req.params as {
+        workspace: string;
+        subject: string;
+        gate: string;
+      };
+      const ws = workspace(wsName);
+      const item = await store.getGateItem({
+        workspace: ws.name,
+        subject,
+        gate,
+      });
+      if (!item || item.cleared_at) {
+        throw notFound(`no open gate item '${gate}' for ${ws.name}/${subject}`);
+      }
+      if (item.snoozed_until === null || item.snoozed_until === undefined) {
+        throw notFound(`gate item '${gate}' is not snoozed`);
+      }
+      await store.upsertGateItem({ ...item, snoozed_until: null });
+      return {
+        item: await store.getGateItem({ workspace: ws.name, subject, gate }),
+      };
     },
   );
 

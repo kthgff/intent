@@ -13,7 +13,8 @@
  * `IMPORT-FAILED` so the conductor lands a `failure` gate item instead
  * of a bare `run_failed`.
  */
-import type { Store } from '@sprint-runner/core';
+import type { GateItem, Store } from '@sprint-runner/core';
+import type { StreamEvent } from '../loop/deps.js';
 import { fetchIssues } from './github.js';
 import type { FetchIssuesOptions } from './github.js';
 import { IMPORT_FAILURE_GATE, materialize } from './materialize.js';
@@ -35,6 +36,14 @@ export interface RunImportOptions {
   /** Fetch implementation override (tests / alternate importers) —
    *  defaults to the real `gh`-backed {@link fetchIssues}. */
   fetchImpl?: (opts: FetchIssuesOptions) => Promise<FetchIssuesResult>;
+  /**
+   * Live-channel sink (wp-160) — the conductor's `deps.notify`. Failure
+   *   surfacing emits `gate_surfaced` + `notification` through it AFTER
+   *   the durable writes, the same contract `surfaceGateItem`
+   *   (loop/tools.ts) honors on every other failure path — previously
+   *   this wrote the rows directly and the SSE stream never saw them.
+   */
+  notify?: ((event: StreamEvent) => void) | undefined;
 }
 
 export interface RunImportResult {
@@ -49,20 +58,34 @@ async function surfaceFailure(
   reason: string,
 ): Promise<void> {
   const now = new Date().toISOString();
-  await opts.store.upsertGateItem({
+  const row: GateItem = {
     workspace: opts.workspace,
     subject: opts.subject,
     gate: IMPORT_FAILURE_GATE,
     kind: 'failure',
     surfaced_at: now,
+    cleared_at: null,
+    snoozed_until: null,
     blocked_agent: false,
-  });
-  await opts.store.insertNotification({
+    priority: null,
+  };
+  await opts.store.upsertGateItem(row);
+  const notification = {
     workspace: opts.workspace,
     subject: opts.subject,
     kind: 'gate:failure',
     payload: JSON.stringify({ gate: IMPORT_FAILURE_GATE, reason }),
     created_at: now,
+    read_at: null,
+  };
+  const notificationId = await opts.store.insertNotification(notification);
+  // API.md stream: emit AFTER the durable writes (the stream is a
+  // latency optimization, never the only copy) — same ordering as
+  // surfaceGateItem in loop/tools.ts.
+  opts.notify?.({ type: 'gate_surfaced', payload: row });
+  opts.notify?.({
+    type: 'notification',
+    payload: { id: notificationId, ...notification },
   });
 }
 
