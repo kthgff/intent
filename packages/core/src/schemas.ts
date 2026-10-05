@@ -37,9 +37,9 @@ import {
   ENTITY_KINDS,
   ENTITY_SOURCES,
   EVAL_RUN_STATUSES,
+  EVENT_NAMES,
   EVIDENCE_FRESHNESS,
   EVIDENCE_SOURCE_TYPES,
-  EVENT_NAMES,
   EXECUTION_READINESSES,
   FEATURE_EXPOSURE_STATES,
   FEATURE_STATUSES,
@@ -2228,7 +2228,12 @@ export const RetrievalEvidenceSchema = z
   .superRefine((ev, ctx) => {
     ev.results.forEach((r, i) => {
       if (r.source_type !== 'code') return;
-      for (const field of ['repo', 'commit_sha', 'path', 'content_hash'] as const) {
+      for (const field of [
+        'repo',
+        'commit_sha',
+        'path',
+        'content_hash',
+      ] as const) {
         const v = r[field];
         if (v === null || v === undefined || v === '') {
           ctx.addIssue({

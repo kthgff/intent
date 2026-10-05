@@ -111,7 +111,10 @@ const TS_PATTERNS: SymbolPattern[] = [
   },
   { re: /^\s*(?:export\s+)?interface\s+([A-Za-z_$][\w$]*)/, kind: 'interface' },
   { re: /^\s*(?:export\s+)?type\s+([A-Za-z_$][\w$]*)/, kind: 'type' },
-  { re: /^\s*(?:export\s+)?(?:const\s+)?enum\s+([A-Za-z_$][\w$]*)/, kind: 'enum' },
+  {
+    re: /^\s*(?:export\s+)?(?:const\s+)?enum\s+([A-Za-z_$][\w$]*)/,
+    kind: 'enum',
+  },
   {
     re: /^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s*\*?\s*([A-Za-z_$][\w$]*)/,
     kind: 'function',
@@ -124,7 +127,10 @@ const TS_PATTERNS: SymbolPattern[] = [
     re: /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?[A-Za-z_$][\w$]*\s*=>/,
     kind: 'function',
   },
-  { re: /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/, kind: 'const' },
+  {
+    re: /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/,
+    kind: 'const',
+  },
 ];
 
 const PY_PATTERNS: SymbolPattern[] = [
@@ -147,7 +153,10 @@ const RS_PATTERNS: SymbolPattern[] = [
     re: /^\s*(?:pub(?:\([^)]*\))?\s+)?(?:struct|enum|trait|union)\s+([A-Za-z_]\w*)/,
     kind: 'type',
   },
-  { re: /^\s*impl(?:<[^>]*>)?\s+(?:[A-Za-z_]\w*\s+for\s+)?([A-Za-z_]\w*)/, kind: 'impl' },
+  {
+    re: /^\s*impl(?:<[^>]*>)?\s+(?:[A-Za-z_]\w*\s+for\s+)?([A-Za-z_]\w*)/,
+    kind: 'impl',
+  },
 ];
 
 const RB_PATTERNS: SymbolPattern[] = [
@@ -189,8 +198,14 @@ const SWIFT_PATTERNS: SymbolPattern[] = [
 ];
 
 const SCALA_PATTERNS: SymbolPattern[] = [
-  { re: /^\s*(?:private|protected|override|implicit|\s)*def\s+([A-Za-z_]\w*)/, kind: 'function' },
-  { re: /^\s*(?:case\s+)?(?:class|object|trait)\s+([A-Za-z_]\w*)/, kind: 'type' },
+  {
+    re: /^\s*(?:private|protected|override|implicit|\s)*def\s+([A-Za-z_]\w*)/,
+    kind: 'function',
+  },
+  {
+    re: /^\s*(?:case\s+)?(?:class|object|trait)\s+([A-Za-z_]\w*)/,
+    kind: 'type',
+  },
   { re: /^\s*(?:val|var)\s+([A-Za-z_]\w*)/, kind: 'val' },
 ];
 
@@ -315,7 +330,10 @@ export interface SymbolSpan {
 
 /** Extract symbol/logical-unit spans from source lines (heuristic,
  *  language-aware; tree-sitter is the preferred later enrichment). */
-export function extractSymbols(lines: string[], language: string): SymbolSpan[] {
+export function extractSymbols(
+  lines: string[],
+  language: string,
+): SymbolSpan[] {
   const patterns = patternsFor(language);
   if (patterns.length === 0) return [];
   const starts: { name: string; kind: string; start: number }[] = [];
@@ -335,7 +353,10 @@ export function extractSymbols(lines: string[], language: string): SymbolSpan[] 
     name: s.name,
     kind: s.kind,
     start: s.start,
-    end: idx + 1 < starts.length ? (starts[idx + 1]?.start ?? s.start) - 1 : lines.length,
+    end:
+      idx + 1 < starts.length
+        ? (starts[idx + 1]?.start ?? s.start) - 1
+        : lines.length,
   }));
 }
 
@@ -520,7 +541,8 @@ export function extractImports(content: string): string[] {
   return [...found];
 }
 
-const TEST_PATH = /(^|\/)(tests?|__tests__|spec)(\/|$)|\.(test|spec)\.[A-Za-z]+$/i;
+const TEST_PATH =
+  /(^|\/)(tests?|__tests__|spec)(\/|$)|\.(test|spec)\.[A-Za-z]+$/i;
 
 function isTestPath(path: string): boolean {
   return TEST_PATH.test(path);
@@ -631,10 +653,9 @@ async function previousPathHashes(
   const current = await store.getCurrentRepoIndex(workspace, repo);
   const heads = current
     ? [current]
-    : (await store.listRepoIndexes({ workspace, repo, status: 'superseded' })).slice(
-        0,
-        1,
-      );
+    : (
+        await store.listRepoIndexes({ workspace, repo, status: 'superseded' })
+      ).slice(0, 1);
   const head = heads[0];
   if (!head) return { commitSha: null, pathHashes: {} };
   const hashes = head.stats?.path_hashes;
@@ -664,7 +685,9 @@ async function embedUnits(
     });
     if (existing) continue;
     const vec = await embedder.embed(
-      [u.symbol ?? '', u.path, u.content].filter((s) => s.length > 0).join('\n'),
+      [u.symbol ?? '', u.path, u.content]
+        .filter((s) => s.length > 0)
+        .join('\n'),
     );
     if (vec === null || vec.length === 0) continue;
     await store.upsertEmbedding({
@@ -764,6 +787,17 @@ export async function indexRepo(
           commit_sha: prev.commitSha as string,
           path: file.path,
         });
+        // Its structural edges carry forward too — an unchanged file's
+        // imports/tests/defines relations are still true at the new head.
+        const priorEdges = await store.listCodeEdges({
+          workspace: opts.workspace,
+          repo: opts.repo,
+          commit_sha: prev.commitSha as string,
+          subject_ref: `file:${file.path}`,
+        });
+        for (const e of priorEdges) {
+          allEdges.push({ ...e, commit_sha: opts.commitSha });
+        }
         for (const p of prior) {
           allUnits.push({
             ...p,

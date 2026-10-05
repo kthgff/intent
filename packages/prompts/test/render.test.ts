@@ -14,6 +14,9 @@ import {
   capabilityNotes,
   dossierGateOk,
   dossierTokenValue,
+  evidenceBundleTokenValue,
+  NO_EVIDENCE_TEXT,
+  renderEvidenceBundle,
   renderPrompt,
   renderTemplate,
   scanTokens,
@@ -180,5 +183,91 @@ describe('dossier gate (CONDUCTOR dossier wait)', () => {
   it('dossierTokenValue injects "dossier pending" when unsurveyed', () => {
     expect(dossierTokenValue(undefined)).toBe('dossier pending');
     expect(dossierTokenValue('real dossier')).toBe('real dossier');
+  });
+});
+
+describe('EVIDENCE_BUNDLE (D37, wp-110)', () => {
+  const VALID_BUNDLE = {
+    schema: 1,
+    request: {
+      workspace: 'team-a',
+      task: 'implement',
+      query: 'savePreferences',
+      repos: ['api'],
+      source_types: ['code'],
+      commit_policy: 'current',
+      limit: 20,
+      token_limit: 8000,
+    },
+    index_heads: [{ repo: 'api', commit_sha: 'deadbeefcafe' }],
+    results: [
+      {
+        evidence_id: 'ev_1',
+        source_type: 'code',
+        object_ref: 'code:api:deadbeefcafe:src/prefs.ts:savePreferences',
+        repo: 'api',
+        commit_sha: 'deadbeefcafe',
+        path: 'src/prefs.ts',
+        start_line: 3,
+        end_line: 6,
+        symbol: 'savePreferences',
+        content_hash: 'sha256:abc',
+        excerpt: 'export function savePreferences() {}',
+        freshness: 'current',
+        scores: { exact: 1, final: 1 },
+        why: ['exact-symbol'],
+      },
+    ],
+    zero_result_reason: null,
+    generated_at: '2026-10-05T00:00:00Z',
+  };
+
+  it('empty/missing token value renders the explicit no-evidence block', () => {
+    expect(evidenceBundleTokenValue(undefined)).toBe(NO_EVIDENCE_TEXT);
+    expect(evidenceBundleTokenValue('')).toBe(NO_EVIDENCE_TEXT);
+    expect(evidenceBundleTokenValue('   ')).toBe(NO_EVIDENCE_TEXT);
+    expect(evidenceBundleTokenValue('<bundle>')).toBe('<bundle>');
+  });
+
+  it('code-aware templates never render the token as a silent empty', () => {
+    // Caller supplied '' — the renderer substitutes the explicit block.
+    const ctx = maximalCtx();
+    ctx.tokens = { ...(ctx.tokens ?? {}), EVIDENCE_BUNDLE: '' };
+    const r = renderPrompt('implement', ctx);
+    expect(r.text).toContain('No relevant evidence');
+    for (const stage of ['prd', 'design', 'testplan', 'review'] as const) {
+      const out = renderPrompt(stage, maximalCtx());
+      expect(out.text).not.toMatch(/\{\{/);
+      // The maximal ctx supplies a caller value — it flows through.
+      expect(out.text).toContain('<EVIDENCE_BUNDLE>');
+    }
+  });
+
+  it('renderEvidenceBundle formats a valid cited bundle', () => {
+    const text = renderEvidenceBundle(VALID_BUNDLE);
+    expect(text).toContain('ev_1');
+    expect(text).toContain('src/prefs.ts:3-6');
+    expect(text).toContain('savePreferences');
+    expect(text).toContain('api@deadbee');
+    expect(text).toContain('exact-symbol');
+  });
+
+  it('renders the explicit zero-result artifact with its reason', () => {
+    const text = renderEvidenceBundle({
+      ...VALID_BUNDLE,
+      results: [],
+      zero_result_reason: 'no evidence matched the query',
+    });
+    expect(text).toContain('No relevant evidence');
+    expect(text).toContain('no evidence matched the query');
+  });
+
+  it('fails closed on malformed or uncited code results', () => {
+    const bad = {
+      ...VALID_BUNDLE,
+      results: [{ ...VALID_BUNDLE.results[0], content_hash: null }],
+    };
+    expect(() => renderEvidenceBundle(bad)).toThrow(/content_hash|validation/);
+    expect(() => renderEvidenceBundle({ schema: 1 })).toThrow();
   });
 });

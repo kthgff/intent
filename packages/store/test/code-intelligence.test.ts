@@ -12,7 +12,11 @@ afterEach(async () => {
   await store.close();
 });
 
-const head = (repo: string, sha: string, status: RepoIndexRow['status'] = 'building'): RepoIndexRow => ({
+const head = (
+  repo: string,
+  sha: string,
+  status: RepoIndexRow['status'] = 'building',
+): RepoIndexRow => ({
   workspace: WS,
   repo,
   commit_sha: sha,
@@ -125,7 +129,8 @@ describe('code units + FTS + exact + hash', () => {
         start_line: 10,
         end_line: 20,
         content_hash: 'sha256:p1',
-        content: 'export function savePreferences(userId) { return store.save(userId); }',
+        content:
+          'export function savePreferences(userId) { return store.save(userId); }',
       }),
       unit({
         id: 'u2',
@@ -134,7 +139,8 @@ describe('code units + FTS + exact + hash', () => {
         start_line: 1,
         end_line: 8,
         content_hash: 'sha256:n1',
-        content: 'export function notifyUser(user) { push notification preferences }',
+        content:
+          'export function notifyUser(user) { push notification preferences }',
       }),
       unit({
         id: 'u3',
@@ -266,8 +272,8 @@ describe('code edges + retrieval evaluations', () => {
     const got = await store.getRetrievalEvaluation('re_1');
     expect(got?.metrics?.unauthorized_count).toBe(0);
     expect(got?.index_heads).toEqual([{ repo: 'api', commit_sha: 'a1' }]);
-    expect(await store.listRetrievalEvaluations({ task: 'impact' })).toHaveLength(
-      1,
-    );
+    expect(
+      await store.listRetrievalEvaluations({ task: 'impact' }),
+    ).toHaveLength(1);
   });
 });

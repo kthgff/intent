@@ -28,14 +28,14 @@
 import { createHash } from 'node:crypto';
 import type {
   CommitPolicy,
-  RetrievalEvidence,
   RetrievalEvaluationRow,
+  RetrievalEvidence,
   RetrievalRequest,
   RetrievalTask,
   Store,
 } from '@sprint-runner/core';
-import { queryEvidence } from './retrieve.js';
 import type { Embedder } from './embeddings.js';
+import { queryEvidence } from './retrieve.js';
 
 /** One declared golden query. */
 export interface GoldenCase {

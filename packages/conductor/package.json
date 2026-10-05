@@ -15,6 +15,7 @@
     "@sprint-runner/config": "workspace:*",
     "@sprint-runner/core": "workspace:*",
     "@sprint-runner/gitops": "workspace:*",
+    "@sprint-runner/kb": "workspace:*",
     "@sprint-runner/lints": "workspace:*",
     "@sprint-runner/prompts": "workspace:*",
     "@sprint-runner/store": "workspace:*",
