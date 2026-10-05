@@ -20,6 +20,7 @@ import type {
   StatementRow,
   Store,
 } from '@sprint-runner/core';
+import { confirmStatement } from '../semantics/index.js';
 import type { InterviewCtx, SlotState, WizardConfig } from './types.js';
 import { invalid, notFound } from './types.js';
 import { slotSpec } from './wizard.js';
@@ -113,6 +114,24 @@ async function openDecisions(
   return ids;
 }
 
+/** The statement_ids among `refs` that carry an open decision item. */
+async function openDecisionStatementIds(
+  store: Store,
+  workspace: string,
+  refs: string[],
+): Promise<Set<string>> {
+  const out = new Set<string>();
+  for (const id of refs) {
+    const ds = await store.listStatementDecisions({
+      workspace,
+      statement_id: id,
+      status: 'open',
+    });
+    if (ds.length > 0) out.add(id);
+  }
+  return out;
+}
+
 /** Open decision ids across every statement bound to the given slots. */
 export async function openDecisionsForSlots(
   ctx: InterviewCtx,
@@ -146,7 +165,7 @@ export async function refreshSlot(
     ctx.workspace,
     refs,
   );
-  const open = new Set(await openDecisions(ctx.store, ctx.workspace, refs));
+  const open = await openDecisionStatementIds(ctx.store, ctx.workspace, refs);
   const state = deriveSlotState(statements, open);
   const confidence =
     statements.length === 0
@@ -263,4 +282,33 @@ export function requireSlotSpec(cfg: WizardConfig, slot: string) {
     throw invalid(`slot '${slot}' is not declared by wizard '${cfg.wizard_id}'`);
   }
   return spec;
+}
+
+/**
+ * Human confirmation of a slot — confirms every live *proposed*
+ * statement bound to it (the "required confirmation" step, §15.9). An
+ * AI-only slot therefore never reaches `known`/approval-ready without
+ * a human: `inferred` never auto-approves. Returns the refreshed slot.
+ */
+export async function confirmSlot(
+  ctx: InterviewCtx,
+  args: { sessionId: string; slot: string },
+): Promise<KnowledgeSlotRow> {
+  const row = await getSlot(ctx, args.sessionId, args.slot);
+  if (!row) {
+    throw notFound(`no slot '${args.slot}' on session ${args.sessionId}`);
+  }
+  const refs = row.statement_refs ?? [];
+  const statements = await boundStatements(ctx.store, ctx.workspace, refs);
+  for (const s of statements) {
+    if (s.status === 'proposed' || s.status === 'disputed') {
+      await confirmStatement(ctx.store, {
+        workspace: ctx.workspace,
+        statement_id: s.statement_id,
+        actor: { id: ctx.actor, type: 'human' },
+        now: ctx.now,
+      });
+    }
+  }
+  return refreshSlot(ctx, args.sessionId, args.slot);
 }

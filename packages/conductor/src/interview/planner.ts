@@ -37,7 +37,6 @@ import {
   parseQuestionOutput,
 } from './prompt.js';
 import { appendMessage, requireSession, sessionWizard } from './session.js';
-import { thresholdsOf } from './wizard.js';
 
 /**
  * Deterministic composite of the component scores (§15.9). Materiality
@@ -101,8 +100,11 @@ const NON_REASKABLE: ReadonlySet<QuestionCandidateRow['status']> = new Set([
 ]);
 
 /**
- * Deterministic eligibility: required slots with an open gap, minus
- * anything already asked/unanswerable. Pure read — no writes.
+ * Deterministic eligibility: required slots with an open gap (`missing`),
+ * minus anything already asked / unanswerable / skipped. `inferred`
+ * slots are NOT re-asked — confirmation is an explicit human action
+ * (`confirmSlot`), not another question (that keeps the
+ * unnecessary-question rate at zero). Pure read — no writes.
  */
 export async function computeEligibility(
   ctx: InterviewCtx,
@@ -119,7 +121,6 @@ export async function computeEligibility(
     list.push(c);
     bySlot.set(c.slot, list);
   }
-  const approvalSet = new Set(thresholdsOf(cfg).approval);
 
   const eligible: EligibleSlotForPrompt[] = [];
   for (const spec of cfg.slots) {
@@ -136,18 +137,6 @@ export async function computeEligibility(
         state: row.state,
         ...(spec.label ? { label: spec.label } : {}),
         ...(spec.question ? { suggested: spec.question } : {}),
-      });
-    } else if (row.state === 'inferred' && !approvalSet.has('inferred')) {
-      // Draft-ok but not approval-ok → a confirmation question is the
-      // only thing that materially changes the outcome.
-      const value = row.value ?? 'your earlier answer';
-      eligible.push({
-        slot: spec.slot,
-        purpose: 'confirm',
-        state: row.state,
-        value,
-        ...(spec.label ? { label: spec.label } : {}),
-        suggested: `Earlier you said: "${value}". Can we treat that as confirmed?`,
       });
     }
   }

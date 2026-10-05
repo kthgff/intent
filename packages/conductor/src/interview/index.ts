@@ -35,6 +35,7 @@ export type { RegisterWizardResult } from './wizard.js';
 export {
   TERMINAL_SLOT_STATES,
   bindStatementsToSlots,
+  confirmSlot,
   deriveSlotState,
   getSlot,
   isLiveStatement,
