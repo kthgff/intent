@@ -26,6 +26,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MockAdapter } from '@sprint-runner/adapters';
 import { type EffectiveConfig, resolveConfig } from '@sprint-runner/config';
+import { RS_QUALITY_DIMENSIONS } from '@sprint-runner/core';
 import type {
   Adapter,
   CollectContext,
@@ -246,6 +247,24 @@ export function testReport(pass = true): unknown {
   return {
     pass_pct: pass ? 100 : 0,
     cases: [{ case_id: 'case:c1', result: pass ? 'pass' : 'fail' }],
+  };
+}
+
+/** `rs-quality.json` (SCHEMAS §24) — a valid cited quality pass for the
+ *  prd stage. `findings` empty = the explicit clean pass; the runner
+ *  fails closed on a missing/malformed/partial artifact. */
+export function rsQualityDoc(
+  id: string,
+  findings: Record<string, unknown>[] = [],
+): unknown {
+  return {
+    schema: 1,
+    subject: id,
+    doc_version: 1,
+    evidence_ref: 'retrieval-evidence.json',
+    dimensions_checked: [...RS_QUALITY_DIMENSIONS],
+    findings,
+    generated_at: '2026-10-05T00:00:00Z',
   };
 }
 
