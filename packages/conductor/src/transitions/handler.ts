@@ -117,6 +117,13 @@ function makeEvent(tools: TransitionTools, e: EmitArgs): EventRow {
   };
 }
 
+/** Chat-edit run subjects are `edit:<session>` — extract the session id
+ *  (fail-soft to the whole subject; the subject shape is set by the
+ *  API's /interview edit mode). */
+function editSessionId(subject: string): string {
+  return subject.startsWith('edit:') ? subject.slice('edit:'.length) : subject;
+}
+
 export class RealTransitionHandler implements TransitionHandler {
   readonly #config: EffectiveConfig;
 
@@ -649,6 +656,71 @@ export class RealTransitionHandler implements TransitionHandler {
         event: 'note_added',
         run: outcome.run.id,
         data: { sentinel: 'WONT-DRAFT', reason: payload },
+      });
+    },
+
+    // -- chat-to-edit (interview edit runs — subject `edit:<session>`) --
+    // The gate lands on the edited subject (the ticket when the run is
+    // ticket-bound) so the card/inbox badge it; `edit:<session>` is the
+    // gate name, unique per session — the API's session approve/discard
+    // path clears it.
+    editProposed: async ({ outcome, tools }) => {
+      const session = editSessionId(outcome.run.subject);
+      const subject = outcome.run.ticket_id ?? outcome.run.subject;
+      await tools.surfaceGateItem({
+        subject,
+        gate: `edit:${session}`,
+        kind: 'approval',
+        payload: {
+          session,
+          kind: 'edit-proposal',
+          run: outcome.run.id,
+          artifact: 'proposed-diff.md',
+        },
+      });
+      await emitEvent(tools, {
+        ticketId: outcome.run.ticket_id,
+        stage: 'interview',
+        event: 'note_added',
+        run: outcome.run.id,
+        refs: [`run-artifact:${outcome.run.id}:proposed-diff.md`],
+        data: { session, kind: 'edit-proposal', sentinel: 'EDIT-PROPOSED' },
+      });
+    },
+
+    editClarify: async ({ outcome, tools, payload }) => {
+      const session = editSessionId(outcome.run.subject);
+      const subject = outcome.run.ticket_id ?? outcome.run.subject;
+      await tools.surfaceGateItem({
+        subject,
+        gate: `edit:${session}`,
+        kind: 'question',
+        payload: { session, kind: 'edit-clarify', question: payload },
+      });
+      await emitEvent(tools, {
+        ticketId: outcome.run.ticket_id,
+        stage: 'interview',
+        event: 'question_asked',
+        run: outcome.run.id,
+        data: { session, kind: 'edit-clarify', question: payload },
+      });
+    },
+
+    editRefused: async ({ outcome, tools, payload }) => {
+      const session = editSessionId(outcome.run.subject);
+      const subject = outcome.run.ticket_id ?? outcome.run.subject;
+      await tools.surfaceGateItem({
+        subject,
+        gate: `edit:${session}`,
+        kind: 'failure',
+        payload: { session, kind: 'edit-refused', reason: payload },
+      });
+      await emitEvent(tools, {
+        ticketId: outcome.run.ticket_id,
+        stage: 'interview',
+        event: 'note_added',
+        run: outcome.run.id,
+        data: { session, kind: 'edit-refused', reason: payload },
       });
     },
 

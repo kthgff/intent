@@ -238,7 +238,13 @@ export function renderTemplate(
  * throws a RenderError.
  */
 export function renderPrompt(stage: Stage, ctx: RenderCtx): RenderedPrompt {
-  const templateName = STAGE_TEMPLATES[stage];
+  // Chat-to-edit runs share the `interview` stage but render a dedicated
+  // template — EDIT_SESSION is the discriminator (s-01 D25, API.md
+  // interview edit mode).
+  const templateName =
+    stage === 'interview' && ctx.tokens?.EDIT_SESSION !== undefined
+      ? 'interview-edit'
+      : STAGE_TEMPLATES[stage];
   if (templateName === null || templateName === undefined) {
     throw new RenderError(
       `no prompt template for stage '${stage}' (verify runs are detached runner tasks, no agent)`,

@@ -287,7 +287,13 @@ export async function launch(
   // again. allocTicketId needs a projects row (D29 id rule); the
   // workspace may predate project registration → self-heal.
   const reqTokens = { ...(req.tokens ?? {}) };
-  if (req.stage === 'interview' && !reqTokens.NEW_ID) {
+  // Chat-to-edit runs reuse the interview stage but never author a new
+  // ticket — skip NEW_ID allocation (it would burn a sequence id).
+  if (
+    req.stage === 'interview' &&
+    !reqTokens.NEW_ID &&
+    reqTokens.EDIT_SESSION === undefined
+  ) {
     // allocTicketId self-heals a missing projects row with sequences
     // seeded above the existing ids — NEW_ID can never collide with a
     // ticket that already exists.

@@ -46,6 +46,9 @@ export type ActionId =
   | 'escalationWritten'
   | 'surveyComplete'
   | 'surveyFailed'
+  | 'editProposed'
+  | 'editClarify'
+  | 'editRefused'
   | 'toBlocked';
 
 export interface TableRow {
@@ -79,6 +82,25 @@ export const TRANSITION_TABLE: readonly TableRow[] = [
     sentinel: 'WONT-DRAFT',
     action: 'wontDraft',
     spec: 'interview | WONT-DRAFT: <r> | burn the reserved id, notify',
+  },
+  // -- chat-to-edit (interview edit mode — API.md, s-01 D25) --
+  {
+    stage: 'interview',
+    sentinel: 'EDIT-PROPOSED',
+    action: 'editProposed',
+    spec: 'interview(edit) | EDIT-PROPOSED | approval gate item with the proposed diff (proposed-diff.md)',
+  },
+  {
+    stage: 'interview',
+    sentinel: 'EDIT-CLARIFY',
+    action: 'editClarify',
+    spec: 'interview(edit) | EDIT-CLARIFY: <q> | question gate item on the edit session',
+  },
+  {
+    stage: 'interview',
+    sentinel: 'EDIT-REFUSED',
+    action: 'editRefused',
+    spec: 'interview(edit) | EDIT-REFUSED: <r> | failure gate item — the run declined the edit',
   },
   // -- import --
   {

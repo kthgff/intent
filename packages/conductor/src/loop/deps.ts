@@ -50,7 +50,10 @@ export interface StreamEvent {
     | 'run_status'
     | 'run_output'
     | 'usage_partial'
-    | 'notification';
+    | 'notification'
+    /** A `tickets` row changed (status write) — board/focus refresh
+     *  hint (s-01 live updates). Payload is a partial TicketRow. */
+    | 'ticket_updated';
   payload: unknown;
 }
 

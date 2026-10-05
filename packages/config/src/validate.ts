@@ -44,7 +44,7 @@ const FIXED_KEYS: Record<string, readonly string[]> = {
   'importers.github': ['token_env'],
   'importers.jira': ['base_url', 'token_env'],
   security: ['scanner', 'scan_on_commit'],
-  ui: ['bind', 'port', 'token_file', 'remote_access'],
+  ui: ['bind', 'port', 'token_file', 'remote_access', 'wip_limits'],
   notifications: ['desktop', 'badge'],
   review: ['auto_fix_severities', 'auto_fix_rounds'],
   'capabilities.*': ['can_exec', 'can_write_outside_tree', 'has_gh'],

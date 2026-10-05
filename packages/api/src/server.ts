@@ -57,7 +57,13 @@ import Fastify, {
 } from 'fastify';
 import YAML from 'yaml';
 import { z } from 'zod';
-import { lineDiff } from './diff.js';
+import {
+  DiffApplyError,
+  applyUnifiedDiff,
+  extractUnifiedDiff,
+  lineDiff,
+  parseUnifiedDiff,
+} from './diff.js';
 import { StreamHub } from './sse.js';
 
 // ---------------------------------------------------------------------------
@@ -138,6 +144,13 @@ const CaptureBodySchema = z
 const ClaimBodySchema = z
   .object({
     actor: z.string().optional(),
+    ttl_s: z.number().int().positive().optional(),
+  })
+  .passthrough();
+
+const SnoozeBodySchema = z
+  .object({
+    until: z.string().optional(),
     ttl_s: z.number().int().positive().optional(),
   })
   .passthrough();
@@ -253,14 +266,167 @@ const PRIORITY_RANK: Record<TicketPriority, number> = {
 const prank = (p: string | null | undefined) =>
   PRIORITY_RANK[(p ?? 'medium') as TicketPriority] ?? 1;
 
-/** S-01 ranking: blocking-first → priority → age (API.md /inbox). */
+/**
+ * S-01 ranking — human-anxiety-first (s-01-board §inbox re-rank):
+ * failure/escalation items before routine question/approval rows;
+ * within a class, priority then age. `blocked_agent` (pipeline halted)
+ * breaks same-kind ties ahead of priority — the machine is waiting.
+ */
+const ANXIETY_RANK: Record<string, number> = {
+  failure: 0,
+  escalation: 1,
+  repair: 2,
+  question: 3,
+  review: 4,
+  approval: 5,
+  'split-plan': 6,
+  verify: 7,
+};
+const anxrank = (kind: string) => ANXIETY_RANK[kind] ?? 8;
+
 function rankInbox(items: GateItem[]): GateItem[] {
   return [...items].sort(
     (a, b) =>
+      anxrank(a.kind) - anxrank(b.kind) ||
       Number(b.blocked_agent ?? false) - Number(a.blocked_agent ?? false) ||
       prank(a.priority) - prank(b.priority) ||
       a.surfaced_at.localeCompare(b.surfaced_at),
   );
+}
+
+// ---------------------------------------------------------------------------
+// S-01 board derivation — the five phase columns collapse the status enum
+// (s-01-board §4). `failed`/`blocked`/`verify_failed` are NOT phases: the
+// card stays in the phase it died in, flagged — `derivePhase` walks
+// status_changed events back to the last meaningful status.
+// ---------------------------------------------------------------------------
+
+export const BOARD_PHASES = ['backlog', 'spec', 'build', 'review', 'done'] as const;
+export type BoardPhase = (typeof BOARD_PHASES)[number];
+
+/** TicketStatus → column; failed/blocked map to null — they retain the
+ *  last meaningful phase via events. Post-merge statuses (verifying,
+ *  verify_failed, released, discarded — D27 additions) land in Done. */
+const PHASE_OF_STATUS: Record<TicketStatus, BoardPhase | null> = {
+  imported: 'backlog',
+  triage: 'backlog',
+  'needs-info': 'backlog',
+  escalated: 'backlog',
+  'wont-do': 'done',
+  ready: 'build',
+  'prd-draft': 'spec',
+  'prd-review': 'spec',
+  'prd-approved': 'spec',
+  'design-qa': 'spec',
+  'tdd-draft': 'spec',
+  'tdd-review': 'spec',
+  'tdd-approved': 'spec',
+  'test-draft': 'spec',
+  'test-review': 'spec',
+  'test-approved': 'spec',
+  'in-progress': 'build',
+  review: 'build',
+  'changes-requested': 'build',
+  approved: 'review',
+  'pr-open': 'review',
+  'ci-watch': 'review',
+  merged: 'done',
+  verifying: 'done',
+  verify_failed: 'done',
+  released: 'done',
+  reverted: 'done',
+  failed: null,
+  blocked: null,
+  aborted: 'done',
+  split: 'done',
+  discarded: 'done',
+};
+
+/**
+ * A card's column. For `failed`/`blocked` rows the phase is the last
+ * non-failure status_changed target in the event ledger; when no such
+ * event exists (died before any transition) the fallback is Backlog.
+ */
+export function derivePhase(
+  status: string,
+  events: { event: string; data: Record<string, unknown> }[],
+): BoardPhase {
+  const direct = PHASE_OF_STATUS[status as TicketStatus];
+  if (direct) return direct;
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e?.event !== 'status_changed') continue;
+    const to = e.data?.to;
+    if (typeof to !== 'string') continue;
+    const phase = PHASE_OF_STATUS[to as TicketStatus];
+    if (phase) return phase;
+  }
+  return 'backlog';
+}
+
+/** Flag style for a card — failures/blocks ride on top of phase. */
+function flagOf(status: string): 'failed' | 'blocked' | null {
+  if (status === 'blocked') return 'blocked';
+  if (status === 'failed' || status === 'verify_failed') return 'failed';
+  return null;
+}
+
+export interface DropTarget {
+  /** The column this card may be dropped onto. */
+  column: BoardPhase;
+  /** API write: 'wont_do'|'abort'|'retry' → POST actions; 'claim' →
+   *  POST gate-items …/claim. */
+  action: 'wont_do' | 'abort' | 'retry' | 'claim';
+  /** For claim — the gate item name to claim. */
+  gate?: string;
+  /** Whether the UI must confirm before posting. */
+  confirm: boolean;
+  /** Human copy for the confirm modal / column hint. */
+  label: string;
+}
+
+/**
+ * Validated drop targets per card (s-01 DnD table). Forward pipeline
+ * transitions are conductor-owned and never offered. `drop_targets` is
+ * the whole contract — the UI does not infer transitions.
+ */
+function dropTargetsFor(
+  ticket: TicketRow,
+  phase: BoardPhase,
+  inFlight: boolean,
+  attention: GateItem[],
+): DropTarget[] {
+  const targets: DropTarget[] = [];
+  if (phase !== 'done') {
+    targets.push({
+      column: 'done',
+      action: inFlight ? 'abort' : 'wont_do',
+      confirm: true,
+      label: inFlight
+        ? 'Abort in-flight work and move to Done'
+        : "Mark as won't-do and move to Done",
+    });
+  }
+  if (ticket.status === 'failed' || ticket.status === 'blocked') {
+    targets.push({
+      column: phase,
+      action: 'retry',
+      confirm: true,
+      label: 'Retry the last run',
+    });
+  }
+  if (
+    attention.some((g) => g.gate === 'escalated' && !g.cleared_at)
+  ) {
+    targets.push({
+      column: phase,
+      action: 'claim',
+      gate: 'escalated',
+      confirm: false,
+      label: 'Claim this escalation',
+    });
+  }
+  return targets;
 }
 
 /** Candidate gate names for a doc approval, in probe order. */
@@ -607,6 +773,142 @@ export function createServer(opts: ServerOptions): ApiServer {
       }),
     );
     return { items: out };
+  });
+
+  // ------------------------------------------------------------------
+  // /board — S-01 pipeline board (API.md + s-01-board)
+  // ------------------------------------------------------------------
+  //
+  // Cards carry the ticket row + derived phase + attention + server-
+  // computed drop_targets — the conductor remains the only transition
+  // authority; the UI consumes, never infers. Non-ticket gate items
+  // (survey/import/interview/edit subjects and orphan subjects) ride
+  // the ops strip — never a fake column.
+
+  app.get('/api/v1/board', async (req) => {
+    const q = req.query as { workspace?: string };
+    // Fail-closed: an unknown workspace filter is a 404, not a silent
+    // empty board that looks like "no tickets".
+    if (q.workspace !== undefined) workspace(q.workspace);
+    const filter = q.workspace !== undefined ? { workspace: q.workspace } : {};
+    const [tickets, openGates, liveRuns] = await Promise.all([
+      store.listTickets(filter),
+      store.listGateItems({ ...filter, open: true }),
+      store.listLiveRuns(),
+    ]);
+    const live = liveRuns.filter(
+      (r) => q.workspace === undefined || r.workspace === q.workspace,
+    );
+    const nowIso = now();
+
+    // Claims for every open gate item (badge initials + board filter).
+    const gatesWithClaims = await Promise.all(
+      openGates.map(async (item) => ({
+        ...item,
+        claim:
+          (await store.getClaim({
+            workspace: item.workspace,
+            subject: item.subject,
+            gate: item.gate,
+          })) ?? null,
+      })),
+    );
+    const gatesBySubject = new Map<string, typeof gatesWithClaims>();
+    for (const g of gatesWithClaims) {
+      const key = `${g.workspace}/${g.subject}`;
+      const list = gatesBySubject.get(key) ?? [];
+      list.push(g);
+      gatesBySubject.set(key, list);
+    }
+    const liveByTicket = new Map<string, (typeof live)[number]>();
+    for (const r of live) {
+      if (r.ticket_id) {
+        const key = `${r.workspace}/${r.ticket_id}`;
+        const prev = liveByTicket.get(key);
+        if (!prev || r.id > prev.id) liveByTicket.set(key, r);
+      }
+    }
+
+    const ticketsKey = new Set(
+      tickets.map((t) => `${t.workspace}/${t.ticket_id}`),
+    );
+
+    const cards = await Promise.all(
+      tickets.map(async (ticket) => {
+        const key = `${ticket.workspace}/${ticket.ticket_id}`;
+        const attention = rankInbox(
+          (gatesBySubject.get(key) ?? []).filter((g) => !g.cleared_at),
+        );
+        const flagged = flagOf(ticket.status);
+        // Phase retention needs the ledger only for flagged cards.
+        const events =
+          flagged !== null
+            ? await store.listEvents({
+                workspace: ticket.workspace,
+                ticket_id: ticket.ticket_id,
+              })
+            : [];
+        const phase = derivePhase(ticket.status, events);
+        const snoozedUntil = attention
+          .map((g) => g.snoozed_until)
+          .filter((s): s is string => typeof s === 'string')
+          .sort()
+          .at(-1);
+        const snoozed =
+          attention.length > 0 &&
+          attention.every(
+            (g) =>
+              typeof g.snoozed_until === 'string' && g.snoozed_until > nowIso,
+          );
+        const liveRun = liveByTicket.get(key) ?? null;
+        return {
+          ticket,
+          ref: key,
+          phase,
+          flagged,
+          snoozed,
+          snoozed_until: snoozedUntil ?? null,
+          attention,
+          live_run: liveRun
+            ? { id: liveRun.id, stage: liveRun.stage, status: liveRun.status }
+            : null,
+          drop_targets: dropTargetsFor(
+            ticket,
+            phase,
+            liveRun !== null,
+            attention,
+          ),
+        };
+      }),
+    );
+
+    // Attention-first column order: unsnoozed attention → priority →
+    // age (created_at). The UI re-sorts for its filters; this order is
+    // the payload's stable baseline.
+    cards.sort(
+      (a, b) =>
+        Number(b.attention.some((g) => !g.snoozed_until || g.snoozed_until <= nowIso)) -
+          Number(
+            a.attention.some((g) => !g.snoozed_until || g.snoozed_until <= nowIso),
+          ) ||
+        prank(a.ticket.priority) - prank(b.ticket.priority) ||
+        (a.ticket.created_at ?? '').localeCompare(b.ticket.created_at ?? ''),
+    );
+
+    // Ops strip: open gate items whose subject isn't a board ticket —
+    // survey:/import:/interview:/edit: subjects and orphans.
+    const ops = rankInbox(
+      gatesWithClaims.filter(
+        (g) => !ticketsKey.has(`${g.workspace}/${g.subject}`),
+      ),
+    );
+
+    return {
+      cards,
+      ops,
+      wip_limits: config.ui.wip_limits,
+      generated_at: nowIso,
+    };
   });
 
   // ------------------------------------------------------------------
@@ -1170,6 +1472,10 @@ export function createServer(opts: ServerOptions): ApiServer {
           event: 'handoff',
           data: { action, to },
         });
+        hub.notify({
+          type: 'ticket_updated',
+          payload: { workspace: wsName, ticket_id: ticket, status: to },
+        });
         return { action, status: to };
       }
       case 'force_ready': {
@@ -1218,7 +1524,29 @@ export function createServer(opts: ServerOptions): ApiServer {
             data: { action },
           },
         });
+        hub.notify({
+          type: 'ticket_updated',
+          payload: { workspace: wsName, ticket_id: ticket, status: 'wont-do' },
+        });
         return { action, status: 'wont-do' };
+      }
+      case 'abort': {
+        // S-01 drag-drop: an in-flight card dropped on Done. Marks the
+        // ticket aborted; a still-running reconcile remains
+        // authoritative for the run row.
+        await applyTicketStatus({
+          ctx: transitionCtx(ws),
+          opts: {
+            ticketId: ticket,
+            status: 'aborted',
+            data: { action },
+          },
+        });
+        hub.notify({
+          type: 'ticket_updated',
+          payload: { workspace: wsName, ticket_id: ticket, status: 'aborted' },
+        });
+        return { action, status: 'aborted' };
       }
       case 'handoff': {
         await emitEvent(ws, {
@@ -1373,12 +1701,172 @@ export function createServer(opts: ServerOptions): ApiServer {
   // /interview + /import — S-03
   // ------------------------------------------------------------------
 
+  // ---- chat-to-edit sessions (API.md /interview edit mode, s-01 D25) ----
+  //
+  // Session state is durable, never memory: a `notes.md` doc_version on
+  // subject `edit:<session>` holds a JSONL transcript whose first line
+  // is the session header (subject + target). The pending proposal is
+  // the newest run's `proposed-diff.md` run_artifact; human approval is
+  // the `edit:<session>` gate item the conductor surfaces on
+  // EDIT-PROPOSED. No new tables — everything rides existing rows.
+
+  const EDITABLE_TICKET_DOCS = new Set<DocKind>([
+    'ticket.md',
+    'prd.md',
+    'tdd.md',
+    'test.md',
+  ]);
+  const SESSION_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/;
+  const editSessionSubject = (session: string) => `edit:${session}`;
+
+  interface EditSessionLine {
+    ts: string;
+    kind: 'session' | 'turn' | 'applied' | 'discarded';
+    subject?: string;
+    target?: DocKind;
+    message?: string;
+    run?: string | null;
+    outcome?: string;
+    doc?: DocKind;
+    version?: number;
+  }
+
+  /** Parse the session's notes.md JSONL — fail-closed: a corrupt line
+   *  is an internal error, never a guessed session. */
+  function parseSessionDoc(content: string): EditSessionLine[] {
+    return content
+      .split('\n')
+      .filter((l) => l.trim() !== '')
+      .map((l) => JSON.parse(l) as EditSessionLine);
+  }
+
+  async function appendSessionLine(
+    wsName: string,
+    session: string,
+    prior: string | null,
+    line: EditSessionLine,
+  ): Promise<void> {
+    const content = `${prior ?? ''}${JSON.stringify(line)}\n`;
+    await store.appendDocVersion(
+      { workspace: wsName, subject: editSessionSubject(session), doc: 'notes.md' },
+      content,
+      actor,
+    );
+  }
+
+  /** Locate a session's notes.md — workspace-scoped when the caller
+   *  passes ?workspace=, else scanned across known workspaces (session
+   *  ids are cs_<uuid>-unique). Returns the doc + workspace name. */
+  async function findSession(wsName: string | undefined, session: string) {
+    const candidates =
+      wsName !== undefined
+        ? [wsName]
+        : conductor.deps.workspaces.map((w) => w.name);
+    for (const name of candidates) {
+      const doc = await store.getDoc({
+        workspace: name,
+        subject: editSessionSubject(session),
+        doc: 'notes.md',
+      });
+      if (doc) return { workspace: name, doc };
+    }
+    return null;
+  }
+
   app.post('/api/v1/interview', async (req, reply) => {
     const body = parseBody(InterviewBodySchema, req.body, 'interview');
+    const ws = workspace(body.workspace);
+    const subjectRef = body.subject_ref ?? body.ticket_ref;
+
+    if (subjectRef !== undefined) {
+      // ---- chat-to-edit mode: interview run diffs an existing doc ----
+      if (!body.message) {
+        throw badRequest('interview edit: {message} is required');
+      }
+      const slash = subjectRef.indexOf('/');
+      const refWs = slash === -1 ? ws.name : subjectRef.slice(0, slash);
+      const refId = slash === -1 ? subjectRef : subjectRef.slice(slash + 1);
+      if (refWs !== ws.name) {
+        throw badRequest(
+          `interview edit: ref '${subjectRef}' is in workspace '${refWs}', ` +
+            `not '${ws.name}'`,
+        );
+      }
+      const ticket = await getTicketOr404(refWs, refId); // v1: ticket subjects only
+      const doc = docKindFor(body.target ?? 'ticket');
+      if (doc === null || !EDITABLE_TICKET_DOCS.has(doc)) {
+        throw badRequest(
+          `interview edit: target must be one of ticket|prd|tdd|test ` +
+            `(got '${body.target ?? 'ticket'}')`,
+        );
+      }
+      const session =
+        body.session_id ?? `cs_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+      if (!SESSION_ID_RE.test(session)) {
+        throw badRequest(`interview edit: malformed session_id '${session}'`);
+      }
+      const existing = await store.getDoc({
+        workspace: ws.name,
+        subject: editSessionSubject(session),
+        doc: 'notes.md',
+      });
+      let transcript = '';
+      if (existing) {
+        const header = parseSessionDoc(existing.content)[0];
+        if (header?.kind !== 'session' || header.subject !== refId) {
+          throw badRequest(
+            `session '${session}' is bound to a different subject`,
+          );
+        }
+        transcript = existing.content;
+      } else if (body.session_id !== undefined) {
+        throw notFound(`unknown edit session '${session}'`);
+      }
+      const target = await store.getDoc({
+        workspace: ws.name,
+        subject: refId,
+        doc,
+      });
+      if (!target) {
+        throw notFound(`no ${doc} on ${ws.name}/${refId} to edit`);
+      }
+      if (!existing) {
+        await appendSessionLine(ws.name, session, null, {
+          ts: now(),
+          kind: 'session',
+          subject: refId,
+          target: doc,
+        });
+      }
+      // The turn lands durably before the run queues (same rule as the
+      // seed text — the pending row is never the only copy).
+      const run = await requestRun(ws.name, {
+        subject: editSessionSubject(session),
+        stage: 'interview',
+        ticketId: ticket.ticket_id,
+        tokens: {
+          EDIT_SESSION: session,
+          EDIT_TARGET: doc,
+          EDIT_MESSAGE: body.message,
+          TARGET_DOC: target.content,
+          SESSION_LOG: transcript,
+        },
+      });
+      await appendSessionLine(ws.name, session, existing?.content ?? null, {
+        ts: now(),
+        kind: 'turn',
+        message: body.message,
+        run,
+      });
+      return reply
+        .status(202)
+        .send({ session, run, subject: refId, target: doc });
+    }
+
+    // ---- new-ticket interview mode ----
     if (!body.text) {
       throw badRequest('interview: {text} is required');
     }
-    const ws = workspace(body.workspace);
     const slug = `interview-${Date.now()}`;
     const subject = `interview:${slug}`;
     // D29: the seed lands durably as a notes.md doc_version on the
@@ -1395,6 +1883,235 @@ export function createServer(opts: ServerOptions): ApiServer {
       tokens: { SEED_TEXT: body.text },
     });
     return reply.status(202).send({ subject, run });
+  });
+
+  /**
+   * Session state for the chat-to-edit composer: transcript turns, the
+   * pending proposal (run + diff), and a derived status — 'running'
+   * while a live run fences the session, then the open gate's kind
+   * (approval → proposal, question → clarify, failure → refused),
+   * terminal 'applied'/'discarded' from the transcript tail.
+   */
+  app.get('/api/v1/interview/:session', async (req) => {
+    const { session } = req.params as { session: string };
+    const { workspace: wsName } = req.query as { workspace?: string };
+    const found = await findSession(wsName, session);
+    if (!found) throw notFound(`unknown edit session '${session}'`);
+    const lines = parseSessionDoc(found.doc.content);
+    const header = lines[0];
+    if (header?.kind !== 'session' || !header.subject) {
+      throw new ApiError(
+        500,
+        'internal',
+        `edit session '${session}': corrupt transcript`,
+      );
+    }
+    const subject = header.subject;
+    const last = lines.at(-1);
+    const gate = await store.getGateItem({
+      workspace: found.workspace,
+      subject,
+      gate: `edit:${session}`,
+    });
+    const runs = (
+      await store.listRuns({
+        workspace: found.workspace,
+        subject: editSessionSubject(session),
+      })
+    ).sort((a, b) => b.id.localeCompare(a.id));
+    const live = runs.find((r) =>
+      ['pending', 'leased', 'running', 'paused', 'exited'].includes(r.status),
+    );
+    let status: string;
+    if (last?.kind === 'applied') status = 'applied';
+    else if (last?.kind === 'discarded') status = 'discarded';
+    else if (gate && !gate.cleared_at) {
+      status =
+        gate.kind === 'approval'
+          ? 'proposal'
+          : gate.kind === 'question'
+            ? 'clarify'
+            : 'refused';
+    } else {
+      status = live ? 'running' : 'queued';
+    }
+    let proposal: { run: string; diff: string } | null = null;
+    if (status === 'proposal' && live === undefined) {
+      for (const r of runs) {
+        const a = await store.getArtifact(r.id, 'proposed-diff.md');
+        if (a) {
+          proposal = { run: r.id, diff: a.content };
+          break;
+        }
+      }
+    }
+    const gatePayload =
+      gate && !gate.cleared_at
+        ? { kind: gate.kind, surfaced_at: gate.surfaced_at }
+        : null;
+    return {
+      session,
+      workspace: found.workspace,
+      subject,
+      target: header.target ?? 'ticket.md',
+      status,
+      turns: lines.filter((l) => l.kind !== 'session'),
+      proposal,
+      gate: gatePayload,
+    };
+  });
+
+  /**
+   * Apply the pending proposal: strict unified-diff apply against the
+   * CURRENT doc version (drift → 409, re-request the edit), then a new
+   * doc_version + doc_edited ledger event + gate clear. Stale approve
+   * (cleared gate) → 409, never a double-commit.
+   */
+  app.post('/api/v1/interview/:session/approve', async (req) => {
+    const { session } = req.params as { session: string };
+    const body = req.body as { expected_status?: string } | null;
+    const found = await findSession(undefined, session);
+    if (!found) throw notFound(`unknown edit session '${session}'`);
+    const lines = parseSessionDoc(found.doc.content);
+    const header = lines[0];
+    if (header?.kind !== 'session' || !header.subject) {
+      throw new ApiError(
+        500,
+        'internal',
+        `edit session '${session}': corrupt transcript`,
+      );
+    }
+    const wsName = found.workspace;
+    const subject = header.subject;
+    const target = header.target ?? 'ticket.md';
+    if (lines.at(-1)?.kind === 'applied') {
+      throw conflict(`edit session '${session}' already applied`);
+    }
+    if (lines.at(-1)?.kind === 'discarded') {
+      throw conflict(`edit session '${session}' already discarded`);
+    }
+    const ws = workspace(wsName);
+    const row = await getTicketOr404(wsName, subject);
+    if (
+      body?.expected_status !== undefined &&
+      row.status !== body.expected_status
+    ) {
+      throw conflict(
+        `stale write: expected status '${body.expected_status}', ` +
+          `ticket is '${row.status}'`,
+      );
+    }
+    const gate = `edit:${session}`;
+    const item = await store.getGateItem({ workspace: wsName, subject, gate });
+    if (!item) throw notFound(`no open proposal for session '${session}'`);
+    if (item.cleared_at) {
+      throw conflict(`stale write: proposal gate already cleared`);
+    }
+    // Newest completed session run's proposed-diff.md is THE proposal.
+    const runs = (
+      await store.listRuns({ workspace: wsName, subject: editSessionSubject(session) })
+    ).sort((a, b) => b.id.localeCompare(a.id));
+    let art: { runId: string; content: string } | null = null;
+    for (const r of runs) {
+      const a = await store.getArtifact(r.id, 'proposed-diff.md');
+      if (a) {
+        art = { runId: r.id, content: a.content };
+        break;
+      }
+    }
+    if (!art) {
+      throw conflict(`session '${session}' has no proposed diff to apply`);
+    }
+    let diff: string;
+    let parsed: ReturnType<typeof parseUnifiedDiff>;
+    try {
+      diff = extractUnifiedDiff(art.content);
+      parsed = parseUnifiedDiff(diff);
+    } catch (e) {
+      if (e instanceof DiffApplyError) {
+        throw badRequest(`proposal artifact is malformed: ${e.message}`);
+      }
+      throw e;
+    }
+    const diffFile = parsed.to.split('/').at(-1);
+    if (diffFile !== target) {
+      throw badRequest(
+        `proposal targets '${diffFile}', session target is '${target}'`,
+      );
+    }
+    const current = await store.getDoc({ workspace: wsName, subject, doc: target });
+    if (!current) throw notFound(`no ${target} on ${wsName}/${subject}`);
+    let next: string;
+    try {
+      next = applyUnifiedDiff(current.content, diff);
+    } catch (e) {
+      if (e instanceof DiffApplyError) {
+        // The doc moved since the proposal — not malformed, just stale.
+        throw conflict(`proposal no longer applies: ${e.message}`);
+      }
+      throw e;
+    }
+    const dv = await store.appendDocVersion(
+      { workspace: wsName, subject, doc: target },
+      next,
+      actor,
+    );
+    await emitEvent(ws, {
+      ticketId: subject,
+      event: 'doc_edited',
+      run: art.runId,
+      refs: [`doc:${subject}:${target}`],
+      data: {
+        session,
+        doc: target,
+        version: dv.version,
+        via: 'chat-to-edit',
+      },
+    });
+    await clearGate({ ws, subject, gate });
+    await appendSessionLine(wsName, session, found.doc.content, {
+      ts: now(),
+      kind: 'applied',
+      doc: target,
+      version: dv.version,
+    });
+    return { applied: true, session, doc: target, version: dv.version };
+  });
+
+  /** Discard/abandon a session — clears the open proposal gate if any
+   *  and seals the transcript (idempotent-ish: terminal → 409). */
+  app.delete('/api/v1/interview/:session', async (req) => {
+    const { session } = req.params as { session: string };
+    const found = await findSession(undefined, session);
+    if (!found) throw notFound(`unknown edit session '${session}'`);
+    const lines = parseSessionDoc(found.doc.content);
+    const header = lines[0];
+    const subject = header?.subject ?? '';
+    if (
+      lines.at(-1)?.kind === 'applied' ||
+      lines.at(-1)?.kind === 'discarded'
+    ) {
+      throw conflict(`edit session '${session}' is already closed`);
+    }
+    const ws = workspace(found.workspace);
+    const item = await store.getGateItem({
+      workspace: found.workspace,
+      subject,
+      gate: `edit:${session}`,
+    });
+    if (item && !item.cleared_at) {
+      await clearGate({ ws, subject, gate: `edit:${session}` });
+    }
+    await emitEvent(ws, {
+      ticketId: subject,
+      event: 'note_added',
+      data: { session, kind: 'edit-discarded' },
+    });
+    await appendSessionLine(found.workspace, session, found.doc.content, {
+      ts: now(),
+      kind: 'discarded',
+    });
+    return { discarded: true, session };
   });
 
   app.post('/api/v1/import', async (req, reply) => {
@@ -1763,6 +2480,76 @@ export function createServer(opts: ServerOptions): ApiServer {
         data: { gate, actor: claim.claimed_by },
       });
       return { released: true };
+    },
+  );
+
+  // ---- gate-item snooze (D20 — snoozed items stay open but leave
+  //      badge counts and the board until snoozed_until) ----
+
+  app.post(
+    '/api/v1/gate-items/:workspace/:subject/:gate/snooze',
+    async (req) => {
+      const {
+        workspace: wsName,
+        subject,
+        gate,
+      } = req.params as {
+        workspace: string;
+        subject: string;
+        gate: string;
+      };
+      const body = parseBody(SnoozeBodySchema, req.body, 'snooze');
+      const ws = workspace(wsName);
+      const item = await store.getGateItem({
+        workspace: ws.name,
+        subject,
+        gate,
+      });
+      if (!item || item.cleared_at) {
+        throw notFound(`no open gate item '${gate}' for ${ws.name}/${subject}`);
+      }
+      let until: string;
+      if (body.until !== undefined) {
+        const t = Date.parse(body.until);
+        if (Number.isNaN(t)) {
+          throw badRequest(`snooze: 'until' must be an ISO timestamp`);
+        }
+        until = new Date(t).toISOString();
+      } else {
+        until = new Date(
+          Date.now() + (body.ttl_s ?? 24 * 3600) * 1000,
+        ).toISOString();
+      }
+      const row = { ...item, snoozed_until: until };
+      await store.upsertGateItem(row);
+      return { item: row };
+    },
+  );
+
+  app.delete(
+    '/api/v1/gate-items/:workspace/:subject/:gate/snooze',
+    async (req) => {
+      const {
+        workspace: wsName,
+        subject,
+        gate,
+      } = req.params as {
+        workspace: string;
+        subject: string;
+        gate: string;
+      };
+      const ws = workspace(wsName);
+      const item = await store.getGateItem({
+        workspace: ws.name,
+        subject,
+        gate,
+      });
+      if (!item) {
+        throw notFound(`no gate item '${gate}' for ${ws.name}/${subject}`);
+      }
+      const row = { ...item, snoozed_until: null };
+      await store.upsertGateItem(row);
+      return { item: row };
     },
   );
 

@@ -157,6 +157,12 @@ export const SENTINELS = [
   'SURVEY-COMPLETE',
   'SURVEY-FAILED',
   'BLOCKED',
+  /** Chat-to-edit (API.md interview edit mode, s-01): EDIT-PROPOSED
+   *  carries `proposed-diff.md` · EDIT-CLARIFY needs a follow-up ·
+   *  EDIT-REFUSED declines the requested change. */
+  'EDIT-PROPOSED',
+  'EDIT-CLARIFY',
+  'EDIT-REFUSED',
 ] as const;
 export type Sentinel = (typeof SENTINELS)[number];
 

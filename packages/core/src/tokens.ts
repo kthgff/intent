@@ -61,6 +61,18 @@ export const PROMPT_TOKENS = [
   /** Human feedback comment carried into a doc revision run
    *  (S-06 doc_feedback → the re-run's prompt). */
   'FEEDBACK',
+  // ---------- chat-to-edit (interview edit mode, s-01 D25) ----------
+  /** Chat-edit session id (cs_*) — also selects the interview-edit
+   *  template when present on an `interview` run. */
+  'EDIT_SESSION',
+  /** Target doc kind under edit (ticket.md / prd.md / tdd.md / …). */
+  'EDIT_TARGET',
+  /** The human's edit request for this turn. */
+  'EDIT_MESSAGE',
+  /** Current content of the target doc — the run diffs against it. */
+  'TARGET_DOC',
+  /** Prior turns of the session, serialized (user/assistant lines). */
+  'SESSION_LOG',
 ] as const;
 
 export type PromptToken = (typeof PROMPT_TOKENS)[number];

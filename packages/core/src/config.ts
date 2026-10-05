@@ -100,6 +100,12 @@ export const UiConfigSchema = z.object({
   port: z.number().int().default(4711),
   token_file: z.string().optional(),
   remote_access: z.boolean().default(false),
+  /** Per-column WIP soft limits for the S-01 board (s-01 "WIP
+   *  warnings") — `{backlog|spec|build|review|done}: n`. Exceeding a
+   *  limit tints the column header amber; it never blocks drops. */
+  wip_limits: z
+    .record(z.enum(['backlog', 'spec', 'build', 'review', 'done']), z.number().int().positive())
+    .default({}),
 });
 export type UiConfig = z.infer<typeof UiConfigSchema>;
 

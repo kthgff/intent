@@ -349,6 +349,9 @@ describe('sentinels (CONDUCTOR sentinel table)', () => {
       'SURVEY-COMPLETE',
       'SURVEY-FAILED',
       'BLOCKED',
+      'EDIT-PROPOSED',
+      'EDIT-CLARIFY',
+      'EDIT-REFUSED',
     ];
     for (const s of expected) expect(SENTINELS).toContain(s);
     expect(SENTINELS.length).toBe(expected.length);
@@ -455,10 +458,12 @@ describe('config.yaml (SETTINGS)', () => {
 });
 
 describe('prompt templates', () => {
-  it('ships all 20 templates at PROMPT_VERSION 1', () => {
-    expect(PROMPT_VERSION).toBe(1);
-    expect(Object.keys(PROMPT_TEMPLATES).length).toBe(20);
+  it('ships all 21 templates at PROMPT_VERSION 2', () => {
+    // v2: wp-081 added interview-edit (chat-to-edit, s-01 D25).
+    expect(PROMPT_VERSION).toBe(2);
+    expect(Object.keys(PROMPT_TEMPLATES).length).toBe(21);
     expect(PROMPT_TEMPLATES.triage.length).toBeGreaterThan(0);
     expect(PROMPT_TEMPLATES['review-passes'].length).toBeGreaterThan(0);
+    expect(PROMPT_TEMPLATES['interview-edit'].length).toBeGreaterThan(0);
   });
 });

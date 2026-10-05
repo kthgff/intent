@@ -23,6 +23,8 @@ export type StreamEventMap = {
     tokens_cached: number;
   };
   notification: Notification;
+  /** A `tickets` row changed — refresh hint for board/focus (s-01). */
+  ticket_updated: { workspace: string; ticket_id: string; status?: string };
 };
 
 export type StreamEventType = keyof StreamEventMap;
@@ -35,6 +37,7 @@ const TYPES: StreamEventType[] = [
   'run_output',
   'usage_partial',
   'notification',
+  'ticket_updated',
 ];
 
 export interface StreamHandlers {
