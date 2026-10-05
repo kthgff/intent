@@ -564,6 +564,9 @@ export interface Store {
 
   // ---- changesets (PRD §15.5, wp-140) ----
 
+  /** CS-NNNN allocator — same transactional seq-bump as tickets. */
+  allocChangesetId(workspace: string): Promise<string>;
+
   upsertChangeset(row: ChangesetRow): Promise<void>;
   getChangeset(key: {
     workspace: string;

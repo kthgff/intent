@@ -650,6 +650,8 @@ export const ProjectRowSchema = z.object({
   next_initiative_seq: z.number().int().default(1),
   /** REL-NNNN allocator (DELIVERY §3). */
   next_release_seq: z.number().int().default(1),
+  /** CS-NNNN allocator (PRD §15.5, wp-140). */
+  next_changeset_seq: z.number().int().default(1),
   settings: z.record(z.unknown()).default({}),
   created_at: z.string().nullish(),
 });

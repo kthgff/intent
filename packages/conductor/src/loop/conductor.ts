@@ -17,6 +17,10 @@
  * drives it until then.
  */
 import type { ControlOp, RunHandle } from '@sprint-runner/core';
+import {
+  type ChangesetSweepReport,
+  sweepChangesetExpiry,
+} from '../changes/index.js';
 import { type ClaimReport, claim } from '../claim/index.js';
 import { controlRun } from '../control/index.js';
 import { type ReconcileReport, reconcile } from '../reconcile/index.js';
@@ -25,7 +29,12 @@ import {
   type ShepherdReport,
   pollOpenPrs,
 } from '../shepherd/index.js';
-import type { ConductorDeps, ConductorWorkspace } from './deps.js';
+import {
+  type ConductorDeps,
+  type ConductorWorkspace,
+  actorOf,
+  nowOf,
+} from './deps.js';
 import { LeaseManager } from './lease.js';
 import type { ToolCtx } from './tools.js';
 
@@ -34,6 +43,8 @@ export interface TickReport {
   claim: ClaimReport[];
   /** Shepherd pass per workspace (empty between poll intervals). */
   shepherd: ShepherdReport[];
+  /** ChangeSet approval-expiry sweep per workspace (wp-140). */
+  changes: ChangesetSweepReport[];
 }
 
 export class Conductor {
@@ -55,7 +66,12 @@ export class Conductor {
 
   /** One RECONCILE → CLAIM (+ shepherd poll when due) per workspace. */
   async tick(): Promise<TickReport> {
-    const report: TickReport = { reconcile: [], claim: [], shepherd: [] };
+    const report: TickReport = {
+      reconcile: [],
+      claim: [],
+      shepherd: [],
+      changes: [],
+    };
     for (const ws of this.deps.workspaces) {
       const ctx = this.#ctx(ws);
       const rr: ReconcileReport = {
@@ -68,6 +84,22 @@ export class Conductor {
       report.reconcile.push(rr);
       report.claim.push(await claim(ctx));
       report.shepherd.push(await this.shepherdTick(ctx));
+      // wp-140: park expired changeset approvals back at
+      // awaiting-decision (revalidate only what's invalidated).
+      try {
+        report.changes.push(
+          await sweepChangesetExpiry({
+            workspace: ws.name,
+            store: this.deps.store,
+            actor: actorOf(this.deps),
+            now: () => nowOf(this.deps),
+            notify: this.deps.notify,
+          }),
+        );
+      } catch (e) {
+        report.changes.push({ expired: [] });
+        rr.warnings.push(`changeset-sweep: ${(e as Error).message}`);
+      }
     }
     return report;
   }
