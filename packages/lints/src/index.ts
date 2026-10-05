@@ -29,3 +29,4 @@ export {
   threadIdFor,
 } from './fingerprint.js';
 export { type SpecLintResult, renderSpecLint, specLint } from './spec-lint.js';
+export { securityFindingLint } from './security-findings.js';

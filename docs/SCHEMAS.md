@@ -86,6 +86,11 @@ feature/initiative status, never a ticket status.)
 #  a row for a non-code file may start its `change` cell with
 #  "untestable:" — exempts that row from coverage; see §4
 ## Risks / open items
+## Threat model              (required for sensitive-scope changes, §15.8)
+#  assets at risk · trust boundaries · threats (STRIDE) · mitigations.
+#  The design-time security gate (wp-150) fails closed when a change
+#  touching auth/secrets/crypto/input-parsing/network/payments/PII has
+#  no `## Threat model` section.
 ## Addenda                   (appended ONLY by implement agent on deviation)
 | ts | planned | did | reason |
 ```
