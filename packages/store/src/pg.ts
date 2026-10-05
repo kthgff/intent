@@ -1733,7 +1733,7 @@ export class PostgresStore implements Store {
   }): Promise<ReleaseItemRow[]> {
     const rows = await this.db.query(
       `SELECT * FROM release_items
-       WHERE workspace=$1 AND release_id=$2
+       WHERE workspace=$1 AND release_id=$2 AND removed_at IS NULL
        ORDER BY item_kind, item_id`,
       [key.workspace, key.release_id],
     );
