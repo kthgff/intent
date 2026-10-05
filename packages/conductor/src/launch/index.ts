@@ -19,6 +19,7 @@ import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   type Adapter,
+  type CommitPolicy,
   PROMPT_TOKENS,
   REPO_EXECUTING_STAGES,
   type RouteDecision,
@@ -27,6 +28,7 @@ import {
   type Stage,
   type TicketRow,
   type TokenValues,
+  validateRetrievalEvidence,
 } from '@sprint-runner/core';
 import { createWorktree } from '@sprint-runner/gitops';
 import { createEmbedder, queryEvidence } from '@sprint-runner/kb';
@@ -175,6 +177,115 @@ export async function queuePendingRun(
   return id;
 }
 
+/** Stage → retrieval task (SCHEMAS §17 `task`) — the evidence plane's
+ *  task-bounded view of each code-aware stage. */
+const EVIDENCE_TASK = {
+  prd: 'prd',
+  design: 'impact',
+  testplan: 'testplan',
+  implement: 'implement',
+  review: 'review',
+} as const;
+
+/**
+ * wp-111 pre-prompt grounding (AC: "existing-product prd-draft obtains
+ * and validates a scoped evidence bundle before prompt rendering;
+ * greenfield/zero-result behavior is explicit").
+ *
+ * Returns the `{{EVIDENCE_BUNDLE}}` token value AND persists the
+ * validated `retrieval-evidence.json` bundle as a run artifact —
+ * the prompt's evidence is inspectable and the artifact is proof of
+ * ordering (grounding happens in `buildTokens`, before
+ * `adapter.prepare` renders).
+ *
+ * Explicit outcomes, never a silent empty:
+ *  - `intelligence.grounding: off`     → zero bundle, "disabled" reason
+ *  - greenfield (repos: [])            → zero bundle, "greenfield" reason
+ *  - retrieval error                   → zero bundle, "unavailable" reason
+ *  - zero relevant results             → SCHEMAS §17 zero_result_reason
+ */
+async function stageEvidenceBundle(
+  ctx: LaunchContext,
+  ticket: TicketRow,
+  task: (typeof EVIDENCE_TASK)[keyof typeof EVIDENCE_TASK],
+  runId: string,
+): Promise<string> {
+  const { deps, ws } = ctx;
+  const intel = deps.config.intelligence;
+  const commitPolicy = (
+    intel.allow_stale ? 'allow-stale' : 'current'
+  ) as CommitPolicy;
+  const requestBase = {
+    workspace: ws.name,
+    subject: ticket.ticket_id,
+    task,
+    query: ticket.title,
+    source_types: ['code' as const],
+    commit_policy: commitPolicy,
+    limit: intel.max_results,
+    token_limit: intel.context_tokens,
+  };
+
+  /** Persist + render an explicit zero-result bundle (validated
+   *  fail-closed — even the degraded path ships a §17 artifact). */
+  const zero = async (reason: string): Promise<string> => {
+    const bundle = validateRetrievalEvidence({
+      schema: 1,
+      request: { ...requestBase, repos: [] },
+      index_heads: [],
+      results: [],
+      zero_result_reason: reason,
+      generated_at: nowIso(deps),
+    });
+    await deps.store.putArtifact({
+      run_id: runId,
+      name: 'retrieval-evidence.json',
+      content: `${JSON.stringify(bundle, null, 2)}\n`,
+      created_at: nowIso(deps),
+    });
+    return renderEvidenceBundle(bundle);
+  };
+
+  if (!intel.grounding) {
+    return zero('evidence grounding disabled (intelligence.grounding: off)');
+  }
+  if (ticket.repos.length === 0) {
+    return zero(
+      'greenfield ticket — no repositories in scope; evidence starts at first code',
+    );
+  }
+  try {
+    const authorized = ticket.repos.filter(
+      (r) => deps.config.repos[r] !== undefined,
+    );
+    const bundle = await queryEvidence(
+      deps.store,
+      { ...requestBase, repos: [...authorized] },
+      {
+        authorizedRepos: authorized,
+        embedder: createEmbedder(
+          deps.config.semantic,
+          deps.config.secrets.OPENROUTER_API_KEY
+            ? { apiKey: deps.config.secrets.OPENROUTER_API_KEY }
+            : {},
+        ),
+        now: () => nowIso(deps),
+      },
+    );
+    await deps.store.putArtifact({
+      run_id: runId,
+      name: 'retrieval-evidence.json',
+      content: `${JSON.stringify(bundle, null, 2)}\n`,
+      created_at: nowIso(deps),
+    });
+    return renderEvidenceBundle(bundle);
+  } catch {
+    // Degraded, still explicit — the run continues without advisory
+    // context and the artifact records WHY it has none.
+    return zero('retrieval error — evidence unavailable for this run');
+  }
+}
+
 /**
  * Build the token table for a stage prompt (ADAPTERS token table).
  * wp-030 ships sane conductor-owned defaults — file contents the
@@ -222,52 +333,25 @@ async function buildTokens(
     );
     tokens.REPO_CARDS = JSON.stringify(cards);
 
-    // wp-110: {{EVIDENCE_BUNDLE}} — the authorized, cited retrieval
-    // bundle for code-aware stages (prd/design/testplan/implement/
-    // review). ACL = the ticket's own repos ∩ configured repos — a
-    // ticket can never pull code evidence outside its declared scope.
-    // Failure degrades to the explicit no-evidence block; it never
-    // fabricates and never aborts the launch over advisory context.
-    const EVIDENCE_TASK = {
-      prd: 'prd',
-      design: 'impact',
-      testplan: 'testplan',
-      implement: 'implement',
-      review: 'review',
-    } as const;
+    // wp-110 + wp-111: {{EVIDENCE_BUNDLE}} — the authorized, cited
+    // retrieval bundle for code-aware stages (prd/design/testplan/
+    // implement/review). ACL = the ticket's own repos ∩ configured
+    // repos — a ticket can never pull code evidence outside its
+    // declared scope. wp-111 honors the `intelligence:` settings
+    // (grounding switch, allow_stale → commit_policy, max_results,
+    // context_tokens), makes greenfield/zero-result explicit, and
+    // persists the validated bundle as a `retrieval-evidence.json`
+    // run artifact BEFORE prompt rendering. Failure degrades to the
+    // explicit no-evidence block; it never fabricates and never
+    // aborts the launch over advisory context.
     const task = EVIDENCE_TASK[req.stage as keyof typeof EVIDENCE_TASK];
-    if (task && ticket.repos.length > 0) {
-      try {
-        const authorized = ticket.repos.filter(
-          (r) => ctx.deps.config.repos[r] !== undefined,
-        );
-        const bundle = await queryEvidence(
-          ctx.deps.store,
-          {
-            workspace: ws.name,
-            subject: ticket.ticket_id,
-            task,
-            query: ticket.title,
-            repos: authorized,
-            source_types: ['code'],
-            commit_policy: 'current',
-            limit: 10,
-            token_limit: 4000,
-          },
-          {
-            authorizedRepos: authorized,
-            embedder: createEmbedder(
-              ctx.deps.config.semantic,
-              ctx.deps.config.secrets.OPENROUTER_API_KEY
-                ? { apiKey: ctx.deps.config.secrets.OPENROUTER_API_KEY }
-                : {},
-            ),
-          },
-        );
-        tokens.EVIDENCE_BUNDLE = renderEvidenceBundle(bundle);
-      } catch {
-        // Leave '' — the renderer emits the explicit no-evidence text.
-      }
+    if (task) {
+      tokens.EVIDENCE_BUNDLE = await stageEvidenceBundle(
+        ctx,
+        ticket,
+        task,
+        runId,
+      );
     }
   } else {
     tokens.TICKET_ID = req.subject;
