@@ -93,7 +93,7 @@ Program plan for W16+ (PRD §14+§15): `docs/DEV-PLAN.md` + `docs/DELIVERY.md`.
 | W13 | wp-111 | Product integration: pre-PRD grounding, PRD quality findings, traceability verification, impact/test/review evidence UI | wp-110,wp-081 | todo |
 | W14 | wp-112 | Continuous alignment: intended/implemented/verified findings + release-readiness narrative + feedback clustering | wp-111 | todo |
 | W15 | wp-120 | Telemetry/incident intelligence: sanitized connector, fingerprint/dedupe, investigation, validated resolution, draft-ticket gate | wp-112 | todo |
-| W16 | wp-130 | Finish conductor test-layer migration (wp-094 fold-in) + full regreen | — | todo |
+| W16 | wp-130 | Finish conductor test-layer migration (wp-094 fold-in) + full regreen | — | done |
 | W16 | wp-131 | Contracts v3: enums/schemas/0001 amendments/Store sigs for the whole addendum program | wp-130 | todo |
 | W16 | wp-132 | Vocabulary rename: project→Solution, prd→rs, +Solution Brief, +Verification Spec | wp-131 | todo |
 | W17 | wp-133 | Merge Center: readiness checklist + Veto-executed `gh pr merge` + post-merge bookkeeping | wp-131 | todo |
@@ -123,6 +123,7 @@ Program plan for W16+ (PRD §14+§15): `docs/DEV-PLAN.md` + `docs/DELIVERY.md`.
 | W22 | wp-157 | Test-environment requests: declarative env spec + conductor provisioning | wp-131 | todo |
 | W23 | wp-158 | Discovery E2E: board→statements→interview→RS→approve→tickets vertical | wp-143–146 | todo |
 | W23 | wp-159 | Wave close-out: docs reconciliation + full suite green + TRACKER update | wp-138,142,147,150,152–158 | todo |
+| W23 | wp-160 | API/store backlog sweep: review route, notify path, workspace persist, metrics, snooze, run_output SSE | wp-131 | todo |
 ## Parallel-agent rules
 
 1. One agent = one `wp-*.md` at a time, on branch `wp/<id>` off `main`.

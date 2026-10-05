@@ -39,3 +39,8 @@ Clustering/duplicate suggestion via embeddings + statements.
 
 ## Contract change
 None beyond wp-131.
+
+## Folded follow-up (TRACKER backlog)
+Also deliver `GET /board` + derived `phase` + `drop_targets` per card
+(D21/D24/D27, SCHEMAS §16) — the read API board/focus surfaces were
+waiting on.

@@ -44,3 +44,7 @@ slot schemas, `packages/api` interview session routes
 
 ## Contract change
 None beyond wp-131.
+
+## Folded follow-up (TRACKER backlog)
+Also deliver `/interview` edit mode (`subject_ref`/`target`/`session_id`)
++ `/interview/<session>/approve` + `doc_edited` event (SCHEMAS §16).

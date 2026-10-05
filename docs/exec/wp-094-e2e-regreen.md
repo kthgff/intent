@@ -2,7 +2,7 @@
 schema: 1
 id: wp-094
 title: E2E re-green — fixtures as seed rows, full suite green on DB-only truth
-status: todo
+status: done
 priority: high
 depth: standard
 repos: []

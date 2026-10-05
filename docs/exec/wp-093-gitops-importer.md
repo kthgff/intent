@@ -2,7 +2,7 @@
 schema: 1
 id: wp-093
 title: Gitops slim + importer→rows + capture endpoint — delete projection
-status: todo
+status: done
 priority: high
 depth: standard
 repos: []

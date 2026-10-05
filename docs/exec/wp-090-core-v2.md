@@ -2,7 +2,7 @@
 schema: 1
 id: wp-090
 title: Core contracts v2 — hierarchy, doc_versions, events, run_artifacts, config
-status: todo
+status: done
 priority: high
 depth: standard
 repos: []

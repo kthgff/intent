@@ -2,7 +2,7 @@
 schema: 1
 id: wp-092
 title: Conductor rewire — events/doc_versions/run_artifacts to DB, seq id alloc
-status: todo
+status: done
 priority: high
 depth: standard
 repos: []
