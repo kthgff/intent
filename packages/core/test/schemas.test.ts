@@ -455,9 +455,11 @@ describe('config.yaml (SETTINGS)', () => {
 });
 
 describe('prompt templates', () => {
-  it('ships all 20 templates at PROMPT_VERSION 1', () => {
+  it('ships all 22 templates at PROMPT_VERSION 1', () => {
     expect(PROMPT_VERSION).toBe(1);
-    expect(Object.keys(PROMPT_TEMPLATES).length).toBe(20);
+    expect(Object.keys(PROMPT_TEMPLATES).length).toBe(22);
+    expect(PROMPT_TEMPLATES.retro.length).toBeGreaterThan(0);
+    expect(PROMPT_TEMPLATES['solution-brief'].length).toBeGreaterThan(0);
     expect(PROMPT_TEMPLATES.triage.length).toBeGreaterThan(0);
     expect(PROMPT_TEMPLATES['review-passes'].length).toBeGreaterThan(0);
   });

@@ -2,7 +2,12 @@
  * review/ — the wp-050 review pipeline: 4-pass merge with runner-side
  * fingerprints/thread_ids, severity-gated round planning, re-review
  * thread lifecycle, fix dismissal cap, discuss replies.
+ *
+ * review/studio/ (wp-148) is the Review Studio engine riding on top —
+ * sessions, pinned reviewable heads, findings lifecycle, semantic
+ * comments, commit-bound decisions.
  */
+export * as studio from './studio/index.js';
 export {
   discussReply,
   type DiscussArgs,

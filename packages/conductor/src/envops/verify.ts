@@ -54,7 +54,7 @@ export interface VerifyTaskOptions {
   /** Glob patterns (worktree-relative) for files grepped for `case:`
    *  markers. Configurable; sensible defaults below. */
   testFileGlobs?: string[];
-  /** Case ids planned in test.md — when provided, `implemented` is
+  /** Case ids planned in vs.md — when provided, `implemented` is
    *  verified per id and `planned` reflects the plan, not the grep. */
   plannedCases?: string[];
   env?: Record<string, string>;

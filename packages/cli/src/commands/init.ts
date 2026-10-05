@@ -245,6 +245,7 @@ async function registerProject(
     next_ticket_seq: existing?.next_ticket_seq ?? 1,
     next_feature_seq: existing?.next_feature_seq ?? 1,
     next_initiative_seq: existing?.next_initiative_seq ?? 1,
+    next_release_seq: existing?.next_release_seq ?? 1,
     // `settings.path` persists the workspace root so `daemon` can
     // reconstruct ConductorWorkspaces after restart (spec gap —
     // projects has no path column; see TRACKER wp-099 decision).

@@ -2,7 +2,7 @@
 schema: 1
 id: wp-132
 title: Vocabulary rename — project→Solution, prd→rs, +Solution Brief, +Verification Spec
-status: todo
+status: done
 priority: medium
 depth: standard
 repos: []

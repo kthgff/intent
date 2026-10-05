@@ -146,17 +146,17 @@ function lintTddMd(content: string): LintViolation[] {
   return violations;
 }
 
-function lintTestMd(content: string): LintViolation[] {
+function lintVsMd(content: string): LintViolation[] {
   const violations: LintViolation[] = [];
   const cases = pinnedTable(content, 'Cases', CASES_COLUMNS, 'doc.table');
   if (cases.violation)
     violations.push({
       ...cases.violation,
-      message: `test.md: ${cases.violation.message}`,
+      message: `vs.md: ${cases.violation.message}`,
     });
   else if (cases.table)
     checkEnumCells(
-      'test.md',
+      'vs.md',
       'Cases',
       cases.table.rows,
       2,
@@ -172,11 +172,11 @@ function lintTestMd(content: string): LintViolation[] {
   if (matrix.violation)
     violations.push({
       ...matrix.violation,
-      message: `test.md: ${matrix.violation.message}`,
+      message: `vs.md: ${matrix.violation.message}`,
     });
   else if (matrix.table)
     checkEnumCells(
-      'test.md',
+      'vs.md',
       'Coverage matrix',
       matrix.table.rows,
       1,
@@ -239,9 +239,9 @@ function lintPrBodyMd(content: string): LintViolation[] {
   return violations;
 }
 
-/** docName is the basename agents wrote — 'ticket.md', 'tdd.md',
- *  'test.md', 'DEVIATIONS.md', 'split-plan.md', 'pr-body.md'. Unknown
- *  docs fail closed (never linted = never trusted). */
+/** docName is the basename agents wrote — 'ticket.md', 'rs.md',
+ *  'tdd.md', 'vs.md', 'DEVIATIONS.md', 'split-plan.md', 'pr-body.md'.
+ *  Unknown docs fail closed (never linted = never trusted). */
 export function structuredDocLint(
   docName: string,
   content: string,
@@ -251,8 +251,8 @@ export function structuredDocLint(
       return lintTicketMd(content);
     case 'tdd.md':
       return lintTddMd(content);
-    case 'test.md':
-      return lintTestMd(content);
+    case 'vs.md':
+      return lintVsMd(content);
     case 'DEVIATIONS.md':
       return lintDeviationsMd(content);
     case 'split-plan.md':

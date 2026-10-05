@@ -470,12 +470,16 @@ export const FEATURE_STATUSES = [
 ] as const;
 export type FeatureStatus = (typeof FEATURE_STATUSES)[number];
 
-/** doc_versions.doc — every persisted doc kind (DB-SCHEMA doc_versions). */
+/** doc_versions.doc — every persisted doc kind (DB-SCHEMA doc_versions).
+ *  Addendum naming (wp-132, PRD §15.2): `rs.md` = Requirements
+ *  Specification (was `prd.md`), `vs.md` = Verification Specification
+ *  (was `test.md`); the 0001 migration renames existing rows. The old
+ *  doc kinds are retired — nothing may write them. */
 export const DOC_KINDS = [
   'ticket.md',
-  'prd.md',
+  'rs.md',
   'tdd.md',
-  'test.md',
+  'vs.md',
   'feature.md',
   'ac.md',
   'provenance.json',
@@ -486,20 +490,17 @@ export const DOC_KINDS = [
   /** Human DoD attestations for `manual` rows (was
    *  dod-attestations.json in the ticket dir). */
   'dod-attestations.json',
-  /** Addendum doc kinds (wp-131 freeze; adopted naming PRD §15.2):
-   *  `rs.md`/`vs.md` are the renamed prd.md/test.md (wp-132 migrates
-   *  rows), `solution-brief.md` sits between charter and RS,
-   *  `retro.md` is the release retrospective on a release subject,
-   *  `notes-<audience>.md` carries release-note content per
+  /** Addendum doc kinds (adopted naming PRD §15.2):
+   *  `solution-brief.md` sits between charter and RS on the Solution
+   *  subject, `retro.md` is the release retrospective on a release
+   *  subject, `notes-<audience>.md` carries release-note content per
    *  RELEASE_NOTE_AUDIENCES (DELIVERY §3), `mockup.json` is the
    *  structured component tree (§15.4), `briefing.json` is the
    *  knowledge-version diff briefing on session resume (§15.9),
    *  `contract.json` is the approved interface contract pinned in
    *  runs.request.baseline (wp-154), `adr.md` is a first-class
    *  versioned decision doc (§15.2). */
-  'rs.md',
   'solution-brief.md',
-  'vs.md',
   'retro.md',
   'notes-customer.md',
   'notes-stakeholder.md',
@@ -1184,3 +1185,16 @@ export const LATENCY_CLASSES = [
   'background',
 ] as const;
 export type LatencyClass = (typeof LATENCY_CLASSES)[number];
+
+/** Which precedence layer supplied a run's pinned model (SCHEMAS §21
+ *  RouteDecision.source) — audit field persisted on `runs.request`
+ *  and surfaced in `model_transition` events (wp-155). */
+export const ROUTE_DECISION_SOURCES = [
+  'request',
+  'ticket',
+  'registry',
+  'legacy',
+  'default',
+  'backend',
+] as const;
+export type RouteDecisionSource = (typeof ROUTE_DECISION_SOURCES)[number];

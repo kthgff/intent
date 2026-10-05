@@ -280,7 +280,7 @@ export async function readTriageJson(
 // Stale-spec check (CONDUCTOR "Stale-spec check")
 // ---------------------------------------------------------------------------
 
-const SPEC_INPUTS = ['ticket.md', 'prd.md', 'tdd.md', 'test.md'] as const;
+const SPEC_INPUTS = ['ticket.md', 'rs.md', 'tdd.md', 'vs.md'] as const;
 
 /** sha256 over the spec inputs' doc_versions contents — the value
  *  recorded on `tickets.spec_hash` at spec completion. */

@@ -2,7 +2,7 @@
 schema: 1
 id: wp-096
 title: Aider-in-container — docker exec run/control, usage streaming, secrets injection
-status: todo
+status: done
 priority: high
 depth: standard
 repos: []

@@ -30,6 +30,7 @@ import {
   type PrepareContext,
   type RenderedPrompt,
   type RunHandle,
+  type RunOpts,
   type RunResult,
   SentinelSchema,
   type Stage,
@@ -117,6 +118,11 @@ export class DevinAdapter implements Adapter {
   private readonly ticket?: string;
   private readonly defaultRunDir?: string;
   private lastRunDir?: string;
+  /** Per-run model pin from prepare()'s PrepareContext (wp-155) —
+   *  consumed by the next run() so a stale pin can't leak forward. */
+  private pendingModel: string | undefined;
+  /** Model the most recent run() actually spawned with — usage ledger. */
+  private lastUsedModel: string | undefined;
   private readonly children = new Map<number, TrackedChild>();
 
   constructor(opts: DevinAdapterOptions = {}) {
@@ -134,6 +140,9 @@ export class DevinAdapter implements Adapter {
     ctx: PrepareContext,
   ): RenderedPrompt {
     this.lastRunDir = ctx.run_dir;
+    // wp-155: the per-run pin rides PrepareContext — takes precedence
+    // over the constructor default for the next run() only.
+    this.pendingModel = ctx.model ?? ctx.route?.model ?? undefined;
     if (!(stage in STAGE_TEMPLATES)) {
       throw new DevinAdapterError(`unknown stage '${stage}'`);
     }
@@ -147,15 +156,18 @@ export class DevinAdapter implements Adapter {
   }
 
   /**
-   * Spawn the detached run. `runDir` resolves: explicit param → the
-   * run_dir of the most recent prepare() → constructor option.
+   * Spawn the detached run. `opts` is a run_dir string (legacy) or
+   * RunOpts — resolves: explicit param → the run_dir of the most
+   * recent prepare() → constructor option. `container_id` is ignored:
+   * devin stays `runtime: process` (D30).
    */
   run(
     worktree: string,
     rendered: RenderedPrompt,
     timeout: number,
-    runDir?: string,
+    opts?: RunOpts | string,
   ): RunHandle {
+    const runDir = typeof opts === 'string' ? opts : opts?.run_dir;
     const dir = runDir ?? this.lastRunDir ?? this.defaultRunDir;
     if (dir === undefined) {
       throw new DevinAdapterError(
@@ -181,7 +193,10 @@ export class DevinAdapter implements Adapter {
       '--respect-workspace-trust',
       'false',
     ];
-    if (this.model !== undefined) args.push('--model', this.model);
+    const model = this.pendingModel ?? this.model;
+    this.pendingModel = undefined;
+    this.lastUsedModel = model;
+    if (model !== undefined) args.push('--model', model);
 
     const spawnOpts: SpawnOptions = {
       cwd: worktree,
@@ -257,7 +272,9 @@ export class DevinAdapter implements Adapter {
     const usage = usageFromExport(join(ctx.run_dir, 'export.json'), {
       runId: ctx.run_id,
       ...(this.ticket !== undefined ? { ticket: this.ticket } : {}),
-      ...(this.model !== undefined ? { model: this.model } : {}),
+      ...((this.lastUsedModel ?? this.model) !== undefined
+        ? { model: (this.lastUsedModel ?? this.model) as string }
+        : {}),
       promptPath: join(ctx.run_dir, 'prompt.md'),
       logPath: handle.log_path,
     });
