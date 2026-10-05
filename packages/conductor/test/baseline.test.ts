@@ -220,6 +220,7 @@ describe('detectBaselineDrift + classifyBaselineDrift', () => {
     await putDoc('SR-0001', 'rs.md', 'rs v1\n- [ ] AC-1\n');
     await putDoc('SR-0001', 'ticket.md', '---\nstatus: ready\n---\nbody\n');
     await putDoc('SR-0001', 'tdd.md', 'tdd v1\n');
+    await putDoc('SR-0001', 'contract.json', '{"api":"v1"}\n');
     return resolveRunBaseline({
       store,
       workspace: WS,

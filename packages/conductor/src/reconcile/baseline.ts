@@ -118,8 +118,14 @@ async function ticketBodyChanged(
 
 /**
  * Compare the pinned baseline against current doc heads. Returns one
- * drift descriptor per moved field (empty = no drift). `ticket_rev`
- * ignores pure frontmatter status churn.
+ * drift descriptor per moved field (empty = no drift).
+ *
+ * Cheap by construction: only fields that were actually PINNED are
+ * checked, and a run with no spec doc pinned at all (triage/probe — the
+ * spec doesn't exist yet) short-circuits with zero reads. A run's
+ * pinned set never includes a doc that was absent at launch, so there
+ * is nothing for it to "move past". `ticket_rev` ignores pure
+ * frontmatter status churn.
  */
 export async function detectBaselineDrift(args: {
   store: Store;
@@ -128,6 +134,14 @@ export async function detectBaselineDrift(args: {
   pinned: RunBaseline;
 }): Promise<BaselineDrift[]> {
   const { store, workspace, subject, pinned } = args;
+  // No spec pinned (rs/design/contract all absent) → nothing to drift.
+  if (
+    pinned.rs_version == null &&
+    pinned.design_rev == null &&
+    pinned.contract_ver == null
+  ) {
+    return [];
+  }
   const out: BaselineDrift[] = [];
   for (const field of [
     'rs_version',
@@ -135,8 +149,9 @@ export async function detectBaselineDrift(args: {
     'contract_ver',
     'ticket_rev',
   ] as const) {
-    const docs = FIELD_DOCS[field];
     const pinnedV = pinned[field] ?? null;
+    if (pinnedV === null) continue; // nothing pinned → nothing moved past
+    const docs = FIELD_DOCS[field];
     const head = await firstDocHead(store, workspace, subject, docs);
     if (head === pinnedV) continue;
     if (field === 'ticket_rev') {
