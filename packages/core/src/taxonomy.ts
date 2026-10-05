@@ -14,7 +14,7 @@ import { z } from 'zod';
 import {
   RELATION_PREDICATES,
   TICKET_ORIGINS,
-  type TICKET_SEVERITIES,
+  TICKET_SEVERITIES,
   TICKET_WORK_TYPES,
   type TicketOrigin,
   type TicketSeverity,
@@ -112,11 +112,22 @@ export const INTAKE_QUESTION_PREFIX = 'intake:';
 export const EVIDENCE_GATES = ['intake', 'test-approved', 'approved'] as const;
 export type EvidenceGate = (typeof EVIDENCE_GATES)[number];
 
+/** Row fields an evidence check may inspect (kept as a tuple so the
+ *  inferred type is the key union, not `string`). */
+export const EVIDENCE_FIELDS = [
+  'work_type',
+  'origin',
+  'severity',
+  'parent',
+  'feature',
+] as const;
+export type EvidenceField = (typeof EVIDENCE_FIELDS)[number];
+
 export const EvidenceCheckSchema = z.discriminatedUnion('kind', [
   /** A tickets-row field is non-null (e.g. `severity`, `parent`). */
   z.object({
     kind: z.literal('field'),
-    field: enumOf(['work_type', 'origin', 'severity', 'parent', 'feature']),
+    field: z.enum(EVIDENCE_FIELDS),
   }),
   /** The intake slot is answered — `classification.intake[key]`, an
    *  answered `intake:<key>` question, or a non-empty `## <title>`
@@ -194,7 +205,8 @@ const req = (
   gate: EvidenceGate,
   check: EvidenceCheck,
   label: string,
-): EvidenceRequirement => EvidenceRequirementSchema.parse({ id, gate, check, label });
+): EvidenceRequirement =>
+  EvidenceRequirementSchema.parse({ id, gate, check, label });
 
 const VERIFY_PASS = req(
   'verified-fix',
@@ -213,11 +225,19 @@ export const WORK_TYPE_POLICIES: Record<TicketWorkType, WorkTypePolicy> = {
     direct_create: true,
     summary: 'restores already-approved behavior (defect, not scope)',
     intake: [
-      intake('expected', 'Expected behavior', 'What is the approved/expected behavior?'),
+      intake(
+        'expected',
+        'Expected behavior',
+        'What is the approved/expected behavior?',
+      ),
       intake('actual', 'Actual behavior', 'What does it actually do instead?'),
       intake('repro', 'Repro', 'Steps to reproduce?'),
       optionalIntake('logs', 'Logs', 'Error output, logs, or telemetry links?'),
-      optionalIntake('telemetry', 'Telemetry', 'Incidents/error signatures confirming the defect?'),
+      optionalIntake(
+        'telemetry',
+        'Telemetry',
+        'Incidents/error signatures confirming the defect?',
+      ),
     ],
     evidence: [
       req(
@@ -232,9 +252,14 @@ export const WORK_TYPE_POLICIES: Record<TicketWorkType, WorkTypePolicy> = {
   },
   story: {
     direct_create: false,
-    summary: 'new capability — originates from an approved RS or board proposal',
+    summary:
+      'new capability — originates from an approved RS or board proposal',
     intake: [
-      intake('scope-ref', 'Scope', 'Which approved RS / board proposal authorizes this work?'),
+      intake(
+        'scope-ref',
+        'Scope',
+        'Which approved RS / board proposal authorizes this work?',
+      ),
     ],
     evidence: [
       req(
@@ -278,7 +303,11 @@ export const WORK_TYPE_POLICIES: Record<TicketWorkType, WorkTypePolicy> = {
     direct_create: true,
     summary: 'vulnerability/threat work — carries severity like a bug',
     intake: [
-      intake('threat', 'Threat', 'What vulnerability/threat does this address?'),
+      intake(
+        'threat',
+        'Threat',
+        'What vulnerability/threat does this address?',
+      ),
       optionalIntake('vector', 'Vector', 'Attack vector or exposure?'),
     ],
     evidence: [VERIFY_PASS],
@@ -288,7 +317,11 @@ export const WORK_TYPE_POLICIES: Record<TicketWorkType, WorkTypePolicy> = {
     direct_create: true,
     summary: 'ops/runtime work — CI, environments, deploys',
     intake: [
-      intake('rationale', 'Rationale', 'What operational need does this serve?'),
+      intake(
+        'rationale',
+        'Rationale',
+        'What operational need does this serve?',
+      ),
     ],
     evidence: [VERIFY_PASS],
     tabs: ['type'],
@@ -314,18 +347,14 @@ export const WORK_TYPE_POLICIES: Record<TicketWorkType, WorkTypePolicy> = {
   documentation: {
     direct_create: true,
     summary: 'docs-only change — the doc edit is the deliverable',
-    intake: [
-      intake('audience', 'Audience', 'Who is this documentation for?'),
-    ],
+    intake: [intake('audience', 'Audience', 'Who is this documentation for?')],
     evidence: [],
     tabs: ['type'],
   },
   quality: {
     direct_create: true,
     summary: 'test/tooling/quality work that changes no behavior',
-    intake: [
-      intake('target', 'Target', 'What quality gap does this close?'),
-    ],
+    intake: [intake('target', 'Target', 'What quality gap does this close?')],
     evidence: [VERIFY_PASS],
     tabs: ['type'],
   },
@@ -415,7 +444,9 @@ export function needsScopeApproval(
   if (verdict === 'new-capability' || verdict === 'mixed') return true;
   return (
     workType === 'story' &&
-    !APPROVED_SCOPE_ORIGINS.includes(origin as (typeof APPROVED_SCOPE_ORIGINS)[number])
+    !APPROVED_SCOPE_ORIGINS.includes(
+      origin as (typeof APPROVED_SCOPE_ORIGINS)[number],
+    )
   );
 }
 
@@ -423,13 +454,7 @@ export function needsScopeApproval(
  *  check by the caller (conductor/API), evaluated purely here. */
 export interface EvidenceSnapshot {
   /** Row-field values (nulls included — `field` checks fail on null). */
-  fields: {
-    work_type: string | null;
-    origin: string | null;
-    severity: string | null;
-    parent: string | null;
-    feature: string | null;
-  };
+  fields: Record<EvidenceField, string | null>;
   /** Resolved intake slots — classification.intake merged with
    *  answered `intake:*` questions across all triage.json artifacts. */
   intake: Record<string, string>;
@@ -598,9 +623,7 @@ async function verifyPassed(
   workspace: string,
   ticketId: string,
 ): Promise<boolean> {
-  const runs = (
-    await store.listRuns({ workspace, ticket_id: ticketId })
-  )
+  const runs = (await store.listRuns({ workspace, ticket_id: ticketId }))
     .filter((r) => r.stage === 'verify')
     .sort((a, b) => b.id.localeCompare(a.id));
   for (const r of runs) {
@@ -652,8 +675,9 @@ export async function gatherEvidenceSnapshot(
   },
 ): Promise<EvidenceSnapshot> {
   const intakeMap: Record<string, string> = {};
-  const runs = (await store.listRuns({ workspace, ticket_id: ticket.ticket_id }))
-    .sort((a, b) => a.id.localeCompare(b.id)); // oldest first — later wins
+  const runs = (
+    await store.listRuns({ workspace, ticket_id: ticket.ticket_id })
+  ).sort((a, b) => a.id.localeCompare(b.id)); // oldest first — later wins
   for (const r of runs) {
     const names = ['triage.json'];
     for (const name of names) {
@@ -686,10 +710,14 @@ export async function gatherEvidenceSnapshot(
       : WORK_TYPE_POLICIES[ticket.work_type as TicketWorkType];
   const wanted = (policy?.evidence ?? [])
     .concat(ORIGIN_EVIDENCE[ticket.origin as TicketOrigin] ?? [])
-    .filter((r): r is Extract<EvidenceCheck, { kind: 'doc-contains' }> extends never
-      ? never
-      : EvidenceRequirement & { check: { kind: 'doc-contains'; doc: string; needle: string } } =>
-      r.check.kind === 'doc-contains',
+    .filter(
+      (
+        r,
+      ): r is Extract<EvidenceCheck, { kind: 'doc-contains' }> extends never
+        ? never
+        : EvidenceRequirement & {
+            check: { kind: 'doc-contains'; doc: string; needle: string };
+          } => r.check.kind === 'doc-contains',
     );
   for (const r of wanted) {
     if (!docs.has(r.check.doc)) continue;
@@ -698,9 +726,7 @@ export async function gatherEvidenceSnapshot(
       subject: ticket.ticket_id,
       doc: r.check.doc as never,
     });
-    if (
-      dv?.content.toLowerCase().includes(r.check.needle.toLowerCase())
-    ) {
+    if (dv?.content.toLowerCase().includes(r.check.needle.toLowerCase())) {
       docs.add(`${r.check.doc}\0${r.check.needle.toLowerCase()}`);
     }
   }
@@ -738,9 +764,9 @@ export async function latestClassification(
   | { kind: 'invalid'; error: string }
   | { kind: 'absent' }
 > {
-  const runs = (
-    await store.listRuns({ workspace, ticket_id: ticketId })
-  ).sort((a, b) => b.id.localeCompare(a.id));
+  const runs = (await store.listRuns({ workspace, ticket_id: ticketId })).sort(
+    (a, b) => b.id.localeCompare(a.id),
+  );
   for (const r of runs) {
     const art =
       (await store.getArtifact(r.id, 'triage.json')) ??
