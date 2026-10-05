@@ -3,7 +3,7 @@
  * (ADAPTERS.md "The contract"). Capability flags from SETTINGS
  * `capabilities:` tell the conductor how to render and collect.
  */
-import type { Backend } from './enums.js';
+import type { Backend, Runtime } from './enums.js';
 import type { Usage } from './schemas.js';
 import type { TokenValues } from './tokens.js';
 
@@ -24,6 +24,11 @@ export interface CapabilityFlags {
   can_signal?: boolean;
   /** Can stream per-message usage mid-run → emits `usage_partial`. */
   streams_usage?: boolean;
+  /** Declared execution runtime (D30): `container` = container-capable —
+   *  runs execute inside the subject's docker container unless the user
+   *  overrides via `containers.runtime`/`capabilities.<backend>.runtime`;
+   *  `process`/unset = host-process only. */
+  runtime?: Runtime;
 }
 
 /** Rendered prompt returned by prepare() — template text with all

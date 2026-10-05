@@ -2,7 +2,7 @@
 schema: 1
 id: wp-095
 title: Container runtime — docker client, per-subject container lifecycle, base image
-status: todo
+status: done
 priority: high
 depth: standard
 repos: []

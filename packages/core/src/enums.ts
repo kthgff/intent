@@ -65,6 +65,14 @@ export type DepthTier = (typeof DEPTH_TIERS)[number];
 export const BACKENDS = ['devin', 'aider', 'mock'] as const; // 'mock' is the test backend — never user-configured
 export type Backend = (typeof BACKENDS)[number];
 
+/** Backend execution runtime (D30): `container` = runs execute inside a
+ *  per-subject docker container; `process` = detached OS process on the
+ *  host. Declared per backend on CapabilityFlags, defaulted globally by
+ *  SETTINGS `containers.runtime`, overridable per backend via
+ *  `capabilities.<backend>.runtime`. */
+export const RUNTIMES = ['container', 'process'] as const;
+export type Runtime = (typeof RUNTIMES)[number];
+
 export const PERMISSION_MODES = ['smart', 'bypass', 'accept-edits'] as const;
 export type PermissionMode = (typeof PERMISSION_MODES)[number];
 
@@ -185,6 +193,17 @@ export const RUN_STATUSES = [
   'stalled',
 ] as const;
 export type RunStatus = (typeof RUN_STATUSES)[number];
+
+/** `containers.state` (DB-SCHEMA, D30) — lifecycle of the per-subject
+ *  docker container. `created` = `docker create` done, never started;
+ *  `removed` = torn down (row kept for audit). */
+export const CONTAINER_STATES = [
+  'created',
+  'running',
+  'stopped',
+  'removed',
+] as const;
+export type ContainerState = (typeof CONTAINER_STATES)[number];
 
 // ---------- events (SCHEMAS §7 — the `events` table, D29) ----------
 
