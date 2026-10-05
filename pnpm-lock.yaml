@@ -79,9 +79,27 @@ importers:
 
   packages/cli:
     dependencies:
+      '@sprint-runner/adapters':
+        specifier: workspace:*
+        version: link:../adapters
+      '@sprint-runner/api':
+        specifier: workspace:*
+        version: link:../api
+      '@sprint-runner/conductor':
+        specifier: workspace:*
+        version: link:../conductor
+      '@sprint-runner/config':
+        specifier: workspace:*
+        version: link:../config
       '@sprint-runner/core':
         specifier: workspace:*
         version: link:../core
+      '@sprint-runner/store':
+        specifier: workspace:*
+        version: link:../store
+      yaml:
+        specifier: ^2.5.0
+        version: 2.9.1
     devDependencies:
       '@types/node':
         specifier: ^22.10.0

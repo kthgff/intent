@@ -87,7 +87,7 @@ Program plan for W16+ (PRD §14+§15): `docs/DEV-PLAN.md` + `docs/DELIVERY.md`.
 | W11 | wp-096 | Aider-in-container: `docker exec` run/control (`kill`/`pause`/`unpause`), usage stream-parse over exec stdout, env injection, `runtime` flag + `containers:` settings | wp-095,wp-092 | todo |
 | W11 | wp-097 | Conductor rewire: LAUNCH container-ensure + gate-sleep + terminal teardown hooks; heartbeats via docker inspect; multi-mount recreate on repo-set growth | wp-096 | todo |
 | W11 | wp-098 | Container E2E: fixture repo + mock-in-container (or aider image), full stage chain in-container, orphan-sweep + kill/pause coverage; `pnpm test` green | wp-097 | todo |
-| W12 | wp-099 | Launch: `veto` CLI wires conductor + serves UI dist; init/daemon/tick/status/doctor | wp-092 | todo |
+| W12 | wp-099 | Launch: `veto` CLI wires conductor + serves UI dist; init/daemon/tick/status/doctor | wp-092 | done |
 | W12 | wp-100 | Rename sprint-runner→veto (D31/D35): binary, config dir, package scopes, container names/labels, UI strings, docs sweep | wp-095,wp-099 | todo |
 | W13 | wp-110 | Code-intelligence foundation: commit-pinned code units, FTS + semantic + structural retrieval, citations, evidence token, retrieval evals | wp-090,wp-091,wp-092,wp-100 | todo |
 | W13 | wp-111 | Product integration: pre-PRD grounding, PRD quality findings, traceability verification, impact/test/review evidence UI | wp-110,wp-081 | todo |
