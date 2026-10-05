@@ -58,6 +58,7 @@ import Fastify, {
 import YAML from 'yaml';
 import { z } from 'zod';
 import { lineDiff } from './diff.js';
+import { registerReviewRoutes } from './review.js';
 import { StreamHub } from './sse.js';
 
 // ---------------------------------------------------------------------------
@@ -1880,6 +1881,20 @@ export function createServer(opts: ServerOptions): ApiServer {
       return { released: true };
     },
   );
+
+  // ------------------------------------------------------------------
+  // /reviews — Review Studio surface (PRD §15.8, wp-148)
+  // ------------------------------------------------------------------
+  registerReviewRoutes(app, {
+    store,
+    actor,
+    nowIso: now,
+    workspace,
+    clearGate,
+    requestRun,
+    ticketOrNull: async (wsName, ticketId) =>
+      store.getTicket({ workspace: wsName, ticket_id: ticketId }),
+  });
 
   return app;
 }
