@@ -2,7 +2,7 @@
 schema: 1
 id: wp-131
 title: Contracts v3 — enums, schemas, 0001 amendments, Store signatures for the addendum wave
-status: todo
+status: done
 priority: high
 depth: deep
 repos: []
