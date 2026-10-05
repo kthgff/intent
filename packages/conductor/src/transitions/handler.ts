@@ -53,6 +53,10 @@ import {
   planReviewRound,
 } from '../review/index.js';
 import {
+  syncReviewHead,
+  syncReviewStudio,
+} from '../review/studio/index.js';
+import {
   type TriageSuggestions,
   applySuggestionsToTicketMd,
   findingsArtifact,
@@ -1054,6 +1058,11 @@ export class RealTransitionHandler implements TransitionHandler {
         });
       }
 
+      // Review Studio (wp-148): project the merged threads + the
+      // reviewable head into review_sessions/review_findings — the
+      // entity layer the human studio works on.
+      await this.#studioSync(tools, id, { runId: outcome.run.id });
+
       const after = await readReviewJson(tools, id);
       if (!after || !REVIEW_PASSES.every((p) => after.passes.includes(p))) {
         await this.#queueNextReviewPass(tools, id);
@@ -1201,6 +1210,10 @@ export class RealTransitionHandler implements TransitionHandler {
           });
         }
       }
+      // Review Studio (wp-148): fix claims moved threads + the fix
+      // run moved the head — re-pin + re-project before re-review.
+      await this.#studioSync(tools, id, { runId: outcome.run.id });
+
       // FIXES-COMPLETE → a full re-review round: verify task again,
       // then the 4 passes merge over the grown review.json.
       await tools.requestRun({
@@ -1291,6 +1304,10 @@ export class RealTransitionHandler implements TransitionHandler {
         ticket_id: id,
       });
       const pushed = await pushBranches(tools, ticket);
+      // Review Studio (wp-148): commits pushed AFTER a bound approval
+      // stale it — re-pin the reviewable head (covers ci-fix,
+      // comment-fix and rebase pushes through this shared path).
+      await this.#studioSync(tools, id, { headOnly: true });
       await tools.applyTicketStatus({
         ticketId: id,
         status: 'ci-watch',
@@ -1858,6 +1875,43 @@ export class RealTransitionHandler implements TransitionHandler {
       event: 'question_answered',
       data: { gate, answered: questions.length - auto, auto },
     });
+  }
+
+  /**
+   * Review Studio sync (wp-148): `full` projects review.json threads +
+   * head/baseline into the studio tables after a merge/fix; `headOnly`
+   * re-pins the reviewable head after a push transition so
+   * post-approval commits stale bound approvals. Fail-closed-but-
+   * nonblocking: a sync defect surfaces a `repair` gate item instead
+   * of wedging the pipeline — review.json stays the pass truth and
+   * the next merge re-syncs.
+   */
+  async #studioSync(
+    tools: TransitionTools,
+    ticketId: string,
+    opts: { runId?: string; headOnly?: boolean } = {},
+  ): Promise<void> {
+    try {
+      if (opts.headOnly) {
+        await syncReviewHead(tools, { ticketId });
+        return;
+      }
+      await syncReviewStudio(tools, {
+        ticketId,
+        ...(opts.runId ? { runId: opts.runId } : {}),
+      });
+    } catch (e) {
+      await tools.surfaceGateItem({
+        subject: ticketId,
+        gate: 'repair',
+        kind: 'repair',
+        blockedAgent: true,
+        payload: {
+          reason: `review-studio sync failed: ${(e as Error).message}`,
+          head_only: opts.headOnly === true,
+        },
+      });
+    }
   }
 
   /** Probe CARD-WRITTEN/PROBE-FAILED → persist the card snapshot as a

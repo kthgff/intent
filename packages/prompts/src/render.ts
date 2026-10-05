@@ -43,6 +43,13 @@ export const STAGE_TEMPLATES = {
   escalate: 'escalate',
   survey: 'survey',
   verify: null,
+  /** Addendum stages (wp-131) — prompt templates land with their
+   *  owning wps; null until then (STAGES comment). */
+  'release-notes': null,
+  retro: null,
+  extract: null,
+  mockup: null,
+  'design-ingest': null,
 } as const satisfies Record<Stage, string | null>;
 
 /** Context handed to {@link renderPrompt} / {@link renderTemplate}. */
