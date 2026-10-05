@@ -11,13 +11,14 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@sprint-runner/config": "workspace:*",
     "@sprint-runner/conductor": "workspace:*",
+    "@sprint-runner/config": "workspace:*",
     "@sprint-runner/core": "workspace:*",
     "@sprint-runner/gitops": "workspace:*",
     "@sprint-runner/store": "workspace:*",
     "fastify": "^4.28.0",
-    "yaml": "^2.5.0"
+    "yaml": "^2.5.0",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

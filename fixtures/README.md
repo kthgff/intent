@@ -4,7 +4,7 @@ Seed content for tests. These are plain files — tests copy them into
 tmp dirs and `git init` them (commits, branches, remotes under
 `file://` for push/pull coverage).
 
-- `tickets-repo/` — v1-schema tickets repo: `.sprint-runner/` config +
+- `tickets-repo/` — v1-schema tickets repo: `.veto/` config +
   next-id, three tickets at different pipeline stages (`imported`,
   `needs-info`, `ready`).
 - `code-repo/` — trivial repo with a repo-card-compatible Makefile

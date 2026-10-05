@@ -1,26 +1,31 @@
 /**
  * Store interface — the storage contract for DB-SCHEMA.md.
- * One schema, two backends: SQLite (solo) and Postgres (daemon) via
- * `storage_url` (DB-SCHEMA intro; TRACKER D6 ships SQLite first).
+ * One backend: **Postgres** (`postgres://…` via `storage_url`, D29).
+ * Tests run the same impl against embedded Postgres (PGlite).
  *
- * Data classes (PRD/DB-SCHEMA): *coordination* (leases, runs, claims,
- * presence, notifications) and *query/reference* (dossiers, entities,
- * relations, embeddings, ticket/event projections). Everything is
- * ephemeral-or-regenerable — git keeps the approval/audit truth.
+ * The DB IS the system of record — tickets/docs/events/boards are
+ * truth rows, not projections. Git is code source control only.
  *
- * Signatures only — implementations live in packages/store (wp-011).
+ * Signatures only — implementations live in packages/store (wp-091).
  */
 import type {
+  BoardItem,
+  BoardRow,
   Claim,
+  DocVersion,
   DossierEntry,
   Embedding,
   Entity,
   EventRow,
+  FeatureRow,
   GateItem,
+  InitiativeRow,
   Lease,
   Notification,
   Presence,
+  ProjectRow,
   Relation,
+  RunArtifact,
   RunRow,
   TicketRepoRow,
   TicketRow,
@@ -64,6 +69,13 @@ export interface EmbeddingKey {
   model: string;
 }
 
+/** Doc identity (DB-SCHEMA doc_versions PK prefix). */
+export interface DocKey {
+  workspace: string;
+  subject: string;
+  doc: DocVersion['doc'];
+}
+
 export interface NearestQuery {
   model: string;
   vector: Uint8Array | number[];
@@ -80,6 +92,14 @@ export interface NearestResult {
  * install/user id (SETTINGS `actor:`) — shared-queue attribution.
  */
 export interface Store {
+  /**
+   * Run a multi-statement write path atomically (ARCHITECTURE §4.4 —
+   * a command commits row changes + doc versions + audit event in one
+   * transaction). `fn` receives a Store bound to the transaction; the
+   * whole block rolls back on throw.
+   */
+  transaction<T>(fn: (s: Store) => Promise<T>): Promise<T>;
+
   // ---- meta ----
 
   /** schema_meta (DB-SCHEMA): current applied schema version; 0 if none. */
@@ -100,8 +120,11 @@ export interface Store {
     ttl_s: number,
   ): Promise<Lease | null>;
   /** Conductor-observed heartbeat — refreshes `heartbeat_at`; the
-   *  detached process never touches the DB (DB-SCHEMA rules). */
-  heartbeatLease(key: LeaseKey, at: string): Promise<void>;
+   *  detached process never touches the DB (DB-SCHEMA rules). Fenced:
+   *  only updates while `holder` still owns the lease — returns false
+   *  when the lease is gone or held by someone else (a stale conductor
+   *  must not refresh another owner's row). */
+  heartbeatLease(key: LeaseKey, holder: string, at: string): Promise<boolean>;
   /** Release on collect/commit (CONDUCTOR RECONCILE step 1). */
   releaseLease(key: LeaseKey, holder: string): Promise<void>;
   getLease(key: LeaseKey): Promise<Lease | null>;
@@ -150,10 +173,9 @@ export interface Store {
     status?: string;
   }): Promise<RunRow[]>;
 
-  // ---- ticket projections (rebuilt from git frontmatter every pull) ----
+  // ---- tickets (TRUTH rows — D29; no projection, no frontmatter) ----
 
-  /** Upsert the `tickets` projection row (DB-SCHEMA tickets; rebuilt on
-   *  pull — never re-parse ticket.md in the DB). */
+  /** Upsert the `tickets` truth row (DB-SCHEMA tickets). */
   upsertTicket(row: TicketRow): Promise<void>;
   getTicket(key: TicketKey): Promise<TicketRow | null>;
   listTickets(filter?: {
@@ -169,11 +191,11 @@ export interface Store {
   listTicketRepos(key: TicketKey): Promise<TicketRepoRow[]>;
   deleteTicketRepos(key: TicketKey): Promise<void>;
 
-  // ---- event / usage projections (rebuildable — nuke + replay) ----
+  // ---- events (append-only TRUTH — DB-SCHEMA events; SCHEMAS §7) ----
 
   /**
-   * Append an events_idx row (DB-SCHEMA events_idx; projection of
-   * events.jsonl SCHEMAS §7). `seq` is assigned by the store.
+   * Append an events row (DB-SCHEMA events). `seq` is assigned by the
+   * store (identity). Events are insert-only — never updated/deleted.
    */
   appendEvent(row: EventRow): Promise<number>;
   listEvents(filter: {
@@ -182,9 +204,6 @@ export interface Store {
     subject?: string;
     event?: string;
   }): Promise<EventRow[]>;
-  /** Replay support: drop and rebuild projections from git
-   *  (DB-SCHEMA "Rebuildable" rule). */
-  clearEvents(workspace: string, ticket_id?: string): Promise<void>;
 
   /** Per-call ledger projection from usage.json (DB-SCHEMA usage_calls;
    *  SCHEMAS §13). */
@@ -274,4 +293,88 @@ export interface Store {
   getEmbedding(key: EmbeddingKey): Promise<Embedding | null>;
   deleteEmbedding(key: EmbeddingKey): Promise<void>;
   nearestEmbeddings(q: NearestQuery): Promise<NearestResult[]>;
+
+  // ---- projects (DB-SCHEMA projects; workspace is the key) ----
+
+  upsertProject(row: ProjectRow): Promise<void>;
+  getProject(workspace: string): Promise<ProjectRow | null>;
+  listProjects(): Promise<ProjectRow[]>;
+  /**
+   * Transactional id allocation (DB-SCHEMA rules): increments the
+   * project's `next_*_seq` counter and returns the formatted id —
+   * `SR-NNNN` / `F-NNNN` / `I-NNNN`. Replaces next-id ref-CAS.
+   */
+  allocTicketId(workspace: string): Promise<string>;
+  allocFeatureId(workspace: string): Promise<string>;
+  allocInitiativeId(workspace: string): Promise<string>;
+
+  // ---- boards / canvas (D26/D27) ----
+
+  upsertBoard(row: BoardRow): Promise<void>;
+  getBoard(workspace: string, board: string): Promise<BoardRow | null>;
+  listBoards(workspace: string): Promise<BoardRow[]>;
+  deleteBoard(workspace: string, board: string): Promise<void>;
+
+  /** board NULL rows = the capture tray (D27). */
+  upsertBoardItem(item: BoardItem): Promise<void>;
+  getBoardItem(id: string): Promise<BoardItem | null>;
+  listBoardItems(filter: {
+    workspace: string;
+    /** Pass a board slug for a canvas, null for the tray, undefined
+     *  for everything in the workspace. */
+    board?: string | null;
+    kind?: string;
+    status?: string;
+  }): Promise<BoardItem[]>;
+  deleteBoardItem(id: string): Promise<void>;
+
+  // ---- hierarchy: initiatives / features (D26) ----
+
+  upsertInitiative(row: InitiativeRow): Promise<void>;
+  getInitiative(
+    workspace: string,
+    initiative: string,
+  ): Promise<InitiativeRow | null>;
+  listInitiatives(filter?: {
+    workspace?: string;
+    board?: string;
+    status?: string;
+  }): Promise<InitiativeRow[]>;
+
+  upsertFeature(row: FeatureRow): Promise<void>;
+  getFeature(workspace: string, feature: string): Promise<FeatureRow | null>;
+  listFeatures(filter?: {
+    workspace?: string;
+    initiative?: string;
+    status?: string;
+  }): Promise<FeatureRow[]>;
+
+  // ---- doc_versions (append-only doc truth — D24/D29) ----
+
+  /**
+   * Append a new immutable version of a doc (DB-SCHEMA doc_versions).
+   * `version` is assigned by the store (max+1) and returned. Every
+   * persisted doc change is a version — never an in-place update.
+   */
+  appendDocVersion(
+    key: DocKey,
+    content: string,
+    edited_by: string,
+  ): Promise<DocVersion>;
+  /** Latest version of one doc (max(version)). */
+  getDoc(key: DocKey): Promise<DocVersion | null>;
+  getDocVersion(key: DocKey, version: number): Promise<DocVersion | null>;
+  /** Version history for a doc, ascending. */
+  listDocVersions(key: DocKey): Promise<DocVersion[]>;
+  /** Latest version of every doc on a subject (S-05 docs tab). */
+  listDocs(key: {
+    workspace: string;
+    subject: string;
+  }): Promise<DocVersion[]>;
+
+  // ---- run_artifacts (structured stage output — DB-SCHEMA) ----
+
+  putArtifact(a: RunArtifact): Promise<void>;
+  getArtifact(run_id: string, name: string): Promise<RunArtifact | null>;
+  listArtifacts(run_id: string): Promise<RunArtifact[]>;
 }

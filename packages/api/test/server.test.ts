@@ -7,7 +7,6 @@
  * actions → conductor stub calls, SSE gate_surfaced delivery, and
  * settings secrets write-only.
  */
-import { execFileSync } from 'node:child_process';
 import {
   chmodSync,
   existsSync,
@@ -28,7 +27,7 @@ import {
 } from '@sprint-runner/conductor';
 import { resolveConfig } from '@sprint-runner/config';
 import type { GateItem, TicketRow } from '@sprint-runner/core';
-import { SqliteStore } from '@sprint-runner/store';
+import { PostgresStore } from '@sprint-runner/store';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   type ApiServer,
@@ -42,30 +41,16 @@ const AUTH = { authorization: `Bearer ${TOKEN}` };
 const WS = 'ws';
 
 let dir: string;
-let ticketsRepo: string;
-let store: SqliteStore;
+let store: PostgresStore;
 
-function gitInit(repo: string): void {
-  mkdirSync(repo, { recursive: true });
-  writeFileSync(join(repo, 'README.md'), '# tickets\n');
-  execFileSync('git', ['init', '-qb', 'main'], { cwd: repo });
-  execFileSync('git', ['config', 'user.name', 'test'], { cwd: repo });
-  execFileSync('git', ['config', 'user.email', 'test@example.com'], {
-    cwd: repo,
-  });
-  execFileSync('git', ['add', '-A'], { cwd: repo });
-  execFileSync('git', ['commit', '-qm', 'seed'], { cwd: repo });
-}
-
-function writeTicketMd(id: string, status: string): void {
-  const d = join(ticketsRepo, 'tickets', id);
-  mkdirSync(d, { recursive: true });
-  writeFileSync(
-    join(d, 'ticket.md'),
+// D29: ticket docs are doc_versions rows — seed them directly, no
+// ticket repo.
+async function writeTicketMd(id: string, status: string): Promise<void> {
+  await store.appendDocVersion(
+    { workspace: WS, subject: id, doc: 'ticket.md' },
     `---\nschema: 1\nid: ${id}\ntitle: t\nstatus: ${status}\npriority: high\nrepos: []\ndepth: standard\ndepends_on: []\n---\n\n# ${id}\n`,
+    'test',
   );
-  execFileSync('git', ['add', '-A'], { cwd: ticketsRepo });
-  execFileSync('git', ['commit', '-qm', `ticket ${id}`], { cwd: ticketsRepo });
 }
 
 function makeConfig() {
@@ -86,7 +71,7 @@ function makeConductor(overrides: Partial<ConductorDeps> = {}) {
     store,
     adapters: {},
     config: makeConfig(),
-    workspaces: [{ name: WS, ticketsRepoPath: ticketsRepo }],
+    workspaces: [{ name: WS, rootPath: dir }],
     runsDir: join(dir, 'runs'),
     transitions: new StubTransitionHandler(),
     ...overrides,
@@ -137,9 +122,7 @@ const ticketRow = (over: Partial<TicketRow> = {}): TicketRow => ({
 
 beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), 'sr-api-'));
-  ticketsRepo = join(dir, 'tickets-repo');
-  gitInit(ticketsRepo);
-  store = new SqliteStore(`sqlite://${join(dir, 'state.db')}`);
+  store = await PostgresStore.connect('pglite:');
   await store.getSchemaVersion();
 });
 
@@ -294,7 +277,7 @@ describe('inbox ranking', () => {
 
 describe('gate writes — expected_status idempotency', () => {
   beforeEach(async () => {
-    writeTicketMd('SR-0001', 'prd-review');
+    await writeTicketMd('SR-0001', 'prd-review');
     await store.upsertTicket(ticketRow());
     await store.upsertGateItem(gateItem());
   });
@@ -417,7 +400,7 @@ describe('actions → conductor calls', () => {
   });
 
   it('wont_do writes the status through applyTicketStatus', async () => {
-    writeTicketMd('SR-0002', 'ready');
+    await writeTicketMd('SR-0002', 'ready');
     await store.upsertTicket(
       ticketRow({ ticket_id: 'SR-0002', status: 'ready' }),
     );
@@ -428,14 +411,14 @@ describe('actions → conductor calls', () => {
       headers: AUTH,
       payload: { action: 'wont_do', expected_status: 'ready' },
     });
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode, res.body).toBe(200);
     const t = await store.getTicket({ workspace: WS, ticket_id: 'SR-0002' });
     expect(t?.status).toBe('wont-do');
     await app.close();
   });
 
   it('unimplemented action → 501 with explicit error shape', async () => {
-    writeTicketMd('SR-0003', 'ready');
+    await writeTicketMd('SR-0003', 'ready');
     await store.upsertTicket(
       ticketRow({ ticket_id: 'SR-0003', status: 'ready' }),
     );
@@ -477,7 +460,7 @@ describe('SSE /api/v1/stream', () => {
       store,
       adapters: {},
       config: makeConfig(),
-      workspaces: [{ name: WS, ticketsRepoPath: ticketsRepo }],
+      workspaces: [{ name: WS, rootPath: dir }],
       runsDir: join(dir, 'runs'),
       transitions: new StubTransitionHandler(),
     });
@@ -485,7 +468,7 @@ describe('SSE /api/v1/stream', () => {
     conductor.deps.notify = (e) => app.notify(e);
     const tools = makeTransitionTools({
       deps: conductor.deps,
-      ws: { name: WS, ticketsRepoPath: ticketsRepo },
+      ws: { name: WS, rootPath: dir },
       leases: conductor.leases,
       handles: conductor.handles,
       killedForCap: conductor.killedForCap,

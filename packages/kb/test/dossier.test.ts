@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ConfigSchema } from '@sprint-runner/core';
-import { SqliteStore } from '@sprint-runner/store';
+import { PostgresStore } from '@sprint-runner/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   dossierToken,
@@ -14,14 +14,14 @@ import {
 } from '../src/index.js';
 
 let dir: string;
-let store: SqliteStore;
+let store: PostgresStore;
 
-beforeEach(() => {
+beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), 'sr-kb-'));
-  store = new SqliteStore(`sqlite://${join(dir, 'state.db')}`);
+  store = await PostgresStore.connect('pglite:');
 });
-afterEach(() => {
-  store.close();
+afterEach(async () => {
+  await store.close();
   rmSync(dir, { recursive: true, force: true });
 });
 

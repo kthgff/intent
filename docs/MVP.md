@@ -1,4 +1,4 @@
-# MVP — sprint-runner v1 cutline
+# MVP — Veto v1 cutline
 
 Companion to `PRD.md`. Draft 2026-10-03 (revised: **MVP includes the
 full UI** — there is no zero-UI mode; github.com flows are secondary
@@ -14,9 +14,10 @@ base, and the full desktop UI.
 
 ## IN — v1
 
-- **Full UI** — all 14 screens (S-01…S-14) as a web app served by the
+- **Full UI** — the complete screen inventory (S-01…S-20 per
+  UI-INVENTORY.md) as a web app served by the
   conductor on localhost, wrapped in a thin desktop shell (Tauri
-  preferred) for dock/notifications/badge/launch-on-login presence;
+  2, macOS + Windows) for dock/notifications/badge/launch-on-login presence;
   identical surface reachable in any browser incl. daemon mode —
   wire contract = REST + SSE (`API.md`):
   needs-attention inbox, settings, create/import (interview), Q&A
@@ -24,15 +25,17 @@ base, and the full desktop UI.
   PR panel, escalations/failures, ledger browser, metrics dashboard,
   workspace switcher, knowledge base
 - **Engine**: babysitter conductor (auto-advances all non-gate
-  transitions), detached runs + detached verify tasks (runner-side
-  suite re-runs), per-stage timeouts, kill/pause/abort, SQLite
-  state (leases, runs, claims, dossiers, entities, embeddings,
-  ticket/repo projections, event index)
+  transitions), stage runs in per-ticket Docker containers (D30 —
+  aider runtime; `process` fallback) + detached verify tasks
+  (runner-side suite re-runs), per-stage timeouts, kill/pause/abort,
+  Postgres state (D29 — leases, runs, claims, dossiers, entities,
+  embeddings, tickets, doc_versions, events; PGlite in tests)
 - **Spend checkpoint**: `test-approved →` human "go" button with cost
   estimate → implement fires
-- **Tickets repo**: clone/pull/push, ticket folders, `events.jsonl` +
-  generated `LOG.md`, gitleaks fail-closed sanitizer, bot-identity
-  commits under `actor:` config
+- **DB truth** (D29): `tickets`/`doc_versions`/`events` rows,
+  generated `LOG.md` render, gitleaks fail-closed sanitizer,
+  bot-identity commits under `actor:` config; git = code delivery only
+  (worktrees, branches, PRs)
 - **Pipeline**: interview-mode authoring → GitHub importer + manual MDs
   → spec lint → triage → needs-info → PRD → tech-Q&A → TDD → test plan
   → implement → multi-pass review → severity-gated fixes → human
@@ -45,18 +48,25 @@ base, and the full desktop UI.
   Playwright crawl → dossier (architecture, workflows, personas, gaps)
   in DB; manual Sync + scheduled refresh; human-correction
 - **Semantic layer**: entities + typed relations (ontology-lite), local
-  embeddings (sqlite-vec), deviation/question taxonomies, entity linking
-- **Both backends**: devin CLI + aider/OpenRouter, capability-flagged
-- **Secondary channels** (always available alongside the UI): doc
-  approval via real PRs on the tickets repo; Q&A via `## Triage`
-  checklists — github.com flows work for humans who never open the app
+  embeddings (pgvector), deviation/question taxonomies, entity linking
+- **Both backends**: devin CLI + aider/OpenRouter, capability-flagged;
+  aider default runtime `container` (D30)
 
 ## OUT — v1 (deferred, designed-for)
 
+- **Immediate post-launch (D37 Phase A):** automatic-on-project-connect,
+  commit-pinned code index; default-branch incremental refresh; default-on but
+  configurable evidence grounding; exact/FTS + semantic + structural
+  retrieval; citations; PRD-quality blocking/waiver; and traceability with
+  ≥0.90 visibly labeled auto-verification.
 - Jira / Linear importers (importer contract is ready; GitHub ships)
 - Headless daemon deployment mode (engine is built for it)
 - Remote embedding providers; analytics/support-ticket connectors;
   incremental update-on-merge (manual + cron refresh is v1)
+- Continuous-alignment automation, rich call/data-flow analysis, feedback
+  clustering, release-risk narratives, and production telemetry/incident
+  intelligence (D37 Phases B/C). The schema/adapter seams are specified, but
+  v1 does not ingest or embed raw logs.
 - Per-stage model routing (config seam exists: main_model/review_model)
 - Assignment/roles on shared queue (claims + attribution ship; roles later)
 - OS-keychain secrets (.env is v1; keychain is a hardening tier)
@@ -66,6 +76,6 @@ base, and the full desktop UI.
 ## Pilot plan (informs tuning — explicitly NOT a build gate)
 
 Run ≥3 real tickets through the pipeline end-to-end. Record
-(observed in events.jsonl): tickets→PR rate, human-minutes/ticket,
+(observed in the `events` table): tickets→PR rate, human-minutes/ticket,
 cost/ticket, failure stages, reviewer FP/churn rate, deviation rate
 (headline spec-quality metric), spec-score trend.

@@ -8,18 +8,18 @@
  * merge enables) or `manual` (a human attest checkbox on the
  * review/PR page).
  *
- * Attestations live in `tickets/<id>/dod-attestations.json` in the
- * tickets repo — the ticket dir is the durable store for ticket-scoped
- * state, and the DB schema (binding) has no column for it. Schema:
+ * Attestations are a `doc_versions` doc on the ticket subject —
+ * `dod-attestations.json` (D29: no ticket dir on disk; the human
+ * attestation writer appends a new doc version via putDoc). Schema:
  *   { "schema": 1, "attested": [{ "criterion", "attested_by", "at" }] }
  */
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import type { DodRow } from '@sprint-runner/core';
+import type { DocKind, DodRow } from '@sprint-runner/core';
+import type { TransitionTools } from '../contracts.js';
 
 export type { DodRow };
 
-export const DOD_ATTESTATIONS_FILE = 'dod-attestations.json';
+/** doc_versions doc kind carrying human DoD attestations. */
+export const DOD_ATTESTATIONS_DOC: DocKind = 'dod-attestations.json';
 
 /** `cmd:<command>` rows execute as verify tasks; `manual` rows need a
  *  human attestation. Anything else is fail-closed unknown (it counts
@@ -104,13 +104,16 @@ export interface DodAttestation {
   at?: string;
 }
 
-/** Read `tickets/<id>/dod-attestations.json`; missing/malformed → []
- *  (never throws — a bad file just means "nobody attested yet"). */
+/** Read the latest `dod-attestations.json` doc version for a ticket;
+ *  missing/malformed → [] (never throws — a bad doc just means
+ *  "nobody attested yet"). */
 export async function readDodAttestations(
-  ticketDir: string,
+  docs: Pick<TransitionTools, 'getDocText'>,
+  subject: string,
 ): Promise<DodAttestation[]> {
   try {
-    const raw = await readFile(join(ticketDir, DOD_ATTESTATIONS_FILE), 'utf8');
+    const raw = await docs.getDocText(subject, DOD_ATTESTATIONS_DOC);
+    if (raw === null) return [];
     const parsed = JSON.parse(raw) as { attested?: DodAttestation[] };
     return Array.isArray(parsed.attested) ? parsed.attested : [];
   } catch {

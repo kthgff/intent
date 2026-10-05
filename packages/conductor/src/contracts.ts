@@ -1,30 +1,27 @@
 /**
- * contracts.ts — the TransitionHandler seam (wp-030).
+ * contracts.ts — the TransitionHandler seam (wp-030; rewired wp-092).
  *
  * CONDUCTOR.md splits the conductor's job in two:
  *
- *   - The TICK LOOP (this wp): RECONCILE → CLAIM → LAUNCH, heartbeats,
- *     leases, caps, retries. Owns *when* a transition happens.
+ *   - The TICK LOOP: RECONCILE → CLAIM → LAUNCH, heartbeats, leases,
+ *     caps, retries. Owns *when* a transition happens.
  *   - The sentinel→transition TABLE (wp-031): "what does this sentinel
  *     mean" — which status to write, which gate_items to surface, which
  *     follow-up runs to queue. Owns *what* a transition means.
  *
- * `TransitionHandler` is the injectable boundary between them. The
- * conductor calls exactly two methods; wp-031 implements the real
- * table behind this interface. `StubTransitionHandler` below is the
- * no-op/minimal implementation used until then (and in tests).
+ * `TransitionHandler` is the injectable boundary between them.
  *
- * Spec anchors:
- *   - CONDUCTOR.md "The loop" steps 1–3 (RECONCILE / CLAIM / LAUNCH)
- *   - CONDUCTOR.md "Auto-advance rules" — which transitions auto-fire
- *   - CONDUCTOR.md "Sentinel → transition table" — wp-031's payload
- *   - CONDUCTOR.md "Run lifecycle" — sentinel missing/unparseable →
- *     `run_failed` is CONDUCTOR-owned; the handler never sees it.
+ * D29 (wp-092): the DB is the system of record — no ticket.md files on
+ * disk, no events.jsonl, no tickets-repo commits. Docs are immutable
+ * `doc_versions` rows; structured stage output is `run_artifacts`;
+ * status changes update `tickets` + append an `events` row in the same
+ * write path. `rootPath` is the workspace's plain working root (run
+ * dirs, repo anchoring, `.veto/` scratch state) — it is NOT a git
+ * ledger.
  */
-import { readFile, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import type {
   ActorType,
+  DocKind,
   EventName,
   EventRow,
   GateItem,
@@ -37,8 +34,6 @@ import type {
   TicketRow,
   TicketStatus,
 } from '@sprint-runner/core';
-import { commitAll } from '@sprint-runner/gitops';
-import { regenerateLog } from './events/index.js';
 
 // ---------------------------------------------------------------------------
 // Context handed to the handler
@@ -46,13 +41,14 @@ import { regenerateLog } from './events/index.js';
 
 /** Everything the handler needs to reason about one workspace. */
 export interface TransitionContext {
-  /** Workspace key (tickets_repos.<name>). */
+  /** Workspace key (projects.workspace). */
   workspace: string;
-  /** Absolute path to the tickets repo checkout. */
-  ticketsRepoPath: string;
-  /** Storage (projections, gate items, events, runs). */
+  /** Absolute path to the workspace root dir (run dirs, repo anchoring,
+   *  `.veto/` scratch state). Not a git repo — DB is truth (D29). */
+  rootPath: string;
+  /** Storage (truth rows, gate items, events, runs, docs, artifacts). */
   store: Store;
-  /** `actor:` identity for commits/events. */
+  /** `actor:` identity for events/edits. */
   actor: string;
   /** Wall clock (injectable for tests). */
   now: () => Date;
@@ -63,12 +59,10 @@ export interface RunOutcome {
   /** Post-collect run row — status is `done` (sentinel parsed) or
    *  `failed`. `sentinel`/`sentinel_raw`/usage fields are populated. */
   run: RunRow;
-  /** Raw adapter.collect() output — artifacts, usage, exit_code. */
+  /** Raw adapter.collect() output — artifacts (runDir paths), usage,
+   *  exit_code. Structured files have already been ingested into
+   *  `run_artifacts`/`doc_versions` by reconcile. */
   result: RunResult;
-  /** Absolute path of the written usage.json, if any. */
-  usagePath: string | null;
-  /** Absolute ticket dir for ticket subjects, undefined otherwise. */
-  ticketDir?: string;
 }
 
 /** What the CLAIM step should launch next for a ticket, if anything. */
@@ -91,18 +85,40 @@ export interface ApplyStatusOptions {
   status: TicketStatus;
   /** `blocked_reason` — set with status `blocked`; null clears it. */
   blockedReason?: string | null;
-  /** Commit message override; default `conductor: <ticket> → <status>`. */
-  commitMessage?: string;
   /** Related run id — stamped onto the status_changed event. */
   run?: string;
   /** Extra event data payload. */
   data?: Record<string, unknown>;
 }
 
-/** Result of a status write — the tickets-repo commit sha. */
+/** Result of a status write (wp-092 — was the tickets-repo commit sha
+ *  under v1; now the doc_version written, if the ticket has a
+ *  ticket.md doc). */
 export interface ApplyStatusResult {
-  commit: string;
+  /** New doc_versions.version for the ticket.md status rewrite, or
+   *  null when the ticket has no ticket.md doc. */
+  docVersion: number | null;
 }
+
+/**
+ * Conductor-side runner-task spec (CONDUCTOR "Runner tasks") — a run
+ * that executes inside the conductor process instead of an agent
+ * adapter. Persisted in `runs.request.task` so a queued row's launch is
+ * durable.
+ *
+ * - `verify` — repo-card test/lint/build suite (envops runVerifyTask);
+ *   derives repos + worktrees from the run's ticket.
+ * - `import` — fetch → materialize into tickets/doc_versions rows
+ *   (import/run.ts). `repo` = `owner/name` (GitHub).
+ */
+export type RunnerTask =
+  | { kind: 'verify' }
+  | {
+      kind: 'import';
+      repo?: string;
+      milestone?: string;
+      labels?: string[];
+    };
 
 /** A run the handler asks the conductor to queue (deduplicated on
  *  live same-subject+same-stage runs). */
@@ -115,30 +131,31 @@ export interface RunRequest {
   model?: string;
   /** Extra prompt tokens merged over the conductor's defaults. */
   tokens?: Record<string, string>;
+  /** Runner-task spec for agent-less stages (verify/import) — inferred
+   *  from the stage when omitted. */
+  task?: RunnerTask;
 }
 
 /**
  * The narrow transition-application API handed to `onRunComplete` —
- * everything wp-031's table needs to mutate the world, nothing more.
- * (CONDUCTOR reconcile step 1: "commit status + artifacts + events →
- * release lease → check auto-advance" — lease release and artifact/
- * usage writes happen BEFORE this is called; these methods cover the
- * commit/status/gate/event/follow-up parts.)
+ * everything the transition table needs to mutate the world, nothing
+ * more. DB-only (D29): status writes, gate items, events, doc versions,
+ * run artifacts, id allocation.
  */
 export interface TransitionTools extends TransitionContext {
   /**
-   * Rewrite `status:` (and optionally `blocked_reason:`) in
-   * `tickets/<id>/ticket.md` frontmatter, commit the tickets repo,
-   * update the `tickets` projection row, and append a `status_changed`
-   * events_idx row. Returns the commit sha.
+   * Update the `tickets` truth row's `status`/`blocked_reason`, append
+   * a `status_changed` events row, and — when a ticket.md doc exists —
+   * rewrite its frontmatter into a new `doc_versions` version
+   * (D24: every persisted doc change is a version). In one logical
+   * write path; no git involvement.
    */
   applyTicketStatus(opts: ApplyStatusOptions): Promise<ApplyStatusResult>;
 
   /**
    * Surface a `gate_items` row + its notification (DB-SCHEMA:
    * notifications are generated on gate_items insert). Gates wait for
-   * a human forever — the conductor never clears them (CONDUCTOR
-   * "Auto-advance rules").
+   * a human forever — the conductor never clears them.
    */
   surfaceGateItem(item: {
     subject: string;
@@ -149,8 +166,8 @@ export interface TransitionTools extends TransitionContext {
     payload?: unknown;
   }): Promise<void>;
 
-  /** Append an events_idx row (projection of events.jsonl, SCHEMAS §7).
-   *  `seq` is assigned by the store. */
+  /** Append an events row (append-only truth, SCHEMAS §7). `seq` is
+   *  assigned by the store. */
   appendEvent(e: {
     ticketId?: string | null;
     stage?: string | null;
@@ -171,11 +188,33 @@ export interface TransitionTools extends TransitionContext {
   /**
    * Queue a follow-up run (a `pending` runs row the next CLAIM pass
    * leases + launches). Deduplicated: returns the run id, or null when
-   * a live run for (subject, stage) already exists — the conductor
-   * uses the same path for its own `probe:<repo>` queueing (CONDUCTOR
-   * "Repo-card rule").
+   * a live run for (subject, stage) already exists.
    */
   requestRun(req: RunRequest): Promise<string | null>;
+
+  // ---- doc + artifact + id helpers (wp-092) ----
+
+  /** Latest content of a `doc_versions` doc for a subject, or null. */
+  getDocText(subject: string, doc: DocKind): Promise<string | null>;
+  /** Append a new immutable doc version; returns the version number. */
+  putDoc(subject: string, doc: DocKind, content: string): Promise<number>;
+
+  /** Content of one run_artifacts row, or null. */
+  getArtifactText(runId: string, name: string): Promise<string | null>;
+  /** Write/replace a run_artifacts row. */
+  putArtifact(runId: string, name: string, content: string): Promise<void>;
+  /**
+   * Latest artifact with `name` across a subject's runs (e.g. the
+   * split-plan.md the triage run produced, read back at gate clear).
+   * Pass `ticketId` to scan that ticket's runs; null = the current
+   * run only. */
+  getLatestArtifactText(
+    name: string,
+    filter: { ticketId?: string | null; runId?: string | null },
+  ): Promise<string | null>;
+
+  /** Transactional id allocation (projects.next_*_seq → `SR-NNNN`). */
+  allocTicketId(): Promise<string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -183,21 +222,21 @@ export interface TransitionTools extends TransitionContext {
 // ---------------------------------------------------------------------------
 
 /**
- * The sentinel→transition decision surface (wp-031 implements it).
+ * The sentinel→transition decision surface.
  *
  * The conductor guarantees:
  *   - `nextStage` is only asked for non-terminal tickets.
  *   - `onRunComplete` is called exactly once per collected run whose
- *     sentinel parsed; lease release, usage.json, sanitizer scan, and
- *     the run row update have already happened. A run with a missing/
- *     unparseable sentinel goes down the conductor-owned retry ladder
- *     (CONDUCTOR "Run lifecycle") and never reaches the handler.
+ *     sentinel parsed; lease release, artifact/doc ingestion, sanitizer
+ *     scan, and the run row update have already happened. A run with a
+ *     missing/unparseable sentinel goes down the conductor-owned retry
+ *     ladder and never reaches the handler.
  */
 export interface TransitionHandler {
   /**
-   * CLAIM query (CONDUCTOR "CLAIM" + "Auto-advance rules"): does this
-   * ticket's status allow a non-gate transition right now? Return the
-   * stage to launch, or null. Gates/terminal statuses → null.
+   * CLAIM query: does this ticket's status allow a non-gate transition
+   * right now? Return the stage to launch, or null. Gates/terminal
+   * statuses → null.
    */
   nextStage(
     ticket: TicketRow,
@@ -205,17 +244,17 @@ export interface TransitionHandler {
   ): Promise<NextTransition | null> | NextTransition | null;
 
   /**
-   * RECONCILE handoff (CONDUCTOR "Sentinel → transition table"):
-   * interpret `outcome.result.sentinel` and apply the table's action
-   * via `tools` — status commits, gate items, follow-up run requests.
+   * RECONCILE handoff: interpret `outcome.result.sentinel` and apply
+   * the table's action via `tools` — status writes, gate items,
+   * follow-up run requests.
    */
   onRunComplete(outcome: RunOutcome, tools: TransitionTools): Promise<void>;
 }
 
 /**
- * Stub/no-op handler (wp-030). `nextStages` is an explicit
- * status→stage map used by tests and early integration — it is NOT
- * the real transition table; wp-031 replaces this whole class.
+ * Stub/no-op handler. `nextStages` is an explicit status→stage map
+ * used by tests and early integration — it is NOT the real transition
+ * table.
  */
 export class StubTransitionHandler implements TransitionHandler {
   readonly #nextStages: Record<string, Stage>;
@@ -252,7 +291,7 @@ export class StubTransitionHandler implements TransitionHandler {
 }
 
 // ---------------------------------------------------------------------------
-// applyTicketStatus — frontmatter status write + commit helper
+// applyTicketStatus — status row + event + doc version (DB-only)
 // ---------------------------------------------------------------------------
 
 const FRONTMATTER_RE = /^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
@@ -302,45 +341,50 @@ export function rewriteFrontmatterStatus(
 }
 
 /**
- * The status-write half of every transition row (wp-031 calls this via
- * `tools.applyTicketStatus`): edit frontmatter → commitAll → update the
- * `tickets` projection → append `status_changed`.
+ * The status-write half of every transition row: update the `tickets`
+ * truth row → append `status_changed` → new ticket.md doc_version when
+ * the ticket has one (D24/D29). Throws when the ticket doesn't exist —
+ * a status write against a missing truth row is a bug, never a
+ * silent skip.
  */
 export async function applyTicketStatus(args: {
   ctx: TransitionContext;
   opts: ApplyStatusOptions;
-  actor: { name: string; email: string };
 }): Promise<ApplyStatusResult> {
-  const { ctx, opts, actor } = args;
-  const file = join(ctx.ticketsRepoPath, 'tickets', opts.ticketId, 'ticket.md');
-  const raw = await readFile(file, 'utf8');
-  const next = rewriteFrontmatterStatus(raw, opts.status, opts.blockedReason);
-  await writeFile(file, next, 'utf8');
-
-  const commit = await commitAll(
-    ctx.ticketsRepoPath,
-    opts.commitMessage ?? `conductor: ${opts.ticketId} → ${opts.status}`,
-    actor,
+  const { ctx, opts } = args;
+  // Row change + audit event + doc version commit together
+  // (ARCHITECTURE §4.4 transactional write rule).
+  return ctx.store.transaction((store) =>
+    applyTicketStatusTx(store, ctx, opts),
   );
+}
 
+async function applyTicketStatusTx(
+  store: Store,
+  ctx: TransitionContext,
+  opts: ApplyStatusOptions,
+): Promise<ApplyStatusResult> {
   const ts = ctx.now().toISOString();
-  const ticket = await ctx.store.getTicket({
+  const ticket = await store.getTicket({
     workspace: ctx.workspace,
     ticket_id: opts.ticketId,
   });
-  if (ticket) {
-    await ctx.store.upsertTicket({
-      ...ticket,
-      status: opts.status,
-      blocked_reason:
-        opts.blockedReason === undefined
-          ? ticket.blocked_reason
-          : opts.blockedReason,
-      updated_at: ts,
-    });
+  if (!ticket) {
+    throw new Error(
+      `applyTicketStatus: no tickets row for ${ctx.workspace}/${opts.ticketId} (D29: rows are truth — create via allocTicketId + upsertTicket first)`,
+    );
   }
+  await store.upsertTicket({
+    ...ticket,
+    status: opts.status,
+    blocked_reason:
+      opts.blockedReason === undefined
+        ? ticket.blocked_reason
+        : opts.blockedReason,
+    updated_at: ts,
+  });
 
-  await ctx.store.appendEvent({
+  await store.appendEvent({
     workspace: ctx.workspace,
     ticket_id: opts.ticketId,
     ts,
@@ -350,12 +394,7 @@ export async function applyTicketStatus(args: {
     event: 'status_changed',
     run: opts.run ?? null,
     refs: [],
-    data: {
-      from: ticket?.status ?? null,
-      to: opts.status,
-      commit,
-      ...opts.data,
-    },
+    data: { from: ticket.status ?? null, to: opts.status, ...opts.data },
     cost_usd: null,
     tokens_in: null,
     tokens_out: null,
@@ -365,11 +404,35 @@ export async function applyTicketStatus(args: {
     human_minutes: null,
   });
 
-  // Keep the ticket's git-side ledger (events.jsonl + LOG.md) in step —
-  // run_failed/status_changed paths that bypass emitEvent still land.
-  await regenerateLog(ctx, opts.ticketId).catch(() => {});
+  // Keep the ticket.md doc's frontmatter in step — a new version, never
+  // an in-place edit (D24). Absent doc → status lives on the row only.
+  let docVersion: number | null = null;
+  const doc = await store.getDoc({
+    workspace: ctx.workspace,
+    subject: opts.ticketId,
+    doc: 'ticket.md',
+  });
+  if (doc && FRONTMATTER_RE.test(doc.content)) {
+    const next = rewriteFrontmatterStatus(
+      doc.content,
+      opts.status,
+      opts.blockedReason,
+    );
+    if (next !== doc.content) {
+      const v = await store.appendDocVersion(
+        {
+          workspace: ctx.workspace,
+          subject: opts.ticketId,
+          doc: 'ticket.md',
+        },
+        next,
+        ctx.actor,
+      );
+      docVersion = v.version;
+    }
+  }
 
-  return { commit };
+  return { docVersion };
 }
 
 export type { GateItem };

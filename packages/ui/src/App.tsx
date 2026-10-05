@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import { client } from './api';
+import DemoApp, { isDemoMode } from './demo/DemoApp';
 import CodeReview from './screens/CodeReview';
 import CreateImport from './screens/CreateImport';
 import DocReview from './screens/DocReview';
@@ -27,7 +28,7 @@ interface Toast {
   text: string;
 }
 
-export default function App() {
+function ProductionApp() {
   const [openCount, setOpenCount] = useState<number | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const toastSeq = useRef(0);
@@ -64,7 +65,7 @@ export default function App() {
   return (
     <div className="shell">
       <nav className="nav" aria-label="primary">
-        <div className="brand">sprint-runner</div>
+        <div className="brand">veto</div>
         <NavLink to="/" end>
           Inbox
           {openCount !== null && openCount > 0 && (
@@ -113,4 +114,8 @@ export default function App() {
       </div>
     </div>
   );
+}
+
+export default function App() {
+  return isDemoMode() ? <DemoApp /> : <ProductionApp />;
 }

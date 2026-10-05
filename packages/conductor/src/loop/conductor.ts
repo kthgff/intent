@@ -2,8 +2,8 @@
  * Conductor — the babysitter loop (CONDUCTOR.md, wp-030).
  *
  * Watcher + scheduler, not a worker: one `tick()` =
- *   1. RECONCILE — pull tickets repos, rebuild projections, sweep live
- *      runs (pid liveness + mtime → conductor-observed heartbeats;
+ *   1. RECONCILE — sweep live runs (pid liveness + mtime →
+ *      conductor-observed heartbeats;
  *      dead → stalled; timeout → kill + run_killed; exited → collect →
  *      sanitizer → usage → run row → release lease → TransitionHandler),
  *   2. CLAIM — pick the next runnable unit (non-gate transition via
@@ -59,7 +59,6 @@ export class Conductor {
     for (const ws of this.deps.workspaces) {
       const ctx = this.#ctx(ws);
       const rr: ReconcileReport = {
-        pulled: [],
         stalled: [],
         killed: [],
         collected: [],

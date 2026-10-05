@@ -1,2 +1,8 @@
-export { resolveSqliteUrl, SqliteStore } from './sqlite.js';
-export type { SqliteStoreOptions } from './sqlite.js';
+export {
+  createClient,
+  createPgliteClient,
+  createPostgresClient,
+  parseStorageUrl,
+} from './client.js';
+export type { PgClient, PgDriver } from './client.js';
+export { PostgresStore } from './pg.js';

@@ -1,17 +1,25 @@
 /**
- * wp-051 shepherd tests — stub GhClient + SqliteStore tmp + a real
- * git tickets repo (status commits are real). Drives `pollOpenPrs`
- * directly; the tick wiring is covered by the interval test below.
+ * wp-051 shepherd tests (wp-093 D29) — stub GhClient + PGlite
+ * PostgresStore + a real git CODE repo (the `git push` before
+ * `gh pr create` is real). Drives `pollOpenPrs` directly; the tick
+ * wiring is covered by the interval test below.
+ *
+ * D29 plumbing: tickets are `tickets` truth rows (seeded via
+ * `store.upsertTicket`); PR linkage is `ticket_repos`; `test.md`,
+ * `merge.json` and `dod-attestations.json` are `doc_versions` docs on
+ * the ticket subject (`{workspace, subject, doc}`). Shepherd poll
+ * bookkeeping (cycles, fingerprints, DoD results) is scratch state
+ * under `<rootPath>/.veto/shepherd/` — `ws` objects are
+ * `{name, rootPath}`, there is no tickets repo.
  */
 import { execFileSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
+import { cpSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveConfig } from '@sprint-runner/config';
-import type { Store, TicketRepoRow, TicketRow } from '@sprint-runner/core';
-import { SqliteStore } from '@sprint-runner/store';
+import type { TicketRepoRow, TicketRow } from '@sprint-runner/core';
+import { PostgresStore } from '@sprint-runner/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ConductorDeps } from '../src/index.js';
 import {
@@ -33,9 +41,9 @@ const PR = 'https://github.com/acme/widgets/pull/7';
 const PR2 = 'https://github.com/acme/api/pull/9';
 
 let dir: string;
-let ticketsRepo: string;
+let wsRoot: string;
 let codeRepo: string;
-let store: SqliteStore;
+let store: PostgresStore;
 
 function gitInit(repo: string, remote?: string): void {
   execFileSync('git', ['init', '-qb', 'main'], { cwd: repo });
@@ -52,35 +60,81 @@ function gitInit(repo: string, remote?: string): void {
   }
 }
 
-function writeTicket(
+function ticketRow(
   id: string,
-  status: string,
-  opts: { testMd?: string; title?: string } = {},
-): string {
-  const tdir = join(ticketsRepo, 'tickets', id);
-  mkdirSync(tdir, { recursive: true });
-  writeFileSync(
-    join(tdir, 'ticket.md'),
+  status: TicketRow['status'],
+  repos: string[],
+  title?: string,
+): TicketRow {
+  const now = new Date().toISOString();
+  return {
+    workspace: WS,
+    ticket_id: id,
+    feature: null,
+    title: title ?? `Shepherd ${id}`,
+    status,
+    priority: 'medium',
+    depth: 'standard',
+    backend: 'mock',
+    model: null,
+    repos,
+    parent: null,
+    depends_on: [],
+    serves: null,
+    source: null,
+    forced: false,
+    spec_score: null,
+    spec_hash: null,
+    blocked_reason: null,
+    created_at: now,
+    updated_at: now,
+  };
+}
+
+/**
+ * Seed a ticket the D29 way: the `tickets` truth row plus its
+ * `ticket.md` doc_version (status flips rewrite the doc's frontmatter
+ * into new versions), and an optional `test.md` doc for the DoD path.
+ */
+async function seedTicket(
+  id: string,
+  status: TicketRow['status'],
+  opts: { testMd?: string; title?: string; repos?: string[] } = {},
+): Promise<void> {
+  const repos = opts.repos ?? ['code-repo'];
+  const title = opts.title ?? `Shepherd ${id}`;
+  await store.upsertTicket(ticketRow(id, status, repos, title));
+  await store.appendDocVersion(
+    { workspace: WS, subject: id, doc: 'ticket.md' },
     [
       '---',
       'schema: 1',
       `id: ${id}`,
-      `title: ${opts.title ?? `Shepherd ${id}`}`,
+      `title: ${title}`,
       `status: ${status}`,
       'priority: medium',
-      'repos: [code-repo]',
+      `repos: [${repos.join(', ')}]`,
       '---',
       '',
       '## Description',
       'fixture',
       '',
     ].join('\n'),
-    'utf8',
+    'test-seed',
   );
-  if (opts.testMd) {
-    writeFileSync(join(tdir, 'test.md'), opts.testMd, 'utf8');
+  if (opts.testMd !== undefined) {
+    await store.appendDocVersion(
+      { workspace: WS, subject: id, doc: 'test.md' },
+      opts.testMd,
+      'test-seed',
+    );
   }
-  return tdir;
+}
+
+/** Latest content of a doc_versions doc, or null when absent. */
+async function docText(subject: string, doc: 'merge.json' | 'test.md') {
+  const v = await store.getDoc({ workspace: WS, subject, doc });
+  return v?.content ?? null;
 }
 
 const DOD_MD = (rows: string) =>
@@ -140,26 +194,6 @@ const FAIL: PrCheck = {
 const FAIL2: PrCheck = { name: 'e2e', state: 'FAILURE', bucket: 'fail' };
 const PENDING: PrCheck = { name: 'unit', state: 'PENDING', bucket: 'pending' };
 
-function ticketRow(id: string, status: string, repos: string[]): TicketRow {
-  return {
-    workspace: WS,
-    ticket_id: id,
-    title: `Shepherd ${id}`,
-    status,
-    priority: 'medium',
-    depth: 'standard',
-    backend: 'mock',
-    model: null,
-    repos,
-    parent: null,
-    depends_on: [],
-    spec_score: null,
-    spec_hash: null,
-    blocked_reason: null,
-    updated_at: new Date().toISOString(),
-  };
-}
-
 function repoRow(
   id: string,
   repo: string,
@@ -199,14 +233,13 @@ function makeCtx(
       secrets: {},
       files: [],
     }),
-    workspaces: [{ name: WS, ticketsRepoPath: ticketsRepo }],
+    workspaces: [{ name: WS, rootPath: wsRoot }],
     runsDir: join(dir, 'runs'),
     transitions: undefined as never,
-    pull: false,
   };
   const ctx: ToolCtx = {
     deps,
-    ws: { name: WS, ticketsRepoPath: ticketsRepo },
+    ws: { name: WS, rootPath: wsRoot },
     leases: new LeaseManager(deps),
     handles: new Map(),
     killedForCap: new Set(),
@@ -219,30 +252,32 @@ async function pendingStages(id: string): Promise<string[]> {
   return runs.filter((r) => r.status === 'pending').map((r) => r.stage);
 }
 
-beforeEach(() => {
+async function ticketStatus(id: string): Promise<string | undefined> {
+  return (await store.getTicket({ workspace: WS, ticket_id: id }))?.status;
+}
+
+beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), 'sr-shepherd-'));
-  ticketsRepo = join(dir, 'tickets-repo');
+  wsRoot = join(dir, 'ws');
   codeRepo = join(dir, 'code-repo');
   const remote = join(dir, 'code-remote.git');
-  mkdirSync(ticketsRepo, { recursive: true });
+  mkdirSync(wsRoot, { recursive: true });
   cpSync(CODE_FIXTURE, codeRepo, { recursive: true });
   execFileSync('git', ['init', '-qb', 'main', '--bare', remote]);
   gitInit(codeRepo, remote);
   execFileSync('git', ['push', '-qu', 'origin', 'main'], { cwd: codeRepo });
-  gitInit(ticketsRepo);
-  store = new SqliteStore(`sqlite://${join(dir, 'state.db')}`);
+  store = await PostgresStore.connect('pglite:');
 });
 
-afterEach(() => {
-  store.close();
+afterEach(async () => {
+  await store.close();
   rmSync(dir, { recursive: true, force: true });
 });
 
 describe('shepherd poll', () => {
   it('pr-open: opens the PR (push + gh pr create) then flips to ci-watch once checks register', async () => {
-    writeTicket('SR-0001', 'pr-open');
+    await seedTicket('SR-0001', 'pr-open');
     execFileSync('git', ['branch', 'ticket/SR-0001'], { cwd: codeRepo });
-    await store.upsertTicket(ticketRow('SR-0001', 'pr-open', ['code-repo']));
     await store.upsertTicketRepo(
       repoRow('SR-0001', 'code-repo', { pr_url: null, pr_state: null }),
     );
@@ -260,16 +295,12 @@ describe('shepherd poll', () => {
     });
     expect(row?.pr_url).toBe(gh.createdUrl);
     expect(row?.pr_state).toBe('open');
-    expect(
-      (await store.getTicket({ workspace: WS, ticket_id: 'SR-0001' }))?.status,
-    ).toBe('pr-open');
+    expect(await ticketStatus('SR-0001')).toBe('pr-open');
 
     // Checks register → ci-watch + merge gate item.
     gh.checks.set(gh.createdUrl, [PENDING]);
     await pollOpenPrs(ctx);
-    expect(
-      (await store.getTicket({ workspace: WS, ticket_id: 'SR-0001' }))?.status,
-    ).toBe('ci-watch');
+    expect(await ticketStatus('SR-0001')).toBe('ci-watch');
     const gate = await store.getGateItem({
       workspace: WS,
       subject: 'SR-0001',
@@ -285,8 +316,7 @@ describe('shepherd poll', () => {
   });
 
   it('failing checks → one ci-fix run queued, deduped while live', async () => {
-    writeTicket('SR-0002', 'ci-watch');
-    await store.upsertTicket(ticketRow('SR-0002', 'ci-watch', ['code-repo']));
+    await seedTicket('SR-0002', 'ci-watch');
     await store.upsertTicketRepo(repoRow('SR-0002', 'code-repo'));
     const gh = new StubGh();
     gh.checks.set(PR, [FAIL]);
@@ -331,8 +361,7 @@ describe('shepherd poll', () => {
   });
 
   it('new review comments → comment-fix with PR_COMMENTS_JSON, deduped', async () => {
-    writeTicket('SR-0003', 'ci-watch');
-    await store.upsertTicket(ticketRow('SR-0003', 'ci-watch', ['code-repo']));
+    await seedTicket('SR-0003', 'ci-watch');
     await store.upsertTicketRepo(repoRow('SR-0003', 'code-repo'));
     const gh = new StubGh();
     gh.checks.set(PR, [PENDING]); // not green — comment path still runs
@@ -371,8 +400,7 @@ describe('shepherd poll', () => {
   });
 
   it('cycle cap → escalation gate + stops polling that PR', async () => {
-    writeTicket('SR-0004', 'ci-watch');
-    await store.upsertTicket(ticketRow('SR-0004', 'ci-watch', ['code-repo']));
+    await seedTicket('SR-0004', 'ci-watch');
     await store.upsertTicketRepo(repoRow('SR-0004', 'code-repo'));
     const gh = new StubGh();
     gh.checks.set(PR, [FAIL]);
@@ -408,13 +436,12 @@ describe('shepherd poll', () => {
   });
 
   it('green + quiet → merge enabled only after DoD cmd verify + manual attest', async () => {
-    const tdir = writeTicket('SR-0005', 'ci-watch', {
+    await seedTicket('SR-0005', 'ci-watch', {
       testMd: DOD_MD(
         '| smoke suite passes | cmd:exit 0 |\n' +
           '| human eyeballs it | manual |',
       ),
     });
-    await store.upsertTicket(ticketRow('SR-0005', 'ci-watch', ['code-repo']));
     await store.upsertTicketRepo(repoRow('SR-0005', 'code-repo'));
     const gh = new StubGh();
     gh.checks.set(PR, [PASS]);
@@ -422,16 +449,16 @@ describe('shepherd poll', () => {
 
     // cmd verified, manual unattested → not enabled.
     await pollOpenPrs(ctx);
-    await expect(readFile(join(tdir, 'merge.json'), 'utf8')).rejects.toThrow();
+    expect(await docText('SR-0005', 'merge.json')).toBeNull();
     const dodRun = (await store.listRuns({ workspace: WS })).find(
       (r) => r.subject === 'dod:SR-0005',
     );
     expect(dodRun?.status).toBe('done');
 
     // Attest → next poll enables merge (never auto-merges).
-    await writeFile(
-      join(tdir, 'dod-attestations.json'),
-      JSON.stringify(
+    await store.appendDocVersion(
+      { workspace: WS, subject: 'SR-0005', doc: 'dod-attestations.json' },
+      `${JSON.stringify(
         {
           schema: 1,
           attested: [
@@ -444,24 +471,22 @@ describe('shepherd poll', () => {
         },
         null,
         2,
-      ),
+      )}\n`,
+      'tester',
     );
     await pollOpenPrs(ctx);
-    const flag = JSON.parse(
-      await readFile(join(tdir, 'merge.json'), 'utf8'),
-    ) as { enabled: boolean };
+    const flagDoc = await docText('SR-0005', 'merge.json');
+    expect(flagDoc).not.toBeNull();
+    const flag = JSON.parse(flagDoc as string) as { enabled: boolean };
     expect(flag.enabled).toBe(true);
     // Still ci-watch — merge NEVER auto-fires.
-    expect(
-      (await store.getTicket({ workspace: WS, ticket_id: 'SR-0005' }))?.status,
-    ).toBe('ci-watch');
+    expect(await ticketStatus('SR-0005')).toBe('ci-watch');
   });
 
   it('failing DoD cmd → dod-failed gate, merge stays disabled', async () => {
-    const tdir = writeTicket('SR-0006', 'ci-watch', {
+    await seedTicket('SR-0006', 'ci-watch', {
       testMd: DOD_MD('| smoke | cmd:exit 1 |'),
     });
-    await store.upsertTicket(ticketRow('SR-0006', 'ci-watch', ['code-repo']));
     await store.upsertTicketRepo(repoRow('SR-0006', 'code-repo'));
     const gh = new StubGh();
     gh.checks.set(PR, [PASS]);
@@ -473,14 +498,13 @@ describe('shepherd poll', () => {
       gate: 'dod-failed',
     });
     expect(gate?.cleared_at).toBeNull();
-    await expect(readFile(join(tdir, 'merge.json'), 'utf8')).rejects.toThrow();
+    expect(await docText('SR-0006', 'merge.json')).toBeNull();
   });
 
   it('multi-repo: merged iff ALL ticket_repos rows merged', async () => {
-    writeTicket('SR-0007', 'ci-watch');
-    await store.upsertTicket(
-      ticketRow('SR-0007', 'ci-watch', ['code-repo', 'api']),
-    );
+    await seedTicket('SR-0007', 'ci-watch', {
+      repos: ['code-repo', 'api'],
+    });
     await store.upsertTicketRepo(repoRow('SR-0007', 'code-repo'));
     await store.upsertTicketRepo(
       repoRow('SR-0007', 'api', { pr_url: PR2, branch: 'ticket/SR-0007' }),
@@ -492,9 +516,7 @@ describe('shepherd poll', () => {
     // One repo merges → ticket stays ci-watch.
     gh.views.set(PR, { state: 'MERGED', mergeCommit: { oid: 'abc123' } });
     await pollOpenPrs(makeCtx(gh));
-    expect(
-      (await store.getTicket({ workspace: WS, ticket_id: 'SR-0007' }))?.status,
-    ).toBe('ci-watch');
+    expect(await ticketStatus('SR-0007')).toBe('ci-watch');
     const mergedRow = await store.getTicketRepo({
       workspace: WS,
       ticket_id: 'SR-0007',
@@ -505,14 +527,11 @@ describe('shepherd poll', () => {
     // Both merged → ticket merged.
     gh.views.set(PR2, { state: 'MERGED', mergeCommit: { oid: 'def456' } });
     await pollOpenPrs(makeCtx(gh));
-    expect(
-      (await store.getTicket({ workspace: WS, ticket_id: 'SR-0007' }))?.status,
-    ).toBe('merged');
+    expect(await ticketStatus('SR-0007')).toBe('merged');
   });
 
   it('revert path: merged revert PR → reverted, revert PR opened with revert title', async () => {
-    writeTicket('SR-0008', 'ci-watch');
-    await store.upsertTicket(ticketRow('SR-0008', 'ci-watch', ['code-repo']));
+    await seedTicket('SR-0008', 'ci-watch');
     // A finished revert run marks this ticket's PR as a revert PR.
     await store.createRun({
       id: `${WS}/SR-0008/001-revert`,
@@ -526,6 +545,8 @@ describe('shepherd poll', () => {
       depth: null,
       pid: null,
       worktree: codeRepo,
+      container_id: null,
+      request: null,
       status: 'done',
       started_at: new Date().toISOString(),
       heartbeat_at: null,
@@ -558,22 +579,19 @@ describe('shepherd poll', () => {
       mergeCommit: { oid: 'rev1' },
     });
     await pollOpenPrs(ctx);
-    expect(
-      (await store.getTicket({ workspace: WS, ticket_id: 'SR-0008' }))?.status,
-    ).toBe('reverted');
+    expect(await ticketStatus('SR-0008')).toBe('reverted');
   });
 
   it('tick wiring: shepherd interval throttles (skipped between polls)', async () => {
     const { Conductor, StubTransitionHandler } = await import(
       '../src/index.js'
     );
-    writeTicket('SR-0009', 'ci-watch');
-    await store.upsertTicket(ticketRow('SR-0009', 'ci-watch', ['code-repo']));
+    await seedTicket('SR-0009', 'ci-watch');
     await store.upsertTicketRepo(repoRow('SR-0009', 'code-repo'));
     const gh = new StubGh();
     gh.checks.set(PR, [PASS]);
     const deps: ConductorDeps = {
-      store: store as Store,
+      store,
       adapters: {},
       config: resolveConfig(null, {
         config: {
@@ -587,11 +605,10 @@ describe('shepherd poll', () => {
         secrets: {},
         files: [],
       }),
-      workspaces: [{ name: WS, ticketsRepoPath: ticketsRepo }],
+      workspaces: [{ name: WS, rootPath: wsRoot }],
       runsDir: join(dir, 'runs'),
       transitions: new StubTransitionHandler(),
       gh,
-      pull: false,
       scan: async () => ({ ok: true as const, scanner: 'stub', findings: [] }),
     };
     const conductor = new Conductor(deps);

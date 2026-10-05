@@ -38,7 +38,7 @@ None blocking — resolved ambiguities:
   `docs/ADAPTERS.md` → "Aider adapter — spike notes (2026-10-03)".
   Re-verify on first machine with a real install.
 - **collectArtifacts seam**: `packages/conductor` depends on
-  `@sprint-runner/adapters` (devDep), so adapters cannot import
+  `@veto/adapters` (devDep), so adapters cannot import
   `envops.collectArtifacts` without a dependency cycle. The adapter
   mirrors the scratch-dir move+purge itself (mock-adapter pattern);
   the conductor's own `collectArtifacts` pass in reconcile remains the

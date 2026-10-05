@@ -58,7 +58,6 @@ const FIXED_KEYS: Record<string, readonly string[]> = {
     'verified',
   ],
   'products.*': ['repos', 'docs', 'screenshots', 'app_url', 'context_file'],
-  'tickets_repos[]': ['name', 'url'],
 };
 
 /** Paths whose children are named record entries with fixed shapes. */

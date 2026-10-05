@@ -383,8 +383,11 @@ export class MockAdapter implements Adapter {
     const sentinel = raw !== null ? MockAdapter.parseSentinel(raw) : null;
 
     // Scratch-dir collection: copy artifacts into ctx.run_dir, purge
-    // (ADAPTERS ARTIFACT_TARGETS — the diff never sees them).
-    if (record?.scratch) {
+    // (ADAPTERS ARTIFACT_TARGETS — the diff never sees them). D29: the
+    // run dir lives under the workspace root, so "inside the tree" no
+    // longer implies scratch — only copy/purge when the artifact dir is
+    // a DIFFERENT directory than the collect target.
+    if (record?.scratch && record.artifactDir !== ctx.run_dir) {
       mkdirSync(ctx.run_dir, { recursive: true });
       for (const file of listFiles(record.artifactDir)) {
         const rel = relative(record.artifactDir, file);

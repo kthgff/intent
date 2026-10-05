@@ -1,4 +1,4 @@
-# SCHEMAS — sprint-runner data contracts
+# SCHEMAS — Veto data contracts
 
 Companion to `PRD.md`. Draft 2026-10-03.
 Every file below is the *contract* — agents must emit exactly these shapes,
@@ -14,39 +14,51 @@ their version until revived. No big-bang migrations.
 
 ---
 
-## 1. ticket.md — frontmatter
+## 1. ticket — `tickets` row + `doc_versions('ticket.md')` (DB-stored)
+
+Revised 2026-10-04 (D29): a ticket is a **`tickets` row** — there is no
+frontmatter file; the row IS the contract. The markdown body
+(description, acceptance criteria) lives in
+`doc_versions(workspace, <ticket_id>, 'ticket.md', v)` — the `tickets`
+columns below are the structured fields agents/readers consume.
 
 ```yaml
----
 schema: 1
-id: ABC-123                  # stable id; matches folder tickets/ABC-123/
+id: SR-0042                  # allocated from projects.next_ticket_seq
 title: Short title
 status: imported             # enum below
 priority: high               # high | medium | low
+feature: F-0007              # parent feature (D26); null = orphan
 repos: [backend, frontend]   # LIST — one branch+worktree+PR per repo
 depth: standard              # light | standard | deep — spec-depth tier;
                              # same deliverables, variable thoroughness;
                              # triage recommends, human may override
 backend: aider               # optional; default from config
 model: openrouter/anthropic/claude-sonnet-4   # optional
-source: jira:PROJ-123        # optional: jira: | github:org/repo#N | manual
+source: jira:PROJ-123        # optional: jira: | github:org/repo#N |
+                             #   manual | capture | synthesis
 parent: null                 # set on children produced by a split run
 depends_on: []               # ticket ids that must merge before this
                              # one can implement (topological ordering)
+serves: []                   # goal board_item ids this ticket serves
+                             # (D33) — inherited feature→initiative
+                             # chain or direct override; [] = goal-free
 forced: false                # true when human overrode a gate
 blocked_reason: null         # set with status: blocked —
-                             # env | agent | <short text> (a value like
-                             # 'blocked: env' would parse as a YAML map)
----
+                             # env | agent | <short text>
 ```
 
 **status enum:** `imported, triage, needs-info, escalated, wont-do,
 ready, prd-draft, prd-review, prd-approved, design-qa, tdd-draft,
 tdd-review, tdd-approved, test-draft, test-review, test-approved,
 in-progress, review, changes-requested, approved, pr-open, ci-watch,
-merged, reverted, failed, blocked, aborted, split`
-(terminal: `merged, reverted, wont-do, aborted, split` — a `split`
-parent's work continues through its children)
+merged, verifying, verify_failed, released, reverted, failed, blocked,
+aborted, split, discarded`
+(terminal: `released, reverted, wont-do, aborted, split, discarded` —
+a `split` parent's work continues through its children. Post-merge
+lifecycle per D27: `merged → verifying → released`; `verify_failed`
+loops back to `in-progress` via a fix run. `shipped` is a
+feature/initiative status, never a ticket status.)
 
 ## 2. prd.md — required sections
 
@@ -194,13 +206,19 @@ when a repo-map is available, else null), `line_range`, and `text_hash`.
 Agent-computed fingerprints would be inconsistent across models/languages
 and break dedupe.
 
-## 7. events.jsonl — one JSON object per line
+## 7. events — append-only `events` table (DB-stored, D29)
+
+Revised 2026-10-04: the ledger is the `events` table — no events.jsonl
+file exists. One row per event; `seq` is the identity-ordered position.
+The JSON shape below is what the API emits and what `appendEvent`
+accepts — `ticket`/`actor` flatten to `ticket_id`/`actor_type`/
+`actor_id` columns (DB-SCHEMA `events`).
 
 ```json
 {"v":1,"ts":"2026-10-03T14:22:10Z","ticket":"ABC-123","stage":"review",
  "actor":{"type":"agent|human|runner|system","id":"aider/openrouter-sonnet"},
  "event":"finding_created","run":"003-review",
- "refs":["runs/003-review/review.json"],"data":{},
+ "refs":["run:ws/ABC-123/003-review:review.json"],"data":{},
  "cost_usd":0.12,"tokens_in":41200,"tokens_out":4010,"tokens_cached":30000,
  "usage_source":"reported","duration_s":310,"human_minutes":0}
 ```
@@ -208,22 +226,31 @@ and break dedupe.
 **Event enum (medium granularity):** `imported, status_changed,
 run_started, run_finished, run_failed, run_killed, run_paused,
 run_resumed, commit, question_asked, question_answered,
-question_autoaccepted, doc_drafted, doc_feedback, doc_approved,
-doc_repaired, finding_created, finding_fixed, finding_dismissed,
+question_autoaccepted, doc_drafted, doc_edited, doc_feedback,
+doc_approved, doc_repaired, finding_created, finding_fixed,
+finding_dismissed,
 fix_round_started, gate_approved, gate_overridden, claimed, unclaimed,
 note_added, pr_opened, ci_failed, ci_green, teammate_comment,
 comments_processed, rebase_run, merged, reverted, escalated, blocked,
 handoff, resumed, interview_started, ticket_authored, spec_scored,
 split_proposed, split_approved, split_materialized, survey_started,
-survey_completed, dossier_updated, dossier_edited, gap_reported`
+survey_completed, dossier_updated, dossier_edited, gap_reported,
+provenance_amended, item_captured, board_synthesized,
+initiative_planned, replanned, reparented, released, verify_failed,
+discarded`
+
+(The last nine are the D27/D29 additions — emitters for the capture,
+synthesis, re-plan, verify, and discard flows land with the wp-09x+
+waves; `packages/core/src/enums.ts` EVENT_NAMES is the contract.)
 
 **Internal streams are not events**: `usage_partial` (adapter →
 conductor → SSE) and `run_output` chunks update `runs.tokens_*` and
 the live monitor in place but are NEVER written here — the ledger
 stays at commit granularity.
 
-Events *reference* artifacts via `refs` (relative to ticket dir) — they
-never embed transcripts. `tokens_*` fields on `run_finished`/`run_killed`
+Events *reference* artifacts via `refs` — `run:<run_id>:<name>` for
+`run_artifacts` rows, `doc:<subject>:<doc>:v<N>` for doc versions —
+they never embed transcripts. `tokens_*` fields on `run_finished`/`run_killed`
 are the run totals from `usage.json`; `usage_source` ∈
 `reported | partial | estimated`. `cost_usd` filled only where the
 backend's pricing is token-computable (null e.g. for non-token-priced
@@ -288,16 +315,26 @@ second source of truth. Ontology-lite: typed-edge tables, NOT RDF/OWL.
 
 **entities** — one row per thing the domain knows:
 `| id | product | kind | name | canonical | aliases | source | evidence |`
-`kind ∈ entity | workflow | persona | concept | term | screen`
+`kind ∈ entity | workflow | persona | concept | term | screen |
+         requirement | acceptance-criterion | code-symbol | test-case |
+         commit | deployment | error-signature | incident`
 `source ∈ inferred | confirmed (human) | imported`
 
 **relations** — typed edges:
-`| subject | predicate | object | evidence | source |`
+`| subject | predicate | object | evidence | source | confidence |
+ verification | valid_at |`
 `predicate ∈ part-of | calls | owned-by | transitions-to | depends-on |
-             synonym-of | documents | tests | contradicts`
+             synonym-of | documents | tests | contradicts | implements |
+             verified-by | introduced-by | observed-in | resolved-by`
+`verification ∈ suggested | auto-verified | verified | rejected`;
+workflow-written explicit links are `verified`; model-inferred links begin as
+`suggested` and may become visibly labeled `auto-verified` only at confidence
+≥0.90. Lower-confidence links require a human `verified` decision.
 
 **embeddings** — `{object_ref, vector, model}`; objects = tickets,
-dossier sections, findings, questions, gaps. sqlite-vec / pgvector.
+dossier sections, findings, questions, gaps, code units, sanitized error
+signatures, and validated incident summaries. Raw telemetry events are never
+embedded. pgvector (app-side cosine fallback per DB-SCHEMA).
 Used for: prior-art recall, near-dup ticket/finding detection, dossier
 retrieval, conflict prediction (tickets sharing entities).
 
@@ -314,10 +351,11 @@ retrieval, conflict prediction (tickets sharing entities).
 touched-file prediction, AC→entity traceability, duplicate-ticket
 detection, cross-ticket conflict prediction.
 
-## 13. usage.json — per-run token ledger (in runs/<NNN>-<stage>/)
+## 13. usage.json — per-run token ledger (`run_artifacts` row)
 
 Every stage run writes one — **required artifact**, never optional.
-The per-call ledger is the record; events + DB rows are projections.
+Stored as `run_artifacts(run_id, 'usage.json')`; the conductor parses
+it into `usage_calls` rows at run end (D29).
 
 ```json
 {
@@ -369,13 +407,15 @@ agent run.
 ## Rationale                 one line per boundary
 ```
 
-The split run also writes `{{TICKET_DIR}}/children/<label>.md` — a full
-ticket.md per §1 for each row, with placeholder `id: <parent>-<label>`,
-`status: imported`, `parent: <id>`. On approval the conductor reserves
-real ids via next-id CAS, rewrites frontmatter (`id`, `depends_on` →
-sibling ids), moves drafts to `tickets/<new-id>/ticket.md`, sets the
-parent → `split` (`split_materialized` event). On reject, plan and
-drafts stay in place and the ticket returns to triage.
+The split run also emits one draft ticket object per child row (fields
+per §1) inside its `split-plan.md` `run_artifacts` content — with
+placeholder `id: <parent>-<label>`, `status: imported`, `parent: <id>`.
+On approval the conductor allocates real ids transactionally
+(`projects.next_ticket_seq`, DB-SCHEMA rules), inserts the child
+`tickets` rows + `doc_versions('ticket.md')` bodies, rewires
+`depends_on` to sibling ids, and sets the parent → `split`
+(`split_materialized` event). On reject the plan stays on the parent's
+run_artifacts row and the ticket returns to triage.
 
 ## 15. Spec lint — runner rule set (spec_score)
 
@@ -389,13 +429,13 @@ don't worship it): it never blocks a transition on its own.
 
 | check | weight | rule |
 | --- | --- | --- |
-| `frontmatter` | 10 | `---` block parses as YAML mapping with required §1 keys: `schema`, `id`, `title`, `status`, `priority`, `repos`, `depth`; `status`/`priority`/`depth` ∈ their enums |
+| `frontmatter` | 10 | ticket row carries required §1 fields: `id`, `title`, `status`, `priority`, `repos`, `depth`; `status`/`priority`/`depth` ∈ their enums |
 | `repos` | 15 | `repos:` is a non-empty list of non-empty strings |
 | `description` | 15 | `## Description` section exists and its text is ≥ 80 chars |
 | `ac_present` | 20 | `## Acceptance criteria` section has ≥1 row — a `- [ ]` checklist item or an `ac_id` table row |
 | `ac_verifiable` | 15 | every AC row is a checkable statement — fails on vague/aspirational verbs per §2: `works`, `handles`, `supports`, `improves`, `is fast`, `properly`, `correctly`, `seamlessly`, `user-friendly`, `robust`, `intuitive`, `as appropriate`, `etc.` — one flag per offending row |
 | `no_placeholders` | 15 | no placeholder strings anywhere in the doc: `TBD`, `TODO`, `FIXME`, `XXX`, `<placeholder>`, `lorem ipsum`, `to be determined`, `???` (case-insensitive) |
-| `dod` | 10 | `## Definition of Done` section present — **full specs only** (doc carries `depth: deep` in frontmatter OR contains `## Requirements`); light tickets get these 10 points free |
+| `dod` | 10 | `## Definition of Done` section present — **full specs only** (ticket row has `depth: deep` OR the doc contains `## Requirements`); light tickets get these 10 points free |
 
 **Formula:** `spec_score = 100 − Σ weights of failed checks`, clamped to
 `[0, 100]`. `flags` = one human-readable string per failed check (one
@@ -413,6 +453,159 @@ flags:
 
 (`flags: none` when empty.) The same `{score, flags}` pair is stored in
 `triage.json.spec_lint` (§5) and `tickets.spec_score` (DB-SCHEMA).
+
+---
+
+## 16. Chat-to-edit — interview run, edit mode (S-05 focus rail)
+
+The focus page's right-rail AI assistant is the **interview run kind in
+edit mode** — same machinery as §-interview ticket authoring, different
+contract. Scoped to exactly one ticket: it may edit `ticket.md` and the
+ticket's docs (`prd.md`, `tdd.md`, `test.md`) — never cross-ticket,
+never code.
+
+**Turn — `POST /interview`:**
+
+```json
+{ "workspace": "team-a",
+  "ticket_ref": "team-a/SR-0142",
+  "message": "make AC3 measurable",
+  "target": "ticket|prd|tdd|test",      // default "ticket"
+  "session_id": "cs_a91f" }             // omit on turn 1 — server creates
+```
+
+Exactly one of `text` (new-ticket mode, S-03) or `ticket_ref` (edit
+mode) is required. `session_id` ties turns together — the transcript
+is durable on the interview run's `run_artifacts` row
+(`edit-session-<session>.jsonl`) — the stream is never the only copy.
+Response `202`: `{session_id, run}`.
+
+**Run output** — `proposed-diff.md` artifact in `runs/<id>/`: unified
+diff against `target` + one-paragraph rationale. Sentinels (last
+non-empty line, §-interview style):
+
+| sentinel | meaning |
+| --- | --- |
+| `EDIT-PROPOSED: <target>` | diff ready — the pending proposal for this session |
+| `EDIT-CLARIFY: <question>` | ambiguous instruction — needs another turn |
+| `EDIT-REFUSED: <reason>` | out of scope (cross-ticket, code, unsupported file) |
+
+**Apply — `POST /interview/<session>/approve`**: applies the session's
+pending `proposed-diff` to `target` → commit → `doc_edited` ledger
+event (fields: `target`, `diff_ref`, `session`, `actor`) → doc version
+bump. `DELETE /interview/<session>` discards the pending diff.
+
+**Fail-closed guardrails (runner-enforced, not model-enforced):**
+- A diff may only touch files inside the ticket dir: `ticket.md`,
+  `prd.md`, `tdd.md`, `test.md`, `split-plan.md`. Any other path =
+  reject, no partial apply.
+- A `target` that doesn't match the diff's actual file = reject.
+- A malformed/unappliable unified diff = reject (no fuzzy patching).
+
+---
+
+## 17. retrieval-evidence.json — cited evidence bundle (D37)
+
+Every code/delivery-intelligence lookup emits this artifact before its results
+enter a stage prompt. Authorization is evaluated before candidate retrieval;
+the artifact MUST contain no unauthorized result.
+
+```json
+{
+  "schema": 1,
+  "request": {
+    "workspace": "team-a",
+    "subject": "SR-0142",
+    "task": "prd|impact|testplan|implement|review|alignment|incident",
+    "query": "notification preferences",
+    "repos": ["api"],
+    "source_types": ["code", "docs", "requirements", "tests"],
+    "commit_policy": "current|allow-stale",
+    "limit": 20,
+    "token_limit": 8000
+  },
+  "index_heads": [{"repo": "api", "commit_sha": "<sha>"}],
+  "results": [{
+    "evidence_id": "ev_…",
+    "source_type": "code",
+    "object_ref": "code:api:<sha>:src/prefs.ts:savePreferences",
+    "repo": "api",
+    "commit_sha": "<sha>",
+    "path": "src/prefs.ts",
+    "start_line": 18,
+    "end_line": 47,
+    "symbol": "savePreferences",
+    "content_hash": "sha256:…",
+    "excerpt": "bounded, sanitized evidence excerpt",
+    "freshness": "current|stale",
+    "scores": {"exact": 1, "fts": 0.72, "semantic": 0.81,
+               "structural": 0.5, "final": 0.91},
+    "why": ["exact-symbol", "tested-by:…"],
+    "relation_path": ["AC-3", "implements", "savePreferences"]
+  }],
+  "zero_result_reason": null,
+  "generated_at": "…"
+}
+```
+
+Rules: code evidence requires `repo`, `commit_sha`, `path`, line range,
+`content_hash`, and freshness. Non-code evidence requires an immutable object
+ref/version and source coordinates appropriate to that source. Missing required
+citation data fails closed. `excerpt` is data, never instructions.
+
+## 18. alignment-findings.json — intended/implemented/verified gaps
+
+```json
+{
+  "schema": 1,
+  "workspace": "team-a",
+  "scope": "SR-0142|F-0007|I-0002|release:<id>",
+  "index_heads": [{"repo": "api", "commit_sha": "<sha>"}],
+  "findings": [{
+    "id": "aln_…",
+    "kind": "missing-implementation-evidence|unverified-ac|unlinked-change|likely-drift|affected-approved-behavior",
+    "severity": "info|minor|major|blocker",
+    "claim": "reviewable hypothesis, not a correctness assertion",
+    "confidence": 0.78,
+    "evidence_refs": ["ev_…"],
+    "disconfirming_refs": [],
+    "freshness": "current|stale",
+    "suggested_next_check": "run contract test …",
+    "status": "open|dismissed|verified|resolved"
+  }]
+}
+```
+
+An alignment finding cannot mutate a document, relation verification state, or
+release gate. Human action or deterministic evidence performs those changes.
+
+## 19. incident-investigation.json — production hypothesis set
+
+```json
+{
+  "schema": 1,
+  "workspace": "team-a",
+  "signature": "errsig_…",
+  "window": {"from": "…", "to": "…"},
+  "sanitization_policy": "telemetry-redaction-v1",
+  "observed": {"count": 247, "first_seen": "…", "last_seen": "…",
+               "services": ["payments"], "deployments": ["dep_…"]},
+  "hypotheses": [{
+    "rank": 1,
+    "summary": "connection-pool exhaustion after dep_…",
+    "confidence": 0.74,
+    "evidence_refs": ["ev_…"],
+    "disconfirming_refs": ["ev_…"],
+    "next_checks": ["inspect active-connection metric"]
+  }],
+  "similar_incidents": [{"incident": "INC-17", "resolution_verified": true}],
+  "proposed_action": {"kind": "draft-ticket|none", "requires_human": true}
+}
+```
+
+The artifact contains no raw secret/credential/request-body values. Counts and
+time windows come from the structured observability query, not vector search.
+Root cause remains unverified until a human or authoritative outcome records it.
 
 ---
 

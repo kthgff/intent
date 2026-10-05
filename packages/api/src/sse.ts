@@ -4,7 +4,7 @@ import type { StreamEvent } from '@sprint-runner/conductor';
  *
  * One event source per client; `notify` fans a {@link StreamEvent}
  * out to every connected reply. Every streamed fact is also written
- * durably before notify is called (events.jsonl, DB rows, log files)
+ * durably before notify is called (DB rows, log files)
  * — the stream is a latency optimization, never the only copy, so a
  * reconnecting client re-reads state and no replay protocol is needed.
  */

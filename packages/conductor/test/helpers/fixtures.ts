@@ -1,15 +1,16 @@
 /**
- * wp-040 E2E fixture world — copies fixtures/tickets-repo +
- * fixtures/code-repo into a tmp dir, `git init`s both, wires a bare
- * file:// remote for the tickets repo (push/pull coverage), and boots a
- * real Conductor over SqliteStore + a scripted MockAdapter +
- * RealTransitionHandler. Zero LLM spend, everything local.
+ * wp-094 E2E fixture world (D29) — seeds `tickets` rows + `doc_versions`
+ * directly from the fixture ticket.md docs (parsed via the importer's
+ * `parseTicketMd` — no projection pass), copies fixtures/code-repo into
+ * a tmp dir + `git init`s it, and boots a real Conductor over a PGlite
+ * PostgresStore + a scripted MockAdapter + RealTransitionHandler.
+ * Zero LLM spend, everything local.
  *
  * The mock agent is `helpers/mock-agent.mjs` — a superset of the shipped
- * agent that additionally writes files into the ticket dir (`files`) and
- * emits arbitrary sentinels (`sentinel`), because transition rows read
- * spec docs from `tickets/<id>/` (tdd.md/test.md lints, triage.json
- * answers), not just run artifacts.
+ * agent that additionally writes files into the run dir's ticket scope
+ * (`files`) and emits arbitrary sentinels (`sentinel`). Reconcile's
+ * run-dir ingestion promotes `<run_dir>/<ticket_id>/<doc>` writes into
+ * `doc_versions`/`run_artifacts` rows — the same path real adapters use.
  */
 import { execFileSync } from 'node:child_process';
 import {
@@ -17,10 +18,9 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
-  writeFileSync,
 } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -41,8 +41,8 @@ import type {
   TicketRow,
   UsageCallback,
 } from '@sprint-runner/core';
-import { commitAll } from '@sprint-runner/gitops';
-import { SqliteStore } from '@sprint-runner/store';
+import { PostgresStore } from '@sprint-runner/store';
+import { parseTicketMd } from '../../src/import/parse.js';
 import { Conductor, RealTransitionHandler } from '../../src/index.js';
 import type { ConductorDeps, TickReport } from '../../src/index.js';
 
@@ -69,7 +69,9 @@ export interface MockScriptSpec {
   sentinel?: string | null;
   /** Files written into the run's artifact dir (→ collected artifacts). */
   artifacts?: Record<string, unknown>;
-  /** Absolute-path files written by the child (ticket-dir docs). */
+  /** Absolute-path files written by the child — use the run's
+   *  `ticketDir` (`<run_dir>/<ticket_id>/`) for doc writes; ingest
+   *  promotes them into doc_versions. */
   files?: Record<string, unknown>;
   /** Never exits — for the timeout/kill path. */
   hang?: boolean;
@@ -87,7 +89,7 @@ export interface ScriptedRunInfo {
   /** Attempt number parsed from the run id (`…/003-triage`). */
   attempt: number;
   ticketId: string | null;
-  /** Absolute `tickets/<id>/` dir for ticket subjects. */
+  /** `<run_dir>/<ticket_id>/` — the agent's doc-write scope. */
   ticketDir?: string;
   runId: string;
 }
@@ -264,26 +266,24 @@ export interface WorldOptions {
   script: ScriptFn;
   /** Merged over the fixture config (gates, timeouts, budgets…). */
   configOverrides?: Record<string, unknown>;
-  /** Drop fixture tickets / add extra ones before git init. Keys are
-   *  ticket ids → full ticket.md content or null to delete. */
+  /** Extra/override ticket.md contents keyed by ticket id; null drops
+   *  the fixture ticket. Seeded as `tickets` rows + `doc_versions`. */
   tickets?: Record<string, string | null>;
 }
 
 export interface FixtureWorld {
   dir: string;
-  ticketsRepo: string;
   codeRepo: string;
-  remoteDir: string;
   runsDir: string;
   workspace: string;
-  store: SqliteStore;
+  store: PostgresStore;
   conductor: Conductor;
   adapter: ScriptedAdapter;
   config: EffectiveConfig;
 
   tick(): Promise<TickReport>;
   /** Tick (with inter-tick sleeps for child runtime) until the ticket's
-   *  projected status equals `status`. Throws with diagnostics. */
+   *  `tickets` row status equals `status`. Throws with diagnostics. */
   runToStatus(
     ticketId: string,
     status: string,
@@ -297,9 +297,10 @@ export interface FixtureWorld {
   ): Promise<GateItem>;
   /**
    * Simulate the human: clear the gate_items row like the API does.
-   * `answers` writes `{questions:[…, status:'answered', answer]}` into
-   * the gate's answers doc (needs-info → triage.json, design-qa →
-   * design.json) and commits it to the tickets repo first.
+   * `answers` writes `{questions:[…, status:'answered', answer]}` back
+   * into the newest triage.json/design.json run_artifacts row for the
+   * subject (needs-info → triage.json, design-qa → design.json) — the
+   * same doc the transitions read (D29).
    */
   clearGate(
     subject: string,
@@ -307,18 +308,15 @@ export interface FixtureWorld {
     opts?: { answers?: Record<string, string> | string[] },
   ): Promise<void>;
   readTicket(id: string): Promise<TicketRow>;
-  /** status: line straight from tickets/<id>/ticket.md on disk. */
-  diskStatus(id: string): string;
-  ticketDir(id: string): string;
+  /** `status:` line from the ticket.md `doc_versions` content. */
+  docStatus(id: string): Promise<string>;
   eventsFor(id: string): Promise<EventRow[]>;
   runsFor(subject: string): Promise<import('@sprint-runner/core').RunRow[]>;
   gateItems(open?: boolean): Promise<GateItem[]>;
-  /** tickets/<id>/events.jsonl parsed line-by-line. */
-  ledgerFor(id: string): Record<string, unknown>[];
-  dispose(): void;
+  dispose(): Promise<void>;
 }
 
-function gitInit(repo: string, remote?: string): void {
+function gitInit(repo: string): void {
   execFileSync('git', ['init', '-qb', 'main'], { cwd: repo });
   execFileSync('git', ['config', 'user.name', 'e2e'], { cwd: repo });
   execFileSync('git', ['config', 'user.email', 'e2e@example.com'], {
@@ -326,10 +324,6 @@ function gitInit(repo: string, remote?: string): void {
   });
   execFileSync('git', ['add', '-A'], { cwd: repo });
   execFileSync('git', ['commit', '-qm', 'seed'], { cwd: repo });
-  if (remote) {
-    execFileSync('git', ['remote', 'add', 'origin', remote], { cwd: repo });
-    execFileSync('git', ['push', '-qu', 'origin', 'main'], { cwd: repo });
-  }
 }
 
 function makeConfig(
@@ -362,60 +356,118 @@ function makeConfig(
   });
 }
 
+/** Seed one ticket: parse the ticket.md, write the `tickets` row +
+ *  the `ticket.md` doc_version. Fail-closed — a malformed fixture is a
+ *  test bug, so throw. */
+async function seedTicket(
+  store: Store,
+  workspace: string,
+  id: string,
+  raw: string,
+  now: string,
+): Promise<void> {
+  const parsed = parseTicketMd(raw, `${id}/ticket.md`);
+  if (!parsed.ok) {
+    throw new Error(`fixture ticket ${id}: ${parsed.error.error}`);
+  }
+  const fm = parsed.value.frontmatter;
+  await store.upsertTicket({
+    workspace,
+    ticket_id: id,
+    feature: fm.feature ?? null,
+    title: fm.title,
+    status: fm.status,
+    priority: fm.priority,
+    depth: fm.depth ?? null,
+    backend: fm.backend ?? null,
+    model: fm.model ?? null,
+    repos: fm.repos,
+    parent: fm.parent ?? null,
+    depends_on: fm.depends_on,
+    source: fm.source ?? null,
+    forced: fm.forced ?? false,
+    spec_score: null,
+    spec_hash: null,
+    blocked_reason: fm.blocked_reason ?? null,
+    created_at: now,
+    updated_at: now,
+  });
+  await store.appendDocVersion(
+    { workspace, subject: id, doc: 'ticket.md' },
+    raw,
+    'e2e-seed',
+  );
+}
+
 export async function makeFixtureWorld(
   opts: WorldOptions,
 ): Promise<FixtureWorld> {
   const dir = mkdtempSync(join(tmpdir(), 'sr-e2e-'));
-  const ticketsRepo = join(dir, 'tickets-repo');
   const codeRepo = join(dir, 'code-repo');
-  const remoteDir = join(dir, 'tickets-remote.git');
   const runsDir = join(dir, 'runs');
   mkdirSync(runsDir, { recursive: true });
 
-  cpSync(TICKETS_FIXTURE, ticketsRepo, { recursive: true });
   cpSync(CODE_FIXTURE, codeRepo, { recursive: true });
+  gitInit(codeRepo);
 
-  // Ticket seed surgery (before git init so seeds are committed clean).
-  for (const [id, content] of Object.entries(opts.tickets ?? {})) {
-    const tdir = join(ticketsRepo, 'tickets', id);
-    if (content === null) {
-      rmSync(tdir, { recursive: true, force: true });
-    } else {
-      mkdirSync(tdir, { recursive: true });
-      writeFileSync(join(tdir, 'ticket.md'), content, 'utf8');
+  const store = await PostgresStore.connect('pglite:');
+
+  // --- seed the DB from the fixture ticket docs (D29 — rows + doc
+  //     versions are truth; fixtures/tickets-repo is just canned
+  //     markdown now) ---
+  const now = new Date().toISOString();
+  const ticketsDir = join(TICKETS_FIXTURE, 'tickets');
+  for (const id of readdirSync(ticketsDir)) {
+    if (opts.tickets?.[id] === null) continue;
+    const raw =
+      opts.tickets?.[id] ??
+      readFileSync(join(ticketsDir, id, 'ticket.md'), 'utf8');
+    await seedTicket(store, WS, id, raw, now);
+  }
+  for (const [id, raw] of Object.entries(opts.tickets ?? {})) {
+    if (raw !== null && !readdirSync(ticketsDir).includes(id)) {
+      await seedTicket(store, WS, id, raw, now);
     }
   }
 
-  // Bare remote for the tickets repo → reconcile's pull --rebase runs
-  // for real over file:// (no network).
-  execFileSync('git', ['init', '-qb', 'main', '--bare', remoteDir]);
-  gitInit(codeRepo);
-  gitInit(ticketsRepo, remoteDir);
-
-  const store = new SqliteStore(`sqlite://${join(dir, 'state.db')}`);
   const adapter = new ScriptedAdapter({ script: opts.script });
   const config = makeConfig(codeRepo, opts.configOverrides ?? {});
   const conductor = new Conductor({
     store,
     adapters: { mock: adapter },
     config,
-    workspaces: [{ name: WS, ticketsRepoPath: ticketsRepo }],
+    workspaces: [{ name: WS, rootPath: dir }],
     runsDir,
     transitions: new RealTransitionHandler(config),
     scan: async () => ({ ok: true as const, scanner: 'stub', findings: [] }),
     stallAfterMs: 300,
-    pull: true,
     onError: (e) => {
       // Surface async-path errors in test output instead of swallowing.
       console.error('[conductor onError]', e);
     },
   } satisfies ConductorDeps);
 
+  /** Newest run_artifacts row named `name` or `<subject>/<name>` across
+   *  the subject's runs — mirrors actions.ticketArtifactText. */
+  async function latestArtifact(
+    subject: string,
+    name: string,
+  ): Promise<{ run_id: string; name: string; content: string } | null> {
+    const runs = (
+      await store.listRuns({ workspace: WS, ticket_id: subject })
+    ).sort((a, b) => b.id.localeCompare(a.id));
+    for (const r of runs) {
+      for (const n of [name, `${subject}/${name}`]) {
+        const a = await store.getArtifact(r.id, n);
+        if (a) return { run_id: r.id, name: n, content: a.content };
+      }
+    }
+    return null;
+  }
+
   const world: FixtureWorld = {
     dir,
-    ticketsRepo,
     codeRepo,
-    remoteDir,
     runsDir,
     workspace: WS,
     store,
@@ -461,13 +513,10 @@ export async function makeFixtureWorld(
     async clearGate(subject, gate, opts2 = {}) {
       if (opts2.answers) {
         const file = gate === 'design-qa' ? 'design.json' : 'triage.json';
-        const path = join(ticketsRepo, 'tickets', subject, file);
-        let doc: { questions?: Record<string, unknown>[] } = { questions: [] };
-        try {
-          doc = JSON.parse(await readFile(path, 'utf8'));
-        } catch {
-          /* write fresh */
-        }
+        const art = await latestArtifact(subject, file);
+        const doc: { questions?: Record<string, unknown>[] } = art
+          ? (JSON.parse(art.content) as typeof doc)
+          : { questions: [] };
         const answers = Array.isArray(opts2.answers)
           ? opts2.answers
           : Object.values(opts2.answers);
@@ -480,12 +529,19 @@ export async function makeFixtureWorld(
           };
         }
         doc.questions = questions;
-        await writeFile(path, `${JSON.stringify(doc, null, 2)}\n`, 'utf8');
-        await commitAll(
-          ticketsRepo,
-          `human: ${subject} ${gate} answers`,
-          HUMAN,
-        );
+        await store.putArtifact({
+          run_id:
+            art?.run_id ??
+            // No carrier run yet (gate surfaced without a questions
+            // file) — attach the answered doc to the latest run anyway.
+            (await store.listRuns({ workspace: WS, ticket_id: subject })).sort(
+              (a, b) => b.id.localeCompare(a.id),
+            )[0]?.id ??
+            'orphan',
+          name: art?.name ?? file,
+          content: `${JSON.stringify(doc, null, 2)}\n`,
+          created_at: new Date().toISOString(),
+        });
       }
       await store.clearGateItem(
         { workspace: WS, subject, gate },
@@ -499,12 +555,11 @@ export async function makeFixtureWorld(
       return t;
     },
 
-    diskStatus: (id) =>
+    docStatus: async (id) =>
       /^status:\s*(\S+)/m.exec(
-        readFileSync(join(ticketsRepo, 'tickets', id, 'ticket.md'), 'utf8'),
+        (await store.getDoc({ workspace: WS, subject: id, doc: 'ticket.md' }))
+          ?.content ?? '',
       )?.[1] ?? '',
-
-    ticketDir: (id) => join(ticketsRepo, 'tickets', id),
 
     eventsFor: (id) => store.listEvents({ workspace: WS, ticket_id: id }),
     runsFor: (subject) => store.listRuns({ workspace: WS, subject }),
@@ -513,22 +568,8 @@ export async function makeFixtureWorld(
         open === undefined ? { workspace: WS } : { workspace: WS, open },
       ),
 
-    ledgerFor(id) {
-      try {
-        return readFileSync(
-          join(ticketsRepo, 'tickets', id, 'events.jsonl'),
-          'utf8',
-        )
-          .split('\n')
-          .filter((l) => l.trim().length > 0)
-          .map((l) => JSON.parse(l) as Record<string, unknown>);
-      } catch {
-        return [];
-      }
-    },
-
-    dispose() {
-      store.close();
+    async dispose() {
+      await store.close();
       rmSync(dir, { recursive: true, force: true });
     },
   };

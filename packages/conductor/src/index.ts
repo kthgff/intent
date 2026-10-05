@@ -3,7 +3,6 @@ export * from './events/index.js';
 export * from './gates/index.js';
 export * from './transitions/index.js';
 export * from './envops/index.js';
-export * from './projection/index.js';
 export * from './loop/conductor.js';
 export * from './loop/deps.js';
 export * from './loop/retry.js';

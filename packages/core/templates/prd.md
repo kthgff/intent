@@ -9,6 +9,8 @@ edge cases, risk register.)
 ## Inputs
 Ticket (incl. triage + Q&A answers): {{TICKET_MD}}
 Product context: {{CONTEXT_MD}}
+Human feedback on the previous draft (empty on first draft — when set,
+it is a reviewer comment you MUST address): {{FEEDBACK}}
 Artifact paths: {{ARTIFACT_TARGETS}}
 
 ## Task

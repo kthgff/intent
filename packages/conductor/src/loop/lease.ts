@@ -1,31 +1,23 @@
 /**
- * Fencing: lease-or-gitref CAS (CONDUCTOR CLAIM "Acquire lease (DB or
- * git-ref CAS); contested → skip this tick"; SETTINGS `leases_via:
- * auto|db|git-ref`).
+ * Fencing: Postgres leases (wp-092 — `leases_via`/git-ref CAS are
+ * gone, D29; DB-SCHEMA "Leases are DB-only").
  *
- *   - `db`/`auto` → Store.acquireLease (transactional insert; expired
- *     leases are stealable per the TTL rule).
- *   - `git-ref` → `refs/locks/<subject>-<stage>` CAS on the tickets
- *     repo via gitops acquireRefLock — the atomic push IS the CAS.
- *   - `auto` additionally falls back to git-ref when the DB lease
- *     write throws (dual-install resilience).
- *
- * Git-ref locks carry `{holder, acquired_at, expires_at}` JSON; the
- * expiry sweep runs inside every pullRebase (CONDUCTOR "Git-ref CAS
- * lock expiry").
+ *   - `store.acquireLease` is a transactional insert; expired leases
+ *     are stealable per the TTL rule; contested → caller skips the
+ *     tick (CONDUCTOR CLAIM).
+ *   - Heartbeats ride alongside runs.heartbeat_at.
+ *   - Release is best-effort — a stale lease expires via its TTL.
  */
 import type { LeaseKey } from '@sprint-runner/core';
-import { acquireRefLock, git } from '@sprint-runner/gitops';
 import {
   type ConductorDeps,
   type ConductorWorkspace,
   actorOf,
 } from './deps.js';
 
-/** Tracks refs this conductor acquired so release can delete them. */
+/** Tracks nothing — leases are fully durable rows; kept as a class so
+ *  callers/tests keep the same seam. */
 export class LeaseManager {
-  readonly #refLocks = new Map<string, string>(); // leaseKey → ref
-
   constructor(private deps: ConductorDeps) {}
 
   /**
@@ -33,51 +25,25 @@ export class LeaseManager {
    * when this conductor holds the lease; false when contested —
    * caller skips the tick (CONDUCTOR CLAIM).
    */
-  async acquire(ws: ConductorWorkspace, key: LeaseKey): Promise<boolean> {
+  async acquire(_ws: ConductorWorkspace, key: LeaseKey): Promise<boolean> {
     const holder = actorOf(this.deps);
     const ttl = this.deps.leaseTtlS ?? 300;
-    const mode = this.deps.config.leases_via;
-
-    if (mode !== 'git-ref') {
-      try {
-        const lease = await this.deps.store.acquireLease(key, holder, ttl);
-        if (lease) return true;
-        if (mode === 'db') return false;
-        // auto: contested is a definitive answer too — no need for refs.
-        return false;
-      } catch (e) {
-        if (mode === 'db') throw e;
-        // auto: DB unavailable → git-ref CAS fallback.
-      }
-    }
-
-    const ref = `refs/locks/${key.subject}-${key.stage}`;
-    const result = await acquireRefLock(ws.ticketsRepoPath, ref, {
-      holder,
-      ttlS: ttl,
-    });
-    if (result.status !== 'acquired') return false;
-    this.#refLocks.set(lockId(key), ref);
-    return true;
+    const lease = await this.deps.store.acquireLease(key, holder, ttl);
+    return lease !== null;
   }
 
-  /** Release after collect/commit (CONDUCTOR reconcile step 1). Best-
-   *  effort on both paths — a stale ref expires via its TTL anyway. */
-  async release(ws: ConductorWorkspace, key: LeaseKey): Promise<void> {
+  /** Release after collect (CONDUCTOR reconcile step 1). Best-effort —
+   *  a stale lease expires via its TTL anyway. */
+  async release(_ws: ConductorWorkspace, key: LeaseKey): Promise<void> {
     const holder = actorOf(this.deps);
     await this.deps.store.releaseLease(key, holder).catch(() => {});
-    const ref = this.#refLocks.get(lockId(key));
-    if (ref) {
-      this.#refLocks.delete(lockId(key));
-      await git(['push', 'origin', '--delete', ref], {
-        cwd: ws.ticketsRepoPath,
-      }).catch(() => {});
-    }
   }
 
-  /** Conductor-observed lease heartbeat alongside runs.heartbeat_at. */
+  /** Conductor-observed lease heartbeat alongside runs.heartbeat_at.
+   *  Owner-fenced — a stolen/expired lease makes this a no-op. */
   async heartbeat(key: LeaseKey, at: string): Promise<void> {
-    await this.deps.store.heartbeatLease(key, at).catch(() => {});
+    const holder = actorOf(this.deps);
+    await this.deps.store.heartbeatLease(key, holder, at).catch(() => {});
   }
 
   /** Is a live (unexpired) lease held by anyone? CLAIM pre-check. */
@@ -88,8 +54,4 @@ export class LeaseManager {
     const expiryMs = base + lease.ttl_s * 1000;
     return expiryMs <= Date.now();
   }
-}
-
-function lockId(key: LeaseKey): string {
-  return `${key.workspace}/${key.subject}/${key.stage}/${key.attempt}`;
 }

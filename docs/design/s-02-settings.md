@@ -2,27 +2,33 @@
 
 Design doc companion to `UI-INVENTORY.md` §2. Status: draft 2026-10-03.
 Stack: React+Vite · Tailwind · shadcn/ui (Radix). Style: Linear-inspired —
-dark-first, dense (13px base), minimal chrome.
+dual-theme (dark + light, D34), dense (13px base), minimal chrome.
 
 Purpose: all configuration (WF-13) and the tail of first-run onboarding
 (WF-01 walks through these tabs in order). Writes `config.yaml`; secrets
 are write-only fields that land in `.env` (never read back, per API.md).
 
+**Revised (D26):** workspace + product merge into one entity —
+**project** (`workspace` remains the internal key/API field; user-facing
+copy says "project"). A project owns its scope (tickets/docs), code
+repos, boards, and surveys — so the old Tickets Repos / Code Repos /
+Products tabs consolidate into a single **Projects** tab.
+
 ## Layout
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│ ◆ sprint-runner   ⌘K      [All workspaces ▾]            🔔3  ⚙           │
+│ ◆ veto            ⌘K      [All projects ▾]            🔔3  ⚙           │
 ├────────────┬──────────────┬──────────────────────────────────────────────┤
 │            │              │  Backends & Keys                       [2]   │
 │  SIDEBAR   │  SETTINGS    │  ──────────────────────────────────────────  │
 │            │              │                                              │
 │  Inbox   9 │  General     │  Backend                          [3]        │
-│  Tickets   │  Tickets Repos│  ┌──────────┐ ┌──────────┐                  │
-│  Review  2 │  Code Repos  │  │ ◉ devin  │ │ ○ aider  │                  │
-│  Queue   1 │  Products    │  │ CLI found│ │ +OpenRouter                 │
-│  Escal.  2 │  ─────────── │  └──────────┘ └──────────┘                  │
-│  Metrics   │  Backends &  │                                              │
+│  Tickets   │  Projects    │  ┌──────────┐ ┌──────────┐                  │
+│  Review  2 │  ─────────── │  │ ◉ devin  │ │ ○ aider  │                  │
+│  Queue   1 │  Backends &  │  │ CLI found│ │ +OpenRouter                 │
+│  Escal.  2 │    Keys      │  └──────────┘ └──────────┘                  │
+│  Metrics   │  Models      │                                              │
 │  KB        │    Keys      │  Permission mode    [smart ▾]       [4]      │
 │            │  Gates &     │                                              │
 │            │    Budgets   │  Keys (.env — write only)           [5]      │
@@ -65,13 +71,11 @@ are write-only fields that land in `.env` (never read back, per API.md).
 
 | Tab | Fields |
 | --- | --- |
-| **General** | `actor` (identity — required, highlighted if unset), `storage_url`, `leases_via`, UI: `bind`, `port`, `remote_access` + warning, `voice` |
-| **Tickets Repos** | table: name, url, status (cloned/pulls ok), remove; **+ Add** (name + git url → clone); per-repo "has config overrides" chip → opens repo's `.sprint-runner/config.yaml` editor |
-| **Code Repos** | table: name, path, `card.verified` badge; expand → **repo card panel**: test/lint/build commands, `forbidden_paths`, `probed_at`, verified state + **Re-probe** button (watchable in S-07); + Add repo (name + path → probe run queued) |
-| **Products** | product rollups (one UX spanning N repos → product dossier in S-14). Table: name, `repos[]` (multi-chip picker over code repos), `docs[]` paths, `screenshots` path, `app_url` (optional — Playwright crawl target), `context_file`. + Add product; deleting warns that the product dossier stays until pruned |
-| **Backends & Keys** | backend, permission_mode, capabilities, secrets table |
-| **Models** | `main_model`, `review_model`, `escalation_model` — free text + suggestions per backend; note: ticket frontmatter can override |
-| **Gates & Budgets** | `gates` mode (full / plan-package / minimal — descriptive cards), `spec_depth`, `concurrency.implement`, budgets: spend cap $, token cap, `shepherd_max_cycles`, `fix_dismissal_cap`, `split_max_children` |
+| **General** | `actor` (identity — required, highlighted if unset), `storage_url`, UI: `theme` (system/dark/light — D34, live preview swatch), `bind`, `port`, `remote_access` + warning, `voice` |
+| **Projects** | one card per project (merges former tickets-repo + code-repo + product config — D26). Fields: name/key, scope (DB-only — Postgres project row, D29), `repos[]` (code repos w/ expand → **repo card panel**: test/lint/build commands, `forbidden_paths`, `probed_at`, verified state + **Re-probe**), `docs[]` paths, `screenshots`, `app_url` (Playwright crawl target), `context_file`. + Add project (name + repo paths → probe run queued); deleting warns that dossier/boards stay until pruned; per-project "has config overrides" chip → `.veto/config.yaml` editor |
+| **Backends & Keys** | backend, `runtime` (container/process — D30), permission_mode, capabilities, `containers:` (image/cpu/memory), secrets table |
+| **Models** | `main_model`, `review_model`, `escalation_model` — free text + suggestions per backend; note: ticket row fields can override |
+| **Gates & Budgets** | `gates` mode (full / plan-package / minimal — descriptive cards; **plan-package is the default** per D26 — plan-level package reviews + batch approvals + trust inheritance), `spec_depth`, `concurrency.implement`, budgets: spend cap $, token cap, `shepherd_max_cycles`, `fix_dismissal_cap`, `split_max_children` |
 | **Merge** | `merge_strategy` (squash/merge/rebase), `shepherd.poll_interval_s` |
 | **Notifications** | `notifications.desktop`, `notifications.badge` toggles |
 | **Worktrees** | `worktree_root` (sibling vs custom path) + explainer |

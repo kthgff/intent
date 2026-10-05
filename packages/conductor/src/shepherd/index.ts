@@ -6,7 +6,7 @@ export {
   type DodAttestation,
   type DodRow,
   type DodRowClassified,
-  DOD_ATTESTATIONS_FILE,
+  DOD_ATTESTATIONS_DOC,
   manualRowsAttested,
   parseDodRows,
   readDodAttestations,
@@ -24,10 +24,11 @@ export {
 export { type ShepherdCtx, type ShepherdReport, pollOpenPrs } from './poll.js';
 export {
   type PrShepherdState,
-  SHEPHERD_FILE,
+  SHEPHERD_STATE_DIR,
   type ShepherdFile,
   emptyShepherdFile,
   loadShepherdFile,
   prState,
   saveShepherdFile,
+  shepherdStatePath,
 } from './state.js';

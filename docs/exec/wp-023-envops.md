@@ -20,7 +20,7 @@ Runner-owned environment steps (the trust boundary):
   `verify:<ticket>:<repo>`), produce `test-report.json` (SCHEMAS §10)
   incl. `case:`-marker grep for `implemented` booleans.
 - **Artifact collection**: gather per ARTIFACT_TARGETS — absolute
-  runs dir, or worktree `.sprint-runner/<id>/` scratch → move to
+  runs dir, or worktree `.veto/<id>/` scratch → move to
   runs dir + purge scratch.
 
 ## File ownership

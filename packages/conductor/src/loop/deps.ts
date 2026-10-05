@@ -20,14 +20,20 @@ import type {
 } from '@sprint-runner/core';
 import type { TransitionHandler } from '../contracts.js';
 import type { ScanResult } from '../envops/index.js';
+import type { FetchIssuesOptions } from '../import/github.js';
+import type { FetchIssuesResult } from '../import/types.js';
 import type { GhClient } from '../shepherd/gh.js';
 
-/** A tickets repo the conductor is responsible for. */
+/** A workspace (project) the conductor is responsible for (D29). */
 export interface ConductorWorkspace {
-  /** Workspace key — `tickets_repos.<name>` (DB-SCHEMA workspace). */
+  /** Workspace key — `projects.workspace` (DB-SCHEMA workspace). */
   name: string;
-  /** Absolute path to the local checkout. */
-  ticketsRepoPath: string;
+  /**
+   * Absolute path to the workspace root dir — anchors relative
+   * `repos:` paths, run dirs, and `.veto/` scratch state. NOT a git
+   * ledger: tickets/docs/events are DB truth (D29).
+   */
+  rootPath: string;
 }
 
 /**
@@ -75,10 +81,6 @@ export interface ConductorDeps {
    * after ~2 missed ticks"). Default 25s ≈ two 10s ticks.
    */
   stallAfterMs?: number;
-  /** Attempt `git pull --rebase` on each workspace every reconcile
-   *  (CONDUCTOR loop step 1). Skipped automatically when the checkout
-   *  has no `origin` remote. Default true. */
-  pull?: boolean;
   /**
    * Shepherd's `gh` client (wp-051 — CONDUCTOR "Shepherd loop").
    * Tests inject a stub; default is `ShellGhClient` (shells `gh` on
@@ -86,6 +88,12 @@ export interface ConductorDeps {
    * `shepherd.poll_interval_s`.
    */
   gh?: GhClient;
+  /**
+   * Issue-fetch override for `import` runner tasks (wp-093) — tests
+   * inject a stub so the lane never shells out to `gh`. Default: the
+   * real `fetchIssues` inside `import/github.ts`.
+   */
+  importFetch?: (opts: FetchIssuesOptions) => Promise<FetchIssuesResult>;
   /** Sink for errors on detached async paths (the usage-stream cap
    *  check runs off an adapter callback, outside tick()). */
   onError?: (error: unknown) => void;
@@ -208,7 +216,7 @@ export async function lastActivityMs(
 }
 
 /** Resolve a config repo path — relative paths are anchored at the
- *  tickets repo (SETTINGS `repos.<name>.path`). */
+ *  workspace root (SETTINGS `repos.<name>.path`). */
 export function resolveRepoPath(
   deps: ConductorDeps,
   ws: ConductorWorkspace,
@@ -216,5 +224,12 @@ export function resolveRepoPath(
 ): string {
   const p = deps.config.repos[repo]?.path;
   if (!p) throw new Error(`repo '${repo}' not in config repos:`);
-  return isAbsolute(p) ? p : resolve(ws.ticketsRepoPath, p);
+  return isAbsolute(p) ? p : resolve(ws.rootPath, p);
+}
+
+/** Conductor bookkeeping scratch dir (`<rootPath>/.veto/`) — runner
+ *  state like shepherd poll cursors lives here. It is NOT durable
+ *  truth: tickets/docs/events are Postgres rows (D29). */
+export function stateDir(ws: ConductorWorkspace, ...parts: string[]): string {
+  return join(ws.rootPath, '.veto', ...parts);
 }

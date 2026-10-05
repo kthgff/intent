@@ -16,8 +16,6 @@
  * Gate modes: `minimal` and `plan-package` chains (full is the happy
  * path) — assert only the mode's gates surface.
  */
-import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { REVIEW_PASSES } from '@sprint-runner/core';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -25,6 +23,7 @@ import {
   type FixtureWorld,
   type MockScript,
   type ScriptedRunInfo,
+  WS,
   findingsFragment,
   makeFixtureWorld,
   prdDoc,
@@ -35,8 +34,8 @@ import {
 } from '../helpers/fixtures.js';
 
 let world: FixtureWorld | null = null;
-afterEach(() => {
-  world?.dispose();
+afterEach(async () => {
+  await world?.dispose();
   world = null;
 });
 
@@ -180,7 +179,9 @@ describe('e2e pipeline (wp-040)', () => {
       });
 
       await world.runToStatus(T, 'prd-review');
-      expect(existsSync(join(world.ticketDir(T), 'prd.md'))).toBe(true);
+      expect(
+        await world.store.getDoc({ workspace: WS, subject: T, doc: 'prd.md' }),
+      ).not.toBeNull();
       await world.clearGate(T, 'prd-review');
 
       await world.runToStatus(T, 'design-qa');
@@ -207,49 +208,34 @@ describe('e2e pipeline (wp-040)', () => {
 
       await world.runToStatus(T, 'pr-open');
 
-      // ---- assertions: frontmatter truth, committed docs, ledger ----
-      expect(world.diskStatus(T)).toBe('pr-open');
-      const tdir = world.ticketDir(T);
-      for (const doc of [
-        'prd.md',
-        'tdd.md',
-        'test.md',
+      // ---- assertions: row truth + doc_versions + artifacts (D29) ----
+      expect(await world.docStatus(T)).toBe('pr-open');
+      for (const doc of ['prd.md', 'tdd.md', 'test.md'] as const) {
+        expect(
+          await world.store.getDoc({ workspace: WS, subject: T, doc }),
+          `missing doc ${doc}`,
+        ).not.toBeNull();
+      }
+      // Structured output lives in run_artifacts — review.json,
+      // test-report.json, triage.json, design.json land on their runs.
+      const artifactNames = new Set<string>();
+      for (const r of await world.runsFor(T)) {
+        for (const a of await world.store.listArtifacts(r.id)) {
+          artifactNames.add(a.name.split('/').pop() as string);
+        }
+      }
+      for (const name of [
         'review.json',
         'test-report.json',
         'triage.json',
         'design.json',
-        'LOG.md',
-        'events.jsonl',
       ]) {
-        expect(existsSync(join(tdir, doc)), `missing ${doc}`).toBe(true);
+        expect(artifactNames, `missing artifact ${name}`).toContain(name);
       }
-      // spec docs committed (git tracks them).
-      const tracked = execFileSync('git', ['ls-files', `tickets/${T}`], {
-        cwd: world.ticketsRepo,
-        encoding: 'utf8',
-      });
-      for (const doc of [
-        'prd.md',
-        'tdd.md',
-        'test.md',
-        'test-report.json',
-        'review.json',
-      ]) {
-        expect(tracked, `${doc} not committed`).toContain(
-          `tickets/${T}/${doc}`,
-        );
-      }
-      const log = execFileSync('git', ['log', '--format=%s'], {
-        cwd: world.ticketsRepo,
-        encoding: 'utf8',
-      });
-      expect(log).toMatch(/SR-0001 → pr-open/);
 
-      // Ordered event chain — DB projection and git-side events.jsonl.
+      // Ordered event chain — the events table is the ledger (D29).
       const events = await world.eventsFor(T);
       const names = events.map((e) => e.event);
-      const ledger = world.ledgerFor(T);
-      expect(ledger.map((l) => l.event)).toEqual(names);
       const idx = (n: string) => names.indexOf(n);
       const lastIdx = (n: string) => names.lastIndexOf(n);
       for (const e of [
@@ -310,7 +296,7 @@ describe('e2e pipeline (wp-040)', () => {
       // 1 transient retry, then exhausted.
       expect(triageRuns).toHaveLength(2);
       expect(triageRuns.every((r) => r.status === 'failed')).toBe(true);
-      expect(world.diskStatus(T)).toBe('failed');
+      expect(await world.docStatus(T)).toBe('failed');
       const names = (await world.eventsFor(T)).map((e) => e.event);
       expect(names.filter((e) => e === 'run_failed')).toHaveLength(2);
     },
@@ -383,7 +369,7 @@ describe('e2e pipeline (wp-040)', () => {
       const names = (await world.eventsFor(T)).map((e) => e.event);
       expect(names).toContain('run_killed');
       expect(names).toContain('question_asked');
-      expect(world.diskStatus(T)).toBe('needs-info');
+      expect(await world.docStatus(T)).toBe('needs-info');
     },
   );
 
@@ -419,7 +405,7 @@ describe('e2e pipeline (wp-040)', () => {
         ).not.toContain(suppressed);
       }
       expect(surfaced).toEqual(new Set(['changes-requested', 'approved']));
-      expect(world.diskStatus('SR-0003')).toBe('pr-open');
+      expect(await world.docStatus('SR-0003')).toBe('pr-open');
     },
   );
 

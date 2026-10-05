@@ -1,8 +1,52 @@
 # ADAPTERS — backend interface contract
 
-Companion to `CONDUCTOR.md`. Draft 2026-10-03.
+Companion to `CONDUCTOR.md`. Draft 2026-10-03; revised 2026-10-04
+(D30 — containerized run runtime).
 Every backend implements the same contract; capability flags (SETTINGS
 `capabilities:`) tell the conductor how to render and collect.
+
+## Runtimes
+
+A backend declares `runtime: container | process` (SETTINGS
+`containers.runtime` global default + per-backend override). The
+adapter contract is identical either way — the runtime changes WHERE
+`run()` executes, not what it does:
+
+- **`container`** (v1: `aider` — the default for it): the conductor
+  lazily creates one persistent Docker container per subject (CONDUCTOR
+  "Container lifecycle") and `run()` issues `docker exec -w <worktree>`
+  inside it. `control()` maps to `docker kill` / `docker pause` /
+  `docker unpause`; `on_usage` streams parse `docker exec` stdout like
+  any other child pipe; `collect()` waits on the exec's exit.
+- **`process`** (v1: `devin`, + fallback for aider): `run()` spawns a
+  detached OS process; `control()` sends POSIX signals; devin's own
+  `--sandbox` provides isolation.
+
+Everything else — sentinel contract, `{{ARTIFACT_TARGETS}}`, runner-
+owned push/PR, fail-closed sanitizer (always host-side), leases,
+heartbeats — is runtime-agnostic. Containers mount worktrees at their
+host absolute paths, so rendered paths are valid inside and out.
+
+## Evidence-source adapters (D37; separate contract)
+
+Agent backends execute prompts. Evidence-source adapters retrieve source data;
+they are deliberately separate so an agent cannot widen its own authorization.
+
+```text
+authorize(workspace, source, actor) -> AuthorizedScope | deny
+checkpoint(scope) -> SourceCheckpoint
+scan(scope, checkpoint) -> ChangedObjects
+normalize(object, redaction_policy) -> SanitizedObject | reject
+query(scope, structured_query) -> StructuredResult
+raw_locator(object) -> opaque backend ref
+```
+
+Repository ingestion uses authorized configured repo paths and commit SHAs;
+callers cannot submit arbitrary filesystem paths. Telemetry adapters (`otlp`
+preferred; Loki/OpenSearch/file/journald/docker later) return structured counts,
+attributes, and opaque raw-event locators. They MUST redact before persistence,
+embedding, artifact creation, or model use. Connector configs expose ENV names
+only, never secret values. See `INTELLIGENCE.md` §4/§6.
 
 ## The contract
 
@@ -15,11 +59,15 @@ prepare(subject, stage, ctx) -> RenderedPrompt
     `probe:<repo>`, `import:<source>`, `interview:<run>` — non-ticket
     runs take the same lease/registry path
 run(worktree, rendered, timeout) -> RunHandle
-  - spawn detached process; return {pid, log_path}
+  - launch detached per `runtime`: spawn a detached OS process
+    (return {pid, log_path}) OR `docker exec -w <worktree>` inside
+    the subject's container (return {exec_id, container_id, log_path})
 control(handle, op) -> ok
-  - op ∈ kill (SIGTERM → SIGKILL after grace) | pause (SIGSTOP) |
-    resume (SIGCONT) — POSIX signals; a runtime that can't signal a
-    child declares so in capabilities and the UI hides pause
+  - op ∈ kill | pause | resume — process runtime sends POSIX signals
+    (SIGTERM → SIGKILL after grace | SIGSTOP | SIGCONT); container
+    runtime issues docker verbs (docker kill | docker pause |
+    docker unpause). A runtime that can't signal a child declares so
+    in capabilities and the UI hides pause
 on_usage(handle, cb)
   - adapters that can stream per-message usage invoke cb →
     `usage_partial` {tokens_in, tokens_out, tokens_cached} to the
@@ -42,8 +90,8 @@ collect(handle, ctx) -> RunResult
 
 **ARTIFACT_TARGETS**: when `can_write_outside_tree` is false, the
 token renders as a **worktree-relative scratch dir**
-`.sprint-runner/<run-id>/` (gitignored — the runner adds
-`.sprint-runner/` to `.gitignore` on worktree creation). The runner
+`.veto/<run-id>/` (gitignored — the runner adds
+`.veto/` to `.gitignore` on worktree creation). The runner
 collects artifacts from the scratch dir into `runs/<id>/` post-exit
 and purges it — the diff never sees them.
 
@@ -64,11 +112,13 @@ and purges it — the diff never sees them.
   hardening option. Binary discovery: `devin` on PATH, else
   `DEVIN_BIN`, else Devin.app bundled path
   (`…/app/extensions/windsurf/devin/bin/devin`).
-- **aider** (OpenRouter BYOK): `aider --message-file <rendered.md>
-  --yes-always --auto-commits --model openrouter/<model>` in the
-  worktree. Flags: `can_exec: true`, `can_write_outside_tree: false`,
-  `has_gh: false` → scratch-dir artifacts; runner owns push + `gh pr`.
-  Usage: per-message token counts stream-parsed from stdout →
+- **aider** (OpenRouter BYOK, `runtime: container` default): `aider
+  --message-file <rendered.md> --yes-always --auto-commits --model
+  openrouter/<model>` via `docker exec -w <worktree>` in the subject's
+  container. Flags: `can_exec: true`, `can_write_outside_tree: false`,
+  `has_gh: false` → scratch-dir artifacts; runner owns push + `gh pr`
+  from the host (no gh/git credentials inside the container). Usage:
+  per-message token counts stream-parsed from the exec stdout →
   `per-call` granularity + live monitor counter; `cost_usd` = tokens ×
   OpenRouter price table. Exact flag set verified during M2 spike.
 
@@ -109,15 +159,17 @@ harness exposes, declared via `granularity`:
 
 | Token | Source | Used by |
 | --- | --- | --- |
-| `TICKET_ID` / `TICKET_MD` / `TICKET_DIR` | ticket frontmatter + file | all |
-| `TICKETS_DIR` | tickets repo root | import, interview |
+| `TICKET_ID` / `TICKET_MD` / `TICKET_DIR` | ticket row + ticket.md doc_version; TICKET_DIR = run scratch dir | all |
+| `TICKETS_DIR` | run scratch dir — agent writes ticket docs the conductor ingests into `tickets`/`doc_versions` rows (D29; no tickets repo — token repointed in the wp-09x wave) | import, interview |
 | `CONTEXT_MD` | `products.<p>.context_file` (empty if unset) | triage, interview, prd, design, split, import |
 | `REPO_NAME(S)` / `REPO_CARDS` | settings `repos:` + cards | all repo-touching stages |
 | `REPO_PATH` / `CARD_PATH` | settings | probe |
-| `ARTIFACT_TARGETS` | absolute `runs/<id>/` or `.sprint-runner/<run-id>/` scratch per `can_write_outside_tree` | all |
-| `DEPTH` | frontmatter `depth:` (triage-recommended) | prd, design, testplan, implement |
+| `ARTIFACT_TARGETS` | absolute `runs/<id>/` or `.veto/<run-id>/` scratch per `can_write_outside_tree` | all |
+| `DEPTH` | ticket row `depth` (triage-recommended) | prd, design, testplan, implement |
 | `DOSSIER` | scoped dossier sections by touched area; `"dossier pending"` if unsurveyed | triage, interview, design, testplan |
 | `PRIOR_ART` | file-overlap + embedding-similar past tickets | triage, interview, design |
+| `EVIDENCE_BUNDLE` | authorized, cited `retrieval-evidence.json` slice (D37); explicit zero-result text when empty | prd, design, testplan, implement, review, alignment, incident |
+| `GOALS` | resolved served-goal texts — chain `serves` → `board_items` bodies (D33; `"no stated goal"` when empty) | triage, interview, prd, design, testplan, implement, review |
 | `SPEC_LINT` | runner's mechanical spec score + flags | triage |
 | `PRD_MD` / `TDD_MD` / `TEST_MD` | approved spec docs | prd→implement chain |
 | `DIFF` / `DEVIATIONS_MD` | worktree diff + deviation file | review, fix, rebase |
@@ -206,5 +258,5 @@ shims; re-verify this list on the first machine with a real install.
 ## Adding a backend
 
 Implement `prepare/run/collect` (+ `control`/`on_usage` if the runtime
-supports signals and streamed usage), declare the three flags, register
-a name in `capabilities:` — no conductor changes.
+supports signals and streamed usage), declare the three flags +
+`runtime`, register a name in `capabilities:` — no conductor changes.

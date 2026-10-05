@@ -1,5 +1,11 @@
 # EMBEDDINGS — local-encoder spike findings (TRACKER D12)
 
+> D37 scope note (2026-10-04): embeddings are one retrieval signal inside the
+> hybrid evidence plane defined by `INTELLIGENCE.md`; they do not replace exact
+> search, commit-pinned citations, explicit/structural relations, or reading
+> current files. Raw telemetry events are never embedded—only sanitized,
+> deduplicated signatures/summaries and verified incident resolutions.
+
 wp-070, 2026-10-04. Decision: **`local` is a real bundled local path** —
 the spike passed, no fallback indirection needed.
 
@@ -30,6 +36,6 @@ under the hood) | ✅ `pnpm add` clean (~41 packages); `pipeline('feature-extrac
 - First `embed()` on a fresh machine needs HF-hub access for the model
   download (~90MB); offline machines get a load error at first embed —
   use `off` there. The model is then cached.
-- `nearestEmbeddings` is an in-process cosine scan (sqlite-vec not
-  bundled) — O(n), fine at KB scale; swap to `vec0` when the extension
-  ships (Store comment, packages/store/src/sqlite.ts).
+- `nearestEmbeddings` is an in-process cosine scan — O(n), fine at KB
+  scale; swap to `pgvector` when the Postgres store lands (D29 —
+  DB-SCHEMA: pgvector where available, else bytea + app-side cosine).

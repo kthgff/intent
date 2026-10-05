@@ -2,17 +2,20 @@
 
 Design doc companion to `UI-INVENTORY.md` §2. Status: draft 2026-10-03.
 Stack: React+Vite · Tailwind · shadcn/ui (Radix). Style: Linear-inspired —
-dark-first, dense (13px base), minimal chrome.
+dual-theme (dark + light, D34), dense (13px base), minimal chrome.
 
 Purpose: everything broken or returned to a human (WF-08, WF-09) —
 failed runs, blocked tickets, escalations, aborts, doc-repair items.
 Each row carries enough context to act without opening the ticket.
+Subjects now span the full entity tree (D26) — a failed
+`board-synthesize`, `initiative-decompose`, or `feature-decompose` run
+lands here too, kind-prefixed (`IN-7` / `FE-3`), same actions.
 
 ## Layout
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│ ◆ sprint-runner   ⌘K      [All workspaces ▾]            🔔3  ⚙           │
+│ ◆ veto            ⌘K      [All projects ▾]            🔔3  ⚙           │
 ├────────────┬─────────────────────────────────────────────────────────────┤
 │            │  Queue                                              [1]     │
 │  SIDEBAR   │  ────────────────────────────────────────────────────────── │
@@ -38,7 +41,7 @@ Each row carries enough context to act without opening the ticket.
 
 ## Annotations
 
-1. **Header** — queue title + open count; workspace filter from top bar.
+1. **Header** — queue title + open count; project filter from top bar.
 2. **Kind chips** — filter tabs: All · Failed · Blocked · Escalated ·
    Aborted · Repair (doc-repair). Counts live.
 3. **Row header** — status glyph + ticket ref + kind + stage where it

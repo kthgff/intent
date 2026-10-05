@@ -1,20 +1,25 @@
 # Design — screen specs
 
-Per-screen design docs for the web UI (wp-080 scope). Status: draft
-2026-10-03. Companion to `UI-INVENTORY.md` (which is binding — these
+Per-screen design docs for the web UI. Status: reconciled
+2026-10-04. Companion to `UI-INVENTORY.md` (which is binding — these
 docs detail fields and layout, they don't re-spec behavior).
 
 ## Conventions (all screens)
 
 - **Stack:** React + Vite SPA, served by the conductor on `ui.bind`:
   `ui.port` (REST + SSE per API.md). Tailwind + shadcn/ui (Radix).
-- **Style:** Linear-inspired — dark-first (zinc-950 canvas, zinc-900
-  cards), 13px Inter base, JetBrains Mono for ids/numbers/logs, one
-  indigo accent, 32px list rows, minimal chrome.
+- **Style:** Linear-inspired — dual-theme (dark + light, D34 —
+  palette + rules in `theming.md`; semantic tokens are authoritative,
+  the zinc-* values in these docs describe the dark theme), 13px
+  Inter base, JetBrains Mono for ids/numbers/logs, one accent, 32px
+  list rows, minimal chrome.
 - **Anatomy:** persistent left sidebar (nav + badge counts +
-  workspaces) on list/queue screens; centered single column on focus
-  screens (S-04, S-06); three-rail (nav / content / context) on
-  object screens (S-05, S-14).
+  projects) on list/queue screens; centered single column on focus
+  screens (S-04, S-06); two-column operational hub (wide workbench +
+  narrow status rail) on S-05/S-17/S-18; three-rail browsing remains on S-14.
+- **Vocabulary (D26):** user-facing copy says **project** (merged
+  workspace+product entity — `workspace` stays the internal/API key).
+  Entity tree: project → board → initiative → feature → ticket.
 - **Baselines (every screen, per wp-080 AC):** designed empty and
   error states on every list/queue view; full keyboard parity (all
   pointer actions reachable, visible focus ring); labels accompany
@@ -49,6 +54,9 @@ Visual mockups: `mockups/*.png` — rendered from `packages/ui` demo mode
 implementation contract mapping each screen to its route, required
 states, shared primitives, and API gaps.
 
+Current sign-off and implementation status is tracked in
+[SCREEN-READINESS.md](SCREEN-READINESS.md).
+
 The product/UX synthesis, card-to-detail mapping, visual tokens, state
 coverage, API gaps, and capture instructions for the dashboard and ticket-focus
 pair live in [DASHBOARD-FOCUS-REVIEW.md](DASHBOARD-FOCUS-REVIEW.md).
@@ -60,7 +68,7 @@ pair live in [DASHBOARD-FOCUS-REVIEW.md](DASHBOARD-FOCUS-REVIEW.md).
 | [s-02-settings](s-02-settings.md) | Settings (+ onboarding) | WF-01, WF-13 |
 | [s-03-create-import](s-03-create-import.md) | Create / Import | WF-02 |
 | [s-04-qa-wizard](s-04-qa-wizard.md) | Q&A wizard (shared) | WF-03, interview |
-| [s-05-ticket-focus](s-05-ticket-focus.md) | Ticket focus page — centerpiece, supersedes s-05-ticket-detail (D24) | WF-03…WF-11 hub |
+| [s-05-ticket-focus](s-05-ticket-focus.md) | Ticket focus page — operational hub, supersedes s-05-ticket-detail and the D24 layout (D25) | WF-03…WF-11 hub |
 | [s-06-doc-review](s-06-doc-review.md) | Doc review (+ split-plan) | WF-04, WF-15 |
 | [s-07-run-monitor](s-07-run-monitor.md) | Live run monitor | WF-05, WF-11 |
 | [s-08-code-review](s-08-code-review.md) | Code review | WF-06 |
@@ -68,11 +76,13 @@ pair live in [DASHBOARD-FOCUS-REVIEW.md](DASHBOARD-FOCUS-REVIEW.md).
 | [s-10-escalations](s-10-escalations.md) | Escalations & failures | WF-08, WF-09 |
 | [s-11-ledger](s-11-ledger.md) | Ledger browser | WF-10 |
 | [s-12-metrics](s-12-metrics.md) | Metrics dashboard | WF-14 |
-| [s-13-workspaces](s-13-workspaces.md) | Workspace switcher | WF-13 |
+| [s-13-workspaces](s-13-workspaces.md) | Project switcher (renamed — D26) | WF-13 |
 | [s-14-knowledge-base](s-14-knowledge-base.md) | Knowledge base | WF-16, WF-17 |
 | [s-15-boards](s-15-boards.md) | Boards list (per project) | WF-18 |
 | [s-16-board-canvas](s-16-board-canvas.md) | Board canvas + delivery view | WF-18, WF-19, WF-20 |
 | [s-17-feature-detail](s-17-feature-detail.md) | Feature detail | WF-20 |
+| [s-18-initiative-detail](s-18-initiative-detail.md) | Initiative detail + provenance editor | WF-18…WF-22 |
+| [s-19-capture-tray](s-19-capture-tray.md) | Quick Capture + Project Tray | WF-21 |
 
 (Entities per FEATURES.md: project → board → initiative → feature →
 ticket.)

@@ -1,17 +1,31 @@
 /**
- * shepherd/state.ts — per-PR shepherd state, persisted in the ticket
- * dir as `tickets/<id>/shepherd.json`.
+ * shepherd/state.ts — per-PR shepherd bookkeeping, persisted as a
+ * plain fs file under the workspace scratch dir:
+ * `<rootPath>/.veto/shepherd/<ticketId>.json`.
  *
  * The DB schema is binding and `ticket_repos` has no columns for
- * cycle counters / seen comments / DoD verification — and DB rows are
- * rebuildable projections anyway (DB-SCHEMA "Rebuildable"). Durable
- * shepherd state therefore lives next to the ticket, committed by the
- * conductor like every other ticket artifact.
+ * cycle counters / seen comments / DoD verification. D29: there
+ * is no tickets repo and no `tickets/<id>/` dir on disk, so this
+ * runner bookkeeping lives in the workspace's `.veto/` scratch area
+ * (deps.ts `stateDir`). It is NOT durable truth and gets no git
+ * commits — Postgres holds the truth rows; this is poll-cursor state
+ * that can be rebuilt by re-polling.
  */
-import { readFile, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
+import type { ConductorWorkspace } from '../loop/deps.js';
+import { stateDir } from '../loop/deps.js';
 
-export const SHEPHERD_FILE = 'shepherd.json';
+/** `.veto/` subdir holding the per-ticket shepherd state files. */
+export const SHEPHERD_STATE_DIR = 'shepherd';
+
+/** Absolute path of `<rootPath>/.veto/shepherd/<ticketId>.json`. */
+export function shepherdStatePath(
+  ws: ConductorWorkspace,
+  ticketId: string,
+): string {
+  return stateDir(ws, SHEPHERD_STATE_DIR, `${ticketId}.json`);
+}
 
 /** Per-PR (ticket_repos row) shepherd bookkeeping. */
 export interface PrShepherdState {
@@ -47,12 +61,15 @@ export function emptyShepherdFile(): ShepherdFile {
   return { schema: 1, prs: {} };
 }
 
-export async function loadShepherdFile(ticketDir: string): Promise<{
+export async function loadShepherdFile(
+  ws: ConductorWorkspace,
+  ticketId: string,
+): Promise<{
   file: ShepherdFile;
   raw: string | null;
 }> {
   try {
-    const raw = await readFile(join(ticketDir, SHEPHERD_FILE), 'utf8');
+    const raw = await readFile(shepherdStatePath(ws, ticketId), 'utf8');
     const parsed = JSON.parse(raw) as ShepherdFile;
     if (typeof parsed !== 'object' || parsed === null) {
       return { file: emptyShepherdFile(), raw };
@@ -63,16 +80,20 @@ export async function loadShepherdFile(ticketDir: string): Promise<{
   }
 }
 
-/** Write shepherd.json; returns false when nothing changed (avoids
- *  commit spam — the file is only written when the state moved). */
+/** Write `<ticketId>.json`; returns false when nothing changed (the
+ *  file is only written when the state moved). mkdir -p first — the
+ *  `.veto/shepherd/` dir may not exist yet on a fresh workspace. */
 export async function saveShepherdFile(
-  ticketDir: string,
+  ws: ConductorWorkspace,
+  ticketId: string,
   file: ShepherdFile,
   previousRaw: string | null,
 ): Promise<boolean> {
   const next = `${JSON.stringify(file, null, 2)}\n`;
   if (next === previousRaw) return false;
-  await writeFile(join(ticketDir, SHEPHERD_FILE), next, 'utf8');
+  const path = shepherdStatePath(ws, ticketId);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, next, 'utf8');
   return true;
 }
 

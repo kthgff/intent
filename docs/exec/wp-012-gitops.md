@@ -16,8 +16,8 @@ pull-rebase-retry; commit+push helpers with actor identity; worktree
 create/remove under `<repo>.worktrees/<id>`; `refs/locks/<subject>-<stage>`
 and `refs/locks/claims/<subject>-<gate>` CAS push with JSON
 {holder,acquired_at,expires_at} + expiry sweep on each pull (CONDUCTOR
-special paths); `next-id` reservation (`.sprint-runner/next-id` commit
-CAS); `.sprint-runner/` gitignore injection on worktree create
+special paths); `next-id` reservation (`.veto/next-id` commit
+CAS); `.veto/` gitignore injection on worktree create
 (ADAPTERS).
 
 ## File ownership

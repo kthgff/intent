@@ -1,18 +1,21 @@
-# S-13 — Workspace switcher
+# S-13 — Project switcher
 
-Design doc companion to `UI-INVENTORY.md` §2. Status: draft 2026-10-03.
-Stack: React+Vite · Tailwind · shadcn/ui (Radix). Style: Linear-inspired —
-dark-first, dense (13px base), minimal chrome.
+Design doc companion to `UI-INVENTORY.md` §2. Status: draft 2026-10-03;
+revised 2026-10-04 — **renamed "workspace" → "project"** (D26): the
+project is the merged workspace+product entity (`workspace` stays the
+internal key). Stack: React+Vite · Tailwind · shadcn/ui (Radix). Style:
+Linear-inspired — dual-theme (dark + light, D34), dense (13px base), minimal chrome.
 
-Purpose: multi tickets-repo management — switch scope, see per-repo
-queue pressure, add a workspace (WF-13). Reached from sidebar
-workspaces section or the top-bar scope picker.
+Purpose: multi-project management — switch scope, see per-project
+queue pressure, add a project (WF-13). Reached from sidebar projects
+section or the top-bar scope picker. A project owns its tickets scope,
+code repos, boards, and dossier — the card shows all four.
 
 ## Layout
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│ ◆ sprint-runner   ⌘K                                                     │
+│ ◆ veto            ⌘K                                                     │
 ├────────────┬─────────────────────────────────────────────────────────────┤
 │            │  Workspaces                                                  │
 │  SIDEBAR   │  ────────────────────────────────────────────────────────── │
@@ -28,7 +31,7 @@ workspaces section or the top-bar scope picker.
 │            │  │            Open→│ │            Open→│                    │
 │            │  └─────────────────┘ └─────────────────┘                    │
 │            │                                                             │
-│            │  + Add workspace                                       [3]  │
+│            │  + Add project                                       [3]  │
 │            │  ┌──────────────────────────────────────────────────────┐  │
 │            │  │ name  [ eng-tools        ]                            │  │
 │            │  │ url   [ git@github.com:org/eng-tools-tickets.git ]    │  │
@@ -39,29 +42,30 @@ workspaces section or the top-bar scope picker.
 
 ## Annotations
 
-1. **Card grid** — one card per `tickets_repos` entry, 2-up.
-2. **Card** — name, git url (truncated mono), then a **queue-count
-   strip**: per-kind open gate items (?questions ✓approvals ✗failures
-   ⚑escalations — same glyphs as inbox), ticket count, in-flight run
-   count, last-pull time, per-repo config-override dot when
-   `.sprint-runner/config.yaml` exists. `Open →` scopes the app to
-   that workspace (top-bar picker follows).
-3. **Add form** — name + git url → clone + register (writes
-   `tickets_repos` config); clone runs as a task → toast.
+1. **Card grid** — one card per project, 2-up.
+2. **Card** — name, scope (`DB-only` chip — projects are Postgres
+   rows, D29), then a **queue-count strip**: per-kind open
+   gate items (?questions ✓approvals ✗failures ⚑escalations — same
+   glyphs as inbox), ticket count, **board count** (S-15 link),
+   in-flight run count, last-sync time, per-project config-override dot
+   when `.veto/config.yaml` exists. `Open →` scopes the app to
+   that project (top-bar picker follows).
+3. **Add form** — name + code-repo paths → `projects` row created;
+   probe run queued for each repo.
 
 ## Fields
 
 | Element | Source |
 | --- | --- |
-| Card | `/workspaces`: name, url, per-repo queue counts, ticket count, active runs |
-| Pull state | last fetch/push result, `updated_at` |
-| Add form | name, url → `tickets_repos` entry |
+| Card | `/workspaces` (project list): name, scope, per-project queue counts, ticket + board counts, active runs |
+| Sync state | last fetch/push result (legacy) or last DB sync, `updated_at` |
+| Add form | name, scope → project entry |
 
 ## Interactions
 
 - Card click / `Open →` = scope switch (top-bar selector syncs).
-- `r` re-pull; pull failures show inline error chip.
-- Remove is in S-02 Tickets Repos tab (destructive — kept out of
+- `r` re-sync; failures show inline error chip.
+- Remove is in S-02 Projects tab (destructive — kept out of
   this screen).
 
 ## Style notes

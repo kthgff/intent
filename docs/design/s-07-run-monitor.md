@@ -2,18 +2,21 @@
 
 Design doc companion to `UI-INVENTORY.md` §2. Status: draft 2026-10-03.
 Stack: React+Vite · Tailwind · shadcn/ui (Radix). Style: Linear-inspired —
-dark-first, dense (13px base), minimal chrome.
+dual-theme (dark + light, D34), dense (13px base), minimal chrome.
 
 Purpose: watch any in-flight agent run (WF-05) — transcript, progress
 vs plan, commits, live spend — with kill / pause / hand-off controls.
 One component serves every stage: triage, design, implement, review,
-fix, rebase, revert, survey, interview, probe.
+fix, rebase, revert, survey, interview, probe — **plus the board-model
+run types (D26): `board-synthesize`, `initiative-decompose`,
+`feature-decompose`, `retro`**. Synthesis/decompose runs show the same
+plan/progress chrome with subject = the board/initiative/feature ref.
 
 ## Layout
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│ ◆ sprint-runner   ⌘K                                                     │
+│ ◆ veto            ⌘K                                                     │
 ├────────────┬──────────────────────────────────────────────┬──────────────┤
 │            │ SR-0142 · 003-implement            ● running │  CONTROLS    │
 │  SIDEBAR   │ aider · openrouter/claude-sonnet-4     [1]   │ ┌──────────┐ │
@@ -42,7 +45,7 @@ fix, rebase, revert, survey, interview, probe.
    backend, model, depth.
 2. **Runs rail** — left rail lists recent runs (all subjects, incl.
    non-ticket `survey:`/`probe:` runs) newest-first with status dots;
-   filter by workspace. Picking one swaps the whole panel.
+   filter by project. Picking one swaps the whole panel.
 3. **Plan progress** — for implement runs: TDD execution-plan steps as
    ✓/▸/○ chips (done / current / pending). Other stages show a
    generic stage label (`drafting…`).
@@ -63,9 +66,9 @@ fix, rebase, revert, survey, interview, probe.
 
 | Action | Effect | Confirm |
 | --- | --- | --- |
-| Pause | SIGSTOP — freezes process, preserves state | none |
-| Resume | SIGCONT | none |
-| Kill | SIGTERM → SIGKILL after grace; worktree + branch preserved | yes — "work preserved in worktree" |
+| Pause | SIGSTOP (process run) / `docker pause` (container run, D30) — freezes work, preserves state | none |
+| Resume | SIGCONT / `docker unpause` | none |
+| Kill | SIGTERM → SIGKILL / `docker kill` after grace; worktree + branch preserved | yes — "work preserved in worktree" |
 | Hand off to human | stops run, keeps worktree+branch, appends handoff summary to ticket; ticket gets "resume pipeline" affordance | yes |
 | Kill (stalled) | for `stalled` runs — same flow, called out as "no heartbeat" | yes |
 
@@ -73,7 +76,7 @@ fix, rebase, revert, survey, interview, probe.
 
 | Element | Source |
 | --- | --- |
-| Header | `runs` row: id, stage, status, backend, model, depth, pid |
+| Header | `runs` row: id, stage, status, backend, model, depth, pid (process) / container_id (container run, D30) |
 | Usage | `runs.tokens_in/out/cached`, `cost_usd`, `usage_source` |
 | Plan | tdd.md execution-plan table (implement runs) |
 | Commits | `commit` events / worktree git log |

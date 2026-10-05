@@ -77,7 +77,7 @@ covered everything):
 7. **ci-watch cleared** → `merged`, or `reverted` when the ticket has a
    completed revert run. Merge itself never auto-fires — a cleared gate
    means the human already merged.
-8. **Probe cards**: persisted to `.sprint-runner/cards/<repo>.json` in
+8. **Probe cards**: persisted to `.veto/cards/<repo>.json` in
    the tickets repo (durable copy of the code repo's card.json +
    verified bit).
 9. **Interview-qa re-run**: interview subjects aren't ticket-driven —

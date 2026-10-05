@@ -1,21 +1,21 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { SqliteStore } from '@sprint-runner/store';
+import { PostgresStore } from '@sprint-runner/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ingestSurveyArtifacts, mergeEntityAlias } from '../src/index.js';
 
 let dir: string;
-let store: SqliteStore;
+let store: PostgresStore;
 let runDir: string;
 
-beforeEach(() => {
+beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), 'sr-kb-ingest-'));
-  store = new SqliteStore(`sqlite://${join(dir, 'state.db')}`);
+  store = await PostgresStore.connect('pglite:');
   runDir = join(dir, 'run');
 });
-afterEach(() => {
-  store.close();
+afterEach(async () => {
+  await store.close();
   rmSync(dir, { recursive: true, force: true });
 });
 

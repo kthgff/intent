@@ -1,90 +1,98 @@
-# S-17 — Feature detail
+# S-17 — Feature Focus
 
-Design doc companion to `UI-INVENTORY.md` §2 + `FEATURES.md` §1.
-Status: draft 2026-10-04. Stack: React+Vite · Tailwind · shadcn/ui.
-Style: Linear-inspired — dark-first, dense, minimal chrome.
-Anatomy: deliberate S-05 clone — a feature IS a parent subject with
-a docs contract; same layout, different entity.
+Design doc companion to `UI-INVENTORY.md` §2 and `FEATURES.md` §1.
+Status: inventory-complete, coded mockup pending 2026-10-04.
 
-Purpose: everything about one feature — the delivery unit between
-initiative and tickets (WF-20). Tracks its tickets, owns its
-test plan + AC slice, carries its own gates.
+Purpose: govern one delivery unit between an Initiative and its implementation
+Tickets. Feature Focus reuses the S-05 operational-hub structure: one immediate
+Next action, a wide workbench, and a narrow Status/What's-left rail. It does not
+use the superseded horizontal stepper or a permanent AI column.
 
 ## Layout
 
-```
-┌──────────────────────────────────────────────────────────────────────────┐
-│ ◆ sprint-runner   ⌘K      [myApp ▾]                    🔔3  ⚙           │
-├────────────┬──────────────────────────────────────────────┬──────────────┤
-│            │ ← IN-7 › FE-3  Saved payment methods  P1  [1] │              │
-│  SIDEBAR   │ initiative: Billing overhaul · board: Q1     │   GATE       │
-│            │                                              │   PANEL      │
-│  Inbox   9 │ ●━━●━━○━━○━━○━━○                      [2]  │ ┌──────────┐ │
-│  Boards  2 │ decompose  test-review  tickets→merged      │ │ test.md  │ │
-│  Tickets   │                                              │ │ ready v2 │ │
-│  Features  │ [Overview][Docs][Tickets][Activity][Runs][3] │ │          │ │
-│  Review  2 │ ───────────────────────────────────────────  │ │[Review →]│ │
-│  Queue   1 │                                              │ │[Approve ]│ │
-│  Metrics   │  ## AC slice (from IN-7 PRD)          [4]   │ └──────────┘ │
-│  KB        │  ac1 ✓ tokenized storage — covered by c1,c4  │      [6]     │
-│            │  ac2 ✓ PCI scope unchanged — manual attest   │              │
-│            │                                              │  PARENTS     │
-│            │  ## Coverage                          [5]   │ IN-7 Billing │
-│            │  5/7 cases mapped · 2 unmapped file-rows     │ ──────────── │
-│            │                                              │  SIBLINGS    │
-│            │                                              │ FE-2 Auth ▸  │
-│            │                                              │ FE-4 Refunds │
-│            │                                              │      [7]     │
-└────────────┴──────────────────────────────────────────────┴──────────────┘
+```text
+┌───────────────────────────────────────────────────────────────────────┐
+│ ← IN-7   FE-3 — Saved payment methods        [Spec · test-review]     │
+│          myApp · Q1 goals · P1 · owner KG               [Ledger][⋯]   │
+│ ┌──────────────────────────────────────────────┐ ┌───────────────────┐│
+│ │ NEXT ACTION — waiting on you · test review  │ │ STATUS            ││
+│ │ test.md v2 · 7 ACs · 14 cases · 2 unmapped │ │ Test planning     ││
+│ │ [Review plan] [Approve]                     │ │ Waiting on you    ││
+│ ├──────────────────────────────────────────────┤ ├───────────────────┤│
+│ │[Overview][Documentation][Tickets][Activity] │ │ WHAT'S LEFT       ││
+│ │[Runs]                                       │ │ ✓ Feature defined ││
+│ │                                              │ │ ● Test plan       ││
+│ │ AC slice, coverage, or selected work surface│ │ ○ Tickets         ││
+│ │                                              │ │ ○ Code review     ││
+│ │                                              │ │ ○ Released        ││
+│ └──────────────────────────────────────────────┘ ├───────────────────┤│
+│                                                  │ FAMILY / KEY FACTS││
+│                                                  └───────────────────┘│
+└───────────────────────────────────────────────────────────────────────┘
 ```
 
-## Annotations
+## Page anatomy
 
-1. **Header** — breadcrumb `IN-7 › FE-3`, title, priority, initiative
-   link, board link (the board that birthed the initiative).
-2. **Feature stepper** — feature lifecycle: decomposed → spec'd
-   (test-review) → tickets flowing → all tickets merged → `delivered`.
-   Compact — features don't re-run triage stages.
-3. **Tabs** — Overview | Docs | Tickets | Activity | Runs.
-4. **AC slice** — the feature's share of initiative ACs with
-   per-AC coverage status (test case ids, attest state); provenance
-   hover → the board items that grounded each AC.
-5. **Coverage summary** — test-plan matrix status at a glance;
-   unmapped rows flagged (lint state).
-6. **Gate panel** — current feature gate: test-plan review (→S-06),
-   split-plan approval, or nothing (rail collapses).
-7. **Parents/siblings rail** — initiative card + sibling features
-   with status dots — the family rail pattern, one level up.
+1. **Header** — breadcrumb to Initiative, Project and originating Board; FE id,
+   title, status badge, priority, owner, dependency/blocker chips, Ledger, and
+   actions for Re-plan, Move/re-parent, and Cancel.
+2. **Next action** — current document/split/verify gate, active run, failure,
+   blocked dependency, or terminal outcome. The current action is completed
+   inline or opens the full relevant workbench tab.
+3. **Workbench tabs:**
+   - **Overview** — `feature.md`, inherited Initiative context, AC slice,
+     coverage summary, grounded-in-items link, cost/lead-time/progress.
+   - **Documentation** — immutable `feature.md` + `test.md` versions, history,
+     MR-style diffs, S-06 reviewer, trust-inheritance delta, contextual AI.
+   - **Tickets** — child-ticket rollup: id/title/status/priority/owner/run,
+     progress by released count, gates, cost; attach existing, create, or run
+     Feature Decompose.
+   - **Activity** — Feature plus descendant event timeline.
+   - **Runs** — decompose/test-plan/re-plan/retro/verify runs.
+   - Conditional **Failure**, **Split plan**, or **Verify** spotlight when the
+     state requires it.
+4. **Status rail** — current phase/owner of next move; vertical roadmap:
+   `Defined → Test approved → Tickets → Code review → Released`; family links
+   to parent Initiative and sibling Features; key facts beneath.
 
-## Tabs
+## AC, coverage, and provenance
 
-| Tab | Contents |
+- Every Feature owns the assigned slice of Initiative acceptance criteria.
+- Each AC shows test case ids, pass/attest state, and board-item provenance.
+- Unmapped AC/test rows are explicit lint failures, not muted warnings.
+- `grounded in N items` opens S-18 Provenance filtered to this Feature's ACs.
+
+## Actions
+
+- **Feature Decompose** proposes implementation Tickets, then S-06 reviews the
+  split plan before mechanical materialization.
+- **Re-plan** runs decomposition against unmet ACs; terminal children are
+  locked and S-06 renders the proposed v2 child diff.
+- **Move/re-parent** changes Initiative with impact/provenance preview and emits
+  `reparented`.
+- **Cancel** requires explicit choices for open children and related consumed
+  items; no silent cascade.
+- **Verify/release** rolls descendant Ticket state up honestly. A Feature is
+  released only when all required descendants are released or explicitly
+  dispositioned.
+- AI appears only inside the selected Feature/Test document or a selected
+  review object. Proposed changes require human approval and a new version.
+
+## Data
+
+| Surface | Source |
 | --- | --- |
-| Overview | feature.md body, AC slice, coverage summary, trust-inheritance badge ("context pre-approved via IN-7 PRD") |
-| Docs | feature.md + test.md rows: version, status badge, view→S-06, version diffs |
-| Tickets | child table: id, title, status, priority, runs — progress rollup bar (% merged); orphan-add action (attach existing ticket) |
-| Activity | feature-scoped events timeline (same renderer as S-05) |
-| Runs | decompose/testplan run rows → S-07 |
+| Header/status/roadmap | Feature projection + derived phase/rollup |
+| Next action | open Feature gate, active run, failure, dependency, or terminal outcome |
+| Documentation | immutable `doc_versions` for `subject_ref: FE-*` |
+| AC/provenance | Initiative provenance + Feature AC assignment |
+| Tickets | Ticket projections where `feature_id = FE-*` |
+| Family | parent Initiative + sibling Features |
+| Activity/Runs | events and runs scoped to Feature + optional descendants |
 
-## Fields
+## Required states
 
-| Element | Source |
-| --- | --- |
-| Header | `features` projection (id, title, status, priority, initiative) |
-| AC slice | initiative `provenance.json` + feature AC assignment |
-| Tickets | `tickets` where `feature = FE-3` |
-| Gate | `gate_items` subject `feature:FE-3` |
-
-## Interactions
-
-- Approve test plan inline (plan-package default — combined doc gate).
-- **Feature decompose** button when no children yet → split-plan of
-  tickets → approve → materialize.
-- Batch-approve children split-plans from the gate panel.
-
-## Style notes
-
-- Literal S-05 layout components (stepper, tabs, right rail, family
-  rail) — parametrize the shared component, don't fork.
-- Breadcrumb trail `project › IN-x › FE-y` is the orientation device
-  for the three-level tree.
+No tickets yet · decompose running · split plan ready · test draft/review/
+approved · tickets flowing · dependency blocked · implementation/review in
+progress · failure · verifying · verify_failed · released · cancelled/partial.
+At narrow widths the status/family rail stacks after the workbench.

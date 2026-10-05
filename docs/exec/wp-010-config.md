@@ -11,8 +11,8 @@ depends_on: [wp-002]
 ---
 
 ## Description
-Implement SETTINGS.md: load global `~/.config/sprint-runner/config.yaml`,
-merge per-tickets-repo `.sprint-runner/config.yaml`, apply frontmatter
+Implement SETTINGS.md: load global `~/.config/veto/config.yaml`,
+merge per-tickets-repo `.veto/config.yaml`, apply frontmatter
 overrides at ticket level, load `.env` files (never expose values in
 logs). Full zod validation with helpful errors. `actor` required.
 Expose `resolveConfig(ticket?) -> EffectiveConfig`.

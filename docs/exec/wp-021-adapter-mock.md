@@ -41,7 +41,7 @@ exist in core — this wp is the first concrete impl)
 - Sentinel parse: last non-empty line, `NAME[: payload]` against the
   SENTINELS enum — unknown/malformed → `sentinel: null` (run_failed).
 - Scratch-dir semantics honored: `can_write_outside_tree:false` →
-  `.sprint-runner/<run-id>/` collected into `ctx.run_dir` + purged.
+  `.veto/<run-id>/` collected into `ctx.run_dir` + purged.
 - Usage absent → `source: estimated` (labeled, never fails the run).
 
 ## Blocker

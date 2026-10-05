@@ -15,13 +15,16 @@ Prior art (similar past tickets — deviations that bit them):
 {{PRIOR_ART}}
 Product dossier (scoped — real architecture + landmines):
 {{DOSSIER}}
+Human feedback on the previous draft (empty on first draft — when set,
+it is a reviewer comment you MUST address): {{FEEDBACK}}
 Artifact paths: {{ARTIFACT_TARGETS}}
 
 ## Phase 1 — technical Q&A (if needed)
 If a technical judgment call is unresolved (which worker pool, extend vs
-new module, migration strategy), emit questions in triage.json format —
-same rules: self-answer factual ones by reading the repos; every human
-question carries a recommended answer. Then stop; the human answers and
+new module, migration strategy), write the questions to `design.json` —
+the SCHEMAS.md §5 question-set shape (same rules as triage.json):
+self-answer factual ones by reading the repos; every human question
+carries a recommended answer. Then stop; the human answers and
 you are re-run.
 
 ## Phase 2 — write the TDD

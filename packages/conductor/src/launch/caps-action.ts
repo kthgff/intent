@@ -12,7 +12,7 @@
 import type { RunRow } from '@sprint-runner/core';
 import { applyTicketStatus } from '../contracts.js';
 import type { CapKind } from '../loop/caps.js';
-import { actorOf, gitActor, loadHandle, nowIso } from '../loop/deps.js';
+import { actorOf, loadHandle, nowIso } from '../loop/deps.js';
 import type { LaunchContext } from './index.js';
 
 export async function blockTicketForCap(
@@ -37,42 +37,23 @@ export async function blockTicketForCap(
     }
   }
 
-  await deps.store.updateRun(run.id, {
-    status: 'killed',
-    exited_at: ts,
-  });
-  await deps.store.appendEvent({
-    workspace: ws.name,
-    ticket_id: run.ticket_id,
-    ts,
-    stage: run.stage,
-    actor_type: 'runner',
-    actor_id: actorOf(deps),
-    event: 'run_killed',
-    run: run.id,
-    refs: [],
-    data: { reason: cap },
-    cost_usd: null,
-    tokens_in: null,
-    tokens_out: null,
-    tokens_cached: null,
-    usage_source: null,
-    duration_s: null,
-    human_minutes: null,
-  });
-
-  if (run.ticket_id) {
-    // The `blocked` event is emitted BEFORE the status commit so a
-    // commit failure can't leave the ticket blocked-via-projection
-    // with no event/notification (events drive notifications).
-    await deps.store.appendEvent({
+  // Kill-row + run_killed + blocked + status commit — one transaction
+  // (ARCHITECTURE §4.4): a crash between the run update and the events
+  // would drop the notification; a crash before the status write must
+  // not leave a `killed` run with a still-live ticket.
+  await deps.store.transaction(async (s) => {
+    await s.updateRun(run.id, {
+      status: 'killed',
+      exited_at: ts,
+    });
+    await s.appendEvent({
       workspace: ws.name,
       ticket_id: run.ticket_id,
       ts,
       stage: run.stage,
       actor_type: 'runner',
       actor_id: actorOf(deps),
-      event: 'blocked',
+      event: 'run_killed',
       run: run.id,
       refs: [],
       data: { reason: cap },
@@ -84,23 +65,45 @@ export async function blockTicketForCap(
       duration_s: null,
       human_minutes: null,
     });
-    await applyTicketStatus({
-      ctx: {
+
+    if (run.ticket_id) {
+      await s.appendEvent({
         workspace: ws.name,
-        ticketsRepoPath: ws.ticketsRepoPath,
-        store: deps.store,
-        actor: actorOf(deps),
-        now: () => new Date(ts),
-      },
-      opts: {
-        ticketId: run.ticket_id,
-        status: 'blocked',
-        blockedReason: cap,
+        ticket_id: run.ticket_id,
+        ts,
+        stage: run.stage,
+        actor_type: 'runner',
+        actor_id: actorOf(deps),
+        event: 'blocked',
         run: run.id,
-        commitMessage: `conductor: ${run.ticket_id} → blocked (${cap})`,
-      },
-      actor: gitActor(deps),
-    });
-  }
+        refs: [],
+        data: { reason: cap },
+        cost_usd: null,
+        tokens_in: null,
+        tokens_out: null,
+        tokens_cached: null,
+        usage_source: null,
+        duration_s: null,
+        human_minutes: null,
+      });
+      // applyTicketStatus opens `store.transaction` — the tx-bound
+      // store reuses the open tx (a throw aborts the whole block).
+      await applyTicketStatus({
+        ctx: {
+          workspace: ws.name,
+          rootPath: ws.rootPath,
+          store: s,
+          actor: actorOf(deps),
+          now: () => new Date(ts),
+        },
+        opts: {
+          ticketId: run.ticket_id,
+          status: 'blocked',
+          blockedReason: cap,
+          run: run.id,
+        },
+      });
+    }
+  });
   ctx.onCapHit?.(run, cap);
 }

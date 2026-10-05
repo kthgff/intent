@@ -156,13 +156,22 @@ export interface TicketDetail {
 
 export interface DocResponse {
   name: string;
+  doc: string;
   content: string;
+  /** Latest doc_versions version number (D29). */
+  version?: number;
+  versions: {
+    version: number;
+    edited_by: string | null;
+    created_at: string | null;
+  }[];
+  /** Consecutive-version diffs, computed server-side (from/to are vN). */
   diffs: { from: string; to: string; diff: string }[];
 }
 
 export interface WorkspaceInfo {
   name: string;
-  tickets_repo_path: string;
+  root_path: string;
   queue_depth: number;
   open_gate_items: number;
 }

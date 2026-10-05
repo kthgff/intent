@@ -20,11 +20,13 @@ import {
   type TicketPriority,
   type TicketRow,
 } from '@sprint-runner/core';
+import { z } from 'zod';
 import { applyTicketStatus } from '../contracts.js';
+import type { RunnerTask } from '../contracts.js';
 import { hasLiveRun, launch, queuePendingRun } from '../launch/index.js';
 import { capsBlockClaim } from '../loop/caps.js';
-import type { ConductorDeps, ConductorWorkspace } from '../loop/deps.js';
-import { actorOf, gitActor } from '../loop/deps.js';
+import type { ConductorDeps } from '../loop/deps.js';
+import { actorOf } from '../loop/deps.js';
 import type { LeaseManager } from '../loop/lease.js';
 import { transitionContext } from '../loop/tools.js';
 import type { ToolCtx } from '../loop/tools.js';
@@ -41,6 +43,25 @@ const PRIORITY_RANK: Record<TicketPriority, number> = {
 };
 const rank = (p: string) => PRIORITY_RANK[p as TicketPriority] ?? 1;
 
+/** Serialized `pending`-row request (runs.request) — fail-closed:
+ *  malformed rows launch with conductor-default tokens. */
+const PendingRequestSchema = z.object({
+  tokens: z.record(z.string(), z.string()).optional(),
+  model: z.string().optional(),
+  /** Runner-task spec persisted by queuePendingRun (verify/import). */
+  task: z
+    .discriminatedUnion('kind', [
+      z.object({ kind: z.literal('verify') }),
+      z.object({
+        kind: z.literal('import'),
+        repo: z.string().optional(),
+        milestone: z.string().optional(),
+        labels: z.array(z.string()).optional(),
+      }),
+    ])
+    .optional(),
+});
+
 export async function claim(ctx: ToolCtx): Promise<ClaimReport> {
   const { deps, ws } = ctx;
   const report: ClaimReport = { launched: [], skipped: [] };
@@ -54,11 +75,16 @@ export async function claim(ctx: ToolCtx): Promise<ClaimReport> {
     })
   ).sort((a, b) => (a.started_at ?? '').localeCompare(b.started_at ?? ''));
   for (const row of pending) {
+    const saved = PendingRequestSchema.safeParse(row.request);
+    const req = saved.success ? saved.data : null;
     const id = await launch(ctx, {
       workspace: ws.name,
       subject: row.subject,
       stage: row.stage as Stage,
       ...(row.ticket_id ? { ticketId: row.ticket_id } : {}),
+      ...(req?.model ? { model: req.model } : {}),
+      ...(req?.tokens ? { tokens: req.tokens } : {}),
+      ...(req?.task ? { task: req.task as RunnerTask } : {}),
       pendingRow: row,
     });
     if (id) report.launched.push(id);
@@ -152,17 +178,19 @@ export async function claim(ctx: ToolCtx): Promise<ClaimReport> {
   return report;
 }
 
-/** All depends_on tickets merged? (CONDUCTOR CLAIM + scheduling DAG). */
+/** All depends_on tickets delivered? (CONDUCTOR CLAIM + scheduling
+ *  DAG; D27 — `merged` and its post-merge lifecycle statuses count). */
 async function depsMerged(
   deps: ConductorDeps,
   ticket: TicketRow,
 ): Promise<boolean> {
+  const DELIVERED = ['merged', 'verifying', 'released'];
   for (const dep of ticket.depends_on) {
     const row = await deps.store.getTicket({
       workspace: ticket.workspace,
       ticket_id: dep,
     });
-    if (row?.status !== 'merged') return false;
+    if (!row || !DELIVERED.includes(row.status)) return false;
   }
   return true;
 }
@@ -180,7 +208,7 @@ async function blockPreClaim(
   await applyTicketStatus({
     ctx: {
       workspace: ws.name,
-      ticketsRepoPath: ws.ticketsRepoPath,
+      rootPath: ws.rootPath,
       store: deps.store,
       actor: actorOf(deps),
       now: () => deps.now?.() ?? new Date(),
@@ -189,10 +217,8 @@ async function blockPreClaim(
       ticketId: ticket.ticket_id,
       status: 'blocked',
       blockedReason: cap,
-      commitMessage: `conductor: ${ticket.ticket_id} → blocked (${cap})`,
       data: { reason: cap },
     },
-    actor: gitActor(deps),
   });
   await deps.store.appendEvent({
     workspace: ws.name,

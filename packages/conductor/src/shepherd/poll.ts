@@ -19,20 +19,29 @@
  *   - green + quiet → DoD gate: `cmd:` rows execute as verify tasks
  *     (envops runVerifyTask — a runner task, registered as a runs row),
  *     `manual` rows need a human attestation — all verified/attested →
- *     `merge.json` enabled. The merge button is a human action and
- *     NEVER auto-fires (CONDUCTOR tail gating);
+ *     the `merge.json` doc_version is enabled. The merge button is a
+ *     human action and NEVER auto-fires (CONDUCTOR tail gating);
  *   - `gh pr view` → MERGED → merged_sha on the row; ALL rows merged →
  *     `merged` (`reverted` when the merged PR is a revert PR).
+ *
+ * D29: tickets/docs are Postgres rows — test.md, merge.json and
+ * dod-attestations.json are `doc_versions` read/written through
+ * `tools`. Shepherd poll bookkeeping (cycles, fingerprints, seen
+ * comments, DoD results) is NOT truth: it lives in
+ * `<rootPath>/.veto/shepherd/<ticketId>.json` (state.ts). The only
+ * surviving git op here is `git push origin <branch>` on the CODE
+ * worktree — there is no tickets repo to commit to.
  */
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { RunRow, TicketRepoRow, TicketRow } from '@sprint-runner/core';
-import { commitAll, git } from '@sprint-runner/gitops';
+import { git } from '@sprint-runner/gitops';
+import type { TransitionTools } from '../contracts.js';
 import { runVerifyTask } from '../envops/index.js';
 import { hasLiveRun } from '../launch/index.js';
-import { gitActor, nowIso, resolveRepoPath } from '../loop/deps.js';
-import { makeTransitionTools, transitionContext } from '../loop/tools.js';
+import { nowIso, resolveRepoPath } from '../loop/deps.js';
+import { makeTransitionTools } from '../loop/tools.js';
 import type { ToolCtx } from '../loop/tools.js';
 import {
   type DodRowClassified,
@@ -135,7 +144,6 @@ export async function pollOpenPrs(ctx: ShepherdCtx): Promise<ShepherdReport> {
     warnings: [],
   };
   const tools = makeTransitionTools(ctx);
-  const tctx = transitionContext(ctx);
   const maxCycles = deps.config.budgets.shepherd_max_cycles;
 
   const tickets = (await store.listTickets({ workspace: ws.name })).filter(
@@ -144,8 +152,7 @@ export async function pollOpenPrs(ctx: ShepherdCtx): Promise<ShepherdReport> {
 
   for (const ticket of tickets) {
     const id = ticket.ticket_id;
-    const ticketDir = join(ws.ticketsRepoPath, 'tickets', id);
-    const { file: shep, raw: shepRaw } = await loadShepherdFile(ticketDir);
+    const { file: shep, raw: shepRaw } = await loadShepherdFile(ws, id);
     let rows = await store.listTicketRepos({
       workspace: ws.name,
       ticket_id: id,
@@ -413,14 +420,9 @@ export async function pollOpenPrs(ctx: ShepherdCtx): Promise<ShepherdReport> {
       report.actions.push(`${id}: all PRs merged → ${terminal}`);
     }
 
-    // Persist shepherd.json only when it moved (avoids commit spam).
-    if (await saveShepherdFile(ticketDir, shep, shepRaw)) {
-      await commitAll(
-        ws.ticketsRepoPath,
-        `conductor: ${id} shepherd state`,
-        gitActor(deps),
-      ).catch(() => {});
-    }
+    // Persist the shepherd state file only when it moved (scratch
+    // state — no git commit, it is not a truth artifact).
+    await saveShepherdFile(ws, id, shep, shepRaw);
   }
 
   return report;
@@ -432,7 +434,8 @@ export async function pollOpenPrs(ctx: ShepherdCtx): Promise<ShepherdReport> {
 
 /** The merge-enable flag (CONDUCTOR "green + quiet → merge button
  *  enabled"). `ticket_repos` has no column for it (DB-SCHEMA is
- *  binding) — the flag is a committed ticket artifact the UI reads. */
+ *  binding) — D29: the flag is a `doc_versions` doc on the ticket
+ *  subject that the UI reads. */
 const MERGE_FLAG = 'merge.json';
 
 interface MergeFlagDoc {
@@ -443,12 +446,14 @@ interface MergeFlagDoc {
   note: string;
 }
 
-async function mergeFlagEnabled(ticketDir: string): Promise<boolean> {
+async function mergeFlagEnabled(
+  docs: Pick<TransitionTools, 'getDocText'>,
+  ticketId: string,
+): Promise<boolean> {
   try {
-    const parsed = JSON.parse(
-      await readFile(join(ticketDir, MERGE_FLAG), 'utf8'),
-    ) as MergeFlagDoc;
-    return parsed.enabled === true;
+    const raw = await docs.getDocText(ticketId, MERGE_FLAG);
+    if (raw === null) return false;
+    return (JSON.parse(raw) as MergeFlagDoc).enabled === true;
   } catch {
     return false;
   }
@@ -457,10 +462,11 @@ async function mergeFlagEnabled(ticketDir: string): Promise<boolean> {
 /**
  * DoD evaluation for a green+quiet PR: `cmd:` rows execute as verify
  * tasks (envops runVerifyTask — DETACHED commands, `timeouts.verify`
- * budget, results persisted into a runs row + shepherd.json);
- * `manual` rows need an attestation in dod-attestations.json. All
- * verified + attested → merge.json enabled. A failed cmd row surfaces
- * a `dod-failed` gate item — it is not re-run automatically.
+ * budget, results persisted into a runs row + the shepherd state
+ * file); `manual` rows need an attestation in the
+ * `dod-attestations.json` doc. All verified + attested → a new
+ * `merge.json` doc version with enabled=true. A failed cmd row
+ * surfaces a `dod-failed` gate item — it is not re-run automatically.
  */
 async function evaluateDod(
   ctx: ShepherdCtx,
@@ -470,14 +476,11 @@ async function evaluateDod(
   tools: ReturnType<typeof makeTransitionTools>,
   report: ShepherdReport,
 ): Promise<void> {
-  const { deps, ws } = ctx;
+  const { deps } = ctx;
   const id = ticket.ticket_id;
-  const ticketDir = join(ws.ticketsRepoPath, 'tickets', id);
-  if (await mergeFlagEnabled(ticketDir)) return; // already enabled
+  if (await mergeFlagEnabled(tools, id)) return; // already enabled
 
-  const testMd = await readFile(join(ticketDir, 'test.md'), 'utf8').catch(
-    () => '',
-  );
+  const testMd = (await tools.getDocText(id, 'test.md')) ?? '';
   const dodRows = parseDodRows(testMd);
   st.dod ??= {};
 
@@ -503,7 +506,7 @@ async function evaluateDod(
     }
   }
 
-  const attestations = await readDodAttestations(ticketDir);
+  const attestations = await readDodAttestations(tools, id);
   const statuses = dodRows.map((r) => {
     if (r.kind === 'cmd') {
       return st.dod?.[r.criterion]?.status === 'verified'
@@ -533,16 +536,7 @@ async function evaluateDod(
     })),
     note: 'merge button enabled — merge NEVER auto-fires (CONDUCTOR tail gating)',
   };
-  await writeFile(
-    join(ticketDir, MERGE_FLAG),
-    `${JSON.stringify(flag, null, 2)}\n`,
-    'utf8',
-  );
-  await commitAll(
-    ws.ticketsRepoPath,
-    `conductor: ${id} merge enabled`,
-    gitActor(deps),
-  ).catch(() => {});
+  await tools.putDoc(id, MERGE_FLAG, `${JSON.stringify(flag, null, 2)}\n`);
   await tools.appendEvent({
     ticketId: id,
     event: 'ci_green',

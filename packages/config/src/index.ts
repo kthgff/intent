@@ -56,8 +56,8 @@ export function defaultGlobalConfigPath(): string {
   return join(homedir(), '.config', 'sprint-runner', 'config.yaml');
 }
 
-export function workspaceConfigPath(ticketsRepoPath: string): string {
-  return join(ticketsRepoPath, '.sprint-runner', 'config.yaml');
+export function workspaceConfigPath(rootPath: string): string {
+  return join(rootPath, '.sprint-runner', 'config.yaml');
 }
 
 function readYamlFile(path: string): PlainObject {
@@ -100,15 +100,16 @@ export function loadGlobalConfig(
 }
 
 /**
- * Load the tickets-repo layer on top of the global layer:
- * `<ticketsRepoPath>/.sprint-runner/config.yaml` + sibling `.env`.
- * Repo values override global values (deep merge); repo secrets win.
+ * Load the workspace layer on top of the global layer:
+ * `<rootPath>/.sprint-runner/config.yaml` + sibling `.env`. Workspace
+ * values override global values (deep merge); workspace secrets win.
+ * (D29: the workspace root is a plain dir — there is no tickets repo.)
  */
 export function loadWorkspaceConfig(
-  ticketsRepoPath: string,
+  rootPath: string,
   global: LoadedConfig = loadGlobalConfig(),
 ): LoadedConfig {
-  const configPath = workspaceConfigPath(ticketsRepoPath);
+  const configPath = workspaceConfigPath(rootPath);
   const files = [...global.files];
   const warnings = [...global.warnings];
 
@@ -125,7 +126,7 @@ export function loadWorkspaceConfig(
   }
 
   const secrets = { ...global.secrets };
-  const envPath = join(ticketsRepoPath, '.sprint-runner', '.env');
+  const envPath = join(rootPath, '.sprint-runner', '.env');
   if (existsSync(envPath)) {
     Object.assign(secrets, readEnvFile(envPath));
     files.push(envPath);

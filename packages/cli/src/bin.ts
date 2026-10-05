@@ -9,7 +9,7 @@ Commands:
   init        Create ~/.config/sprint-runner config + .env scaffolding
   daemon      Run the conductor loop (same loop the app embeds)
   tick        Run a single conductor reconcile/claim/launch pass
-  status      Print projection + live-run summary for a workspace
+  status      Print ticket + live-run summary for a workspace
   version     Print version
 
 Flags: --config <path>  override global config path

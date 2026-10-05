@@ -15,19 +15,19 @@
  *     design; doc approvals → next draft stage; split-plan approve →
  *     materialize).
  */
-import { readFile, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { basename, isAbsolute, join, resolve } from 'node:path';
 import type { EffectiveConfig } from '@sprint-runner/config';
 import {
+  type EventRow,
   type GateMode,
   REVIEW_PASSES,
   type RunResult,
+  type RunRow,
   type Sentinel,
-  type Stage,
   type TicketRow,
   type TicketStatus,
 } from '@sprint-runner/core';
-import { commitAll } from '@sprint-runner/gitops';
 import { coverageLint, structuredDocLint } from '@sprint-runner/lints';
 import { specLint } from '@sprint-runner/lints';
 import {
@@ -38,34 +38,41 @@ import {
   type TransitionHandler,
   type TransitionTools,
   applyTicketStatus,
+  rewriteFrontmatterStatus,
 } from '../contracts.js';
-import { emitEvent, regenerateLog } from '../events/index.js';
+import { emitEvent } from '../events/index.js';
+import type { EmitArgs } from '../events/index.js';
 import { gateForStatus, gateKindFor } from '../gates/index.js';
+import { parseTicketMd } from '../import/parse.js';
 import { retryDecision } from '../loop/retry.js';
 import {
   type ReviewDocument,
   applyFixResults,
   discussReply,
   dismissalClaimsFromDeviations,
-  parseFixesPayload,
   planReviewRound,
 } from '../review/index.js';
 import {
   type TriageSuggestions,
   applySuggestionsToTicketMd,
   findingsArtifact,
-  flatFrontmatter,
-  gitActor,
+  getArtifactText,
+  getDocText,
+  latestArtifactText,
   materializeSplit,
   mergeFindingsPass,
   openBlockingSeverities,
   parseSplitPlan,
   pushBranches,
+  putArtifactText,
+  putDocText,
   readOrNull,
   readReviewJson,
   readTriageJson,
   recordSpecHash,
+  runArtifactText,
   specIsStale,
+  ticketArtifactText,
 } from './actions.js';
 import { type ActionId, TRANSITION_TABLE } from './table.js';
 
@@ -82,6 +89,33 @@ interface ActionArgs {
 }
 
 type ActionFn = (args: ActionArgs) => Promise<void>;
+
+const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
+
+/** Build the raw `events` row emitEvent produces — for writes that
+ *  must ride inside a `store.transaction` block (the store's appendEvent
+ *  takes the wire shape, not the EmitArgs shorthand). */
+function makeEvent(tools: TransitionTools, e: EmitArgs): EventRow {
+  return {
+    workspace: tools.workspace,
+    ticket_id: e.ticketId ?? null,
+    ts: tools.now().toISOString(),
+    stage: e.stage ?? null,
+    actor_type: e.actorType ?? 'runner',
+    actor_id: tools.actor,
+    event: e.event,
+    run: e.run ?? null,
+    refs: e.refs ?? [],
+    data: e.data ?? {},
+    cost_usd: null,
+    tokens_in: null,
+    tokens_out: null,
+    tokens_cached: null,
+    usage_source: null,
+    duration_s: null,
+    human_minutes: e.humanMinutes ?? null,
+  };
+}
 
 export class RealTransitionHandler implements TransitionHandler {
   readonly #config: EffectiveConfig;
@@ -156,9 +190,9 @@ export class RealTransitionHandler implements TransitionHandler {
       return 'open';
     };
     const clearedGateEvent = async (gate: string) => {
-      const forced = /forced\s*:\s*true/.test(
-        (await readOrNull(this.#ticketFile(ctx, id))) ?? '',
-      );
+      // `forced` is a tickets-row column (D29 — was a ticket.md
+      // frontmatter regex).
+      const forced = ticket.forced === true;
       await emitEvent(tools, {
         ticketId: id,
         event: forced ? 'gate_overridden' : 'gate_approved',
@@ -231,9 +265,7 @@ export class RealTransitionHandler implements TransitionHandler {
             return null;
           await clearedGateEvent('changes-requested');
           // Human triage — dismissed/wontfix findings are settled here.
-          const review = await readReviewJson(
-            join(ctx.ticketsRepoPath, 'tickets', id),
-          );
+          const review = await readReviewJson(ctx, id);
           const dismissed = (review?.findings ?? []).filter(
             (f) => f.status === 'dismissed' || f.status === 'wontfix',
           ).length;
@@ -372,8 +404,9 @@ export class RealTransitionHandler implements TransitionHandler {
       });
       return { stage: 'triage' };
     }
-    const ticketDir = join(ctx.ticketsRepoPath, 'tickets', id);
-    const plan = await readOrNull(join(ticketDir, 'split-plan.md'));
+    // The plan is a run_artifacts row written by the split run
+    // (D29 — was tickets/<id>/split-plan.md).
+    const plan = await ticketArtifactText(ctx, id, 'split-plan.md');
     const children = plan ? parseSplitPlan(plan) : null;
     if (!children) {
       await tools.surfaceGateItem({
@@ -393,14 +426,14 @@ export class RealTransitionHandler implements TransitionHandler {
     await emitEvent(tools, {
       ticketId: id,
       event: 'split_materialized',
-      refs: Object.values(ids).map((c) => `tickets/${c}/ticket.md`),
+      refs: Object.values(ids).map((c) => `doc:${c}:ticket.md`),
       data: ids,
     });
     await this.#setStatus(ctx, id, 'split', { data: { children: ids } });
     await emitEvent(tools, {
       ticketId: id,
-      event: 'commit',
-      data: { what: 'split materialization' },
+      event: 'doc_edited',
+      data: { what: 'split materialization', children: ids },
     });
     return null; // parent is terminal; children re-enter at `imported`
   }
@@ -461,9 +494,8 @@ export class RealTransitionHandler implements TransitionHandler {
     }
     const action = this.#actions[row.action];
     await action({ outcome, tools, payload });
-    if (run.ticket_id) {
-      await regenerateLog(tools, run.ticket_id).catch(() => {});
-    }
+    // No LOG.md regen — the events table is the ledger (D29); LOG.md
+    // is a derived render the API/UI produces on read.
   }
 
   // ------------------------------------------------------------------
@@ -490,18 +522,105 @@ export class RealTransitionHandler implements TransitionHandler {
     },
 
     ticketAuthored: async ({ outcome, tools, payload }) => {
+      // TICKET-AUTHORED: <id> — the run wrote <id>/ticket.md into its
+      // run dir; reconcile ingested it as a doc_versions row. The
+      // truth row doesn't exist yet (interview subjects aren't ticket
+      // rows) — create it here, transactionally with the audit events,
+      // fail-closed when the doc is missing or malformed.
       const id = payload.trim();
-      await emitEvent(tools, {
-        ticketId: id,
-        stage: 'interview',
-        event: 'ticket_authored',
-        run: outcome.run.id,
-        refs: [`tickets/${id}/ticket.md`],
-      });
-      await tools.applyTicketStatus({
-        ticketId: id,
-        status: 'imported',
-        run: outcome.run.id,
+      const raw = await tools.getDocText(id, 'ticket.md');
+      const parsed = raw ? parseTicketMd(raw, `${id}/ticket.md`) : null;
+      if (!parsed?.ok) {
+        await tools.surfaceGateItem({
+          subject: outcome.run.subject,
+          gate: 'repair',
+          kind: 'repair',
+          payload: {
+            reason: `TICKET-AUTHORED ${id}: ${
+              parsed ? parsed.error.error : 'no ticket.md doc ingested'
+            }`,
+          },
+        });
+        await emitEvent(tools, {
+          stage: 'interview',
+          event: 'run_failed',
+          run: outcome.run.id,
+          data: {
+            reason: `TICKET-AUTHORED ${id}: ticket.md missing/unparseable`,
+          },
+        });
+        return;
+      }
+      const { frontmatter } = parsed.value;
+      const ts = tools.now().toISOString();
+      // Row + ticket.md status rewrite + audit events in one write
+      // (ARCHITECTURE §4.4). Status enters as `imported` — the pipeline
+      // entry state — regardless of what the doc claims.
+      await tools.store.transaction(async (s) => {
+        await s.upsertTicket({
+          workspace: tools.workspace,
+          ticket_id: id,
+          feature: frontmatter.feature ?? null,
+          title: frontmatter.title,
+          status: 'imported',
+          priority: frontmatter.priority,
+          depth: frontmatter.depth,
+          backend: frontmatter.backend ?? null,
+          model: frontmatter.model ?? null,
+          repos: frontmatter.repos,
+          parent: frontmatter.parent ?? null,
+          depends_on: frontmatter.depends_on,
+          source: 'interview',
+          forced: frontmatter.forced,
+          spec_score: null,
+          spec_hash: sha256(raw ?? ''),
+          blocked_reason: null,
+          created_at: ts,
+          updated_at: ts,
+        });
+        for (const repo of frontmatter.repos) {
+          await s.upsertTicketRepo({
+            workspace: tools.workspace,
+            ticket_id: id,
+            repo,
+            branch: null,
+            worktree: null,
+            pr_url: null,
+            pr_state: null,
+            ci_state: null,
+            merged_sha: null,
+          });
+        }
+        if (frontmatter.status !== 'imported') {
+          // Keep the doc's frontmatter in step with the row (D24 — new
+          // version, never in-place).
+          const next = rewriteFrontmatterStatus(raw ?? '', 'imported', null);
+          if (next !== raw) {
+            await s.appendDocVersion(
+              { workspace: tools.workspace, subject: id, doc: 'ticket.md' },
+              next,
+              tools.actor,
+            );
+          }
+        }
+        await s.appendEvent(
+          makeEvent(tools, {
+            ticketId: id,
+            stage: 'interview',
+            event: 'ticket_authored',
+            run: outcome.run.id,
+            refs: [`doc:${id}:ticket.md`],
+          }),
+        );
+        await s.appendEvent(
+          makeEvent(tools, {
+            ticketId: id,
+            stage: 'interview',
+            event: 'status_changed',
+            run: outcome.run.id,
+            data: { from: null, to: 'imported', via: 'interview' },
+          }),
+        );
       });
       await emitEvent(tools, {
         ticketId: id,
@@ -535,14 +654,10 @@ export class RealTransitionHandler implements TransitionHandler {
 
     // -- import --
     importCommitted: async ({ tools, outcome, payload }) => {
-      // The import run wrote ticket folders into the cardless worktree
-      // (the tickets repo) — commit + project them; status commits for
-      // each folder ride the next projection pass.
-      await commitAll(
-        tools.ticketsRepoPath,
-        `conductor: import ${payload} ticket(s)`,
-        gitActor(tools),
-      );
+      // The import run's <KEY>/ticket.md files were ingested into
+      // doc_versions by reconcile (D29 — there is no tickets repo to
+      // commit; the doc_edited event marks the write the commit used
+      // to signal).
       await emitEvent(tools, {
         stage: 'import',
         event: 'imported',
@@ -551,9 +666,9 @@ export class RealTransitionHandler implements TransitionHandler {
       });
       await emitEvent(tools, {
         stage: 'import',
-        event: 'commit',
+        event: 'doc_edited',
         run: outcome.run.id,
-        data: { what: 'import commit' },
+        data: { what: 'import doc_versions', count: payload },
       });
     },
 
@@ -575,18 +690,12 @@ export class RealTransitionHandler implements TransitionHandler {
     // -- probe --
     cardPersist: async ({ outcome, tools }) => {
       const repo = outcome.run.subject.replace(/^probe:/, '');
-      const card = await this.#persistCard(tools, repo, true);
-      await emitEvent(tools, {
-        stage: 'probe',
-        event: 'commit',
-        run: outcome.run.id,
-        data: { repo, verified: card?.verified ?? true },
-      });
+      await this.#persistCard(tools, outcome.run.id, repo, true);
     },
 
     probeFailed: async ({ outcome, tools, payload }) => {
       const repo = outcome.run.subject.replace(/^probe:/, '');
-      await this.#persistCard(tools, repo, false);
+      await this.#persistCard(tools, outcome.run.id, repo, false);
       await tools.surfaceGateItem({
         subject: outcome.run.subject,
         gate: 'probe-failed',
@@ -604,15 +713,27 @@ export class RealTransitionHandler implements TransitionHandler {
     // -- triage --
     triageReady: async ({ outcome, tools }) => {
       const id = outcome.run.ticket_id ?? outcome.run.subject;
-      const ticketDir = join(tools.ticketsRepoPath, 'tickets', id);
       // Suggestions application — human-set fields win (CONDUCTOR
-      // "Suggestions application").
-      const triage = await readTriageJson(ticketDir);
+      // "Suggestions application"). ticket.md is a doc_versions doc;
+      // the rewrite is a new version + a doc_edited event.
+      const triage = await readTriageJson(tools, id);
       const suggestions = (triage?.suggestions ?? {}) as TriageSuggestions;
-      const file = join(ticketDir, 'ticket.md');
-      const raw = await readFile(file, 'utf8');
-      const { content, applied } = applySuggestionsToTicketMd(raw, suggestions);
-      if (content !== raw) await writeFile(file, content, 'utf8');
+      const raw = await tools.getDocText(id, 'ticket.md');
+      let applied: Record<string, string> = {};
+      if (raw !== null) {
+        const res = applySuggestionsToTicketMd(raw, suggestions);
+        applied = res.applied;
+        if (res.content !== raw) {
+          const version = await tools.putDoc(id, 'ticket.md', res.content);
+          await emitEvent(tools, {
+            ticketId: id,
+            event: 'doc_edited',
+            run: outcome.run.id,
+            refs: [`doc:${id}:ticket.md:v${version}`],
+            data: { doc: 'ticket.md', applied },
+          });
+        }
+      }
       await tools.applyTicketStatus({
         ticketId: id,
         status: 'ready',
@@ -634,8 +755,7 @@ export class RealTransitionHandler implements TransitionHandler {
         await this.#actions.toEscalated({ outcome, tools, payload });
         return;
       }
-      const ticketDir = join(tools.ticketsRepoPath, 'tickets', id);
-      const triage = await readTriageJson(ticketDir);
+      const triage = await readTriageJson(tools, id);
       await tools.applyTicketStatus({
         ticketId: id,
         status: 'needs-info',
@@ -693,8 +813,15 @@ export class RealTransitionHandler implements TransitionHandler {
     // -- split --
     splitProposed: async ({ outcome, tools, payload }) => {
       const id = outcome.run.ticket_id ?? outcome.run.subject;
-      const ticketDir = join(tools.ticketsRepoPath, 'tickets', id);
-      const plan = await readOrNull(join(ticketDir, 'split-plan.md'));
+      // split-plan.md is a run_artifacts row (was
+      // tickets/<id>/split-plan.md; the children/ drafts ingest the
+      // same way and materializeSplit reads them back at gate clear).
+      // This run's output wins; the doc-repair resume path re-enters
+      // here with the plan living on an EARLIER run → fall back to the
+      // ticket's latest artifact.
+      const plan =
+        (await runArtifactText(tools, outcome.run.id, id, 'split-plan.md')) ??
+        (await ticketArtifactText(tools, id, 'split-plan.md'));
       const violations = plan
         ? structuredDocLint('split-plan.md', plan)
         : [{ rule: 'doc.missing', message: 'split-plan.md not written' }];
@@ -702,18 +829,13 @@ export class RealTransitionHandler implements TransitionHandler {
         await this.#requestDocRepair(tools, id, 'split-plan.md', violations);
         return;
       }
-      await commitAll(
-        tools.ticketsRepoPath,
-        `conductor: ${id} split plan (${payload} children)`,
-        gitActor(tools),
-      );
       const children = parseSplitPlan(plan as string) ?? [];
       await emitEvent(tools, {
         ticketId: id,
         stage: 'split',
         event: 'split_proposed',
         run: outcome.run.id,
-        refs: [`tickets/${id}/split-plan.md`],
+        refs: [`run:${outcome.run.id}:split-plan.md`],
         data: { children: children.length || payload },
       });
       await tools.surfaceGateItem({
@@ -721,12 +843,6 @@ export class RealTransitionHandler implements TransitionHandler {
         gate: 'split-plan',
         kind: 'split-plan',
         payload: { children: children.map((c) => c.label) },
-      });
-      await emitEvent(tools, {
-        ticketId: id,
-        event: 'commit',
-        run: outcome.run.id,
-        data: { what: 'split-plan.md + children/ drafts' },
       });
     },
 
@@ -761,8 +877,7 @@ export class RealTransitionHandler implements TransitionHandler {
 
     tddReview: async ({ outcome, tools }) => {
       const id = outcome.run.ticket_id ?? outcome.run.subject;
-      const ticketDir = join(tools.ticketsRepoPath, 'tickets', id);
-      const tdd = await readOrNull(join(ticketDir, 'tdd.md'));
+      const tdd = await tools.getDocText(id, 'tdd.md');
       const violations = tdd
         ? structuredDocLint('tdd.md', tdd)
         : [{ rule: 'doc.missing', message: 'tdd.md not written' }];
@@ -775,9 +890,8 @@ export class RealTransitionHandler implements TransitionHandler {
 
     testplanReview: async ({ outcome, tools }) => {
       const id = outcome.run.ticket_id ?? outcome.run.subject;
-      const ticketDir = join(tools.ticketsRepoPath, 'tickets', id);
-      const test = await readOrNull(join(ticketDir, 'test.md'));
-      const tdd = await readOrNull(join(ticketDir, 'tdd.md'));
+      const test = await tools.getDocText(id, 'test.md');
+      const tdd = await tools.getDocText(id, 'tdd.md');
       const violations = test
         ? [
             ...structuredDocLint('test.md', test),
@@ -814,26 +928,42 @@ export class RealTransitionHandler implements TransitionHandler {
 
     verifyDone: async ({ outcome, tools }) => {
       const id = outcome.run.ticket_id ?? outcome.run.subject;
-      const ticketDir = join(tools.ticketsRepoPath, 'tickets', id);
-      const report = outcome.result.artifacts.find((a) =>
-        a.endsWith('test-report.json'),
+      // test-report.json was ingested as a run_artifacts row at
+      // collect — top-level from the verify runner task, or nested
+      // `<repo>/test-report.json` when a legacy adapter produced it.
+      // FAIL-CLOSED: no report → `pass = false` (a verify run with no
+      // report proves nothing; it must not gate-open the review chain).
+      let found: { name: string; content: string } | null = null;
+      const exact = await tools.getArtifactText(
+        outcome.run.id,
+        'test-report.json',
       );
-      let pass = true;
-      if (report) {
+      if (exact !== null) {
+        found = { name: 'test-report.json', content: exact };
+      } else {
+        const reported = outcome.result.artifacts.find((a) =>
+          a.endsWith('test-report.json'),
+        );
+        if (reported) {
+          found = await this.#runArtifact(tools, outcome.run, reported);
+        }
+      }
+      let pass = false;
+      let reportRef: string | null = null;
+      if (found) {
         try {
-          const parsed = JSON.parse(await readFile(report, 'utf8')) as {
+          reportRef = `run:${outcome.run.id}:${found.name}`;
+          const parsed = JSON.parse(found.content) as {
             pass_pct?: number;
             cases?: { result?: string }[];
           };
           pass =
             (parsed.pass_pct ?? 0) >= 100 &&
             (parsed.cases ?? []).every((c) => c.result !== 'fail');
-          const dest = join(ticketDir, 'test-report.json');
-          await writeFile(dest, `${JSON.stringify(parsed, null, 2)}\n`, 'utf8');
-          await commitAll(
-            tools.ticketsRepoPath,
-            `conductor: ${id} test-report`,
-            gitActor(tools),
+          await tools.putArtifact(
+            outcome.run.id,
+            found.name,
+            `${JSON.stringify(parsed, null, 2)}\n`,
           );
         } catch {
           pass = false;
@@ -844,7 +974,7 @@ export class RealTransitionHandler implements TransitionHandler {
         stage: 'verify',
         event: pass ? 'ci_green' : 'ci_failed',
         run: outcome.run.id,
-        refs: report ? [`tickets/${id}/test-report.json`] : [],
+        refs: reportRef ? [reportRef] : [],
         data: { pass },
       });
       await this.#queueNextReviewPass(tools, id);
@@ -852,10 +982,11 @@ export class RealTransitionHandler implements TransitionHandler {
 
     reviewPassComplete: async ({ outcome, tools, payload }) => {
       const id = outcome.run.ticket_id ?? outcome.run.subject;
-      const ticketDir = join(tools.ticketsRepoPath, 'tickets', id);
-      const review = await readReviewJson(ticketDir);
+      const review = await readReviewJson(tools, id);
       const round = review?.round ?? 1;
-      // Merge every findings-<pass>.json this run produced.
+      // Merge every findings-<pass>.json this run produced (each was
+      // ingested as a run_artifacts row; the merged review.json is
+      // written back onto this run).
       let created = 0;
       let reopened = 0;
       let fixed = 0;
@@ -863,11 +994,20 @@ export class RealTransitionHandler implements TransitionHandler {
       for (const pass of REVIEW_PASSES) {
         const artifact = findingsArtifact(outcome.result.artifacts, pass);
         if (!artifact) continue;
+        const found = await this.#runArtifact(tools, outcome.run, artifact);
+        if (!found) {
+          // Reported but not ingested — same fail-closed contract as a
+          // missing file under the tickets-repo layout.
+          throw new Error(
+            `PASS-COMPLETE ${payload}: findings-${pass}.json reported but no run_artifacts row`,
+          );
+        }
         const r = await mergeFindingsPass({
-          ticketDir,
+          ctx: tools,
+          runId: outcome.run.id,
           ticketId: id,
           pass,
-          findingsPath: artifact,
+          findingsText: found.content,
           round,
         });
         created += r.created;
@@ -885,18 +1025,13 @@ export class RealTransitionHandler implements TransitionHandler {
         });
         return;
       }
-      await commitAll(
-        tools.ticketsRepoPath,
-        `conductor: ${id} review.json round ${round}`,
-        gitActor(tools),
-      );
       if (created > 0) {
         await emitEvent(tools, {
           ticketId: id,
           stage: 'review',
           event: 'finding_created',
           run: outcome.run.id,
-          refs: [`tickets/${id}/review.json`],
+          refs: [`run:${outcome.run.id}:review.json`],
           data: { count: created, round, pass: payload },
         });
       }
@@ -919,7 +1054,7 @@ export class RealTransitionHandler implements TransitionHandler {
         });
       }
 
-      const after = await readReviewJson(ticketDir);
+      const after = await readReviewJson(tools, id);
       if (!after || !REVIEW_PASSES.every((p) => after.passes.includes(p))) {
         await this.#queueNextReviewPass(tools, id);
         return;
@@ -1005,17 +1140,19 @@ export class RealTransitionHandler implements TransitionHandler {
 
     fixesComplete: async ({ outcome, tools, payload }) => {
       const id = outcome.run.ticket_id ?? outcome.run.subject;
-      const ticketDir = join(tools.ticketsRepoPath, 'tickets', id);
       // Apply the fix run's claims to review.json before the re-review:
       // FIXES-COMPLETE <f>/<t> + DEVIATIONS.md self-dismissals, capped
       // by budgets.fix_dismissal_cap — over-cap → the whole batch
       // escalates to the human (PRD §7.3).
-      const review = await readReviewJson(ticketDir);
+      const review = await readReviewJson(tools, id);
       if (review) {
         const devPath = outcome.result.artifacts.find((a) =>
           a.endsWith('DEVIATIONS.md'),
         );
-        const deviations = devPath ? ((await readOrNull(devPath)) ?? '') : '';
+        const devArtifact = devPath
+          ? await this.#runArtifact(tools, outcome.run, devPath)
+          : null;
+        const deviations = devArtifact?.content ?? '';
         const applied = applyFixResults(
           {
             payload,
@@ -1026,15 +1163,10 @@ export class RealTransitionHandler implements TransitionHandler {
           { ts: tools.now().toISOString() },
         );
         if (applied.fixed > 0 || applied.dismissed > 0) {
-          await writeFile(
-            join(ticketDir, 'review.json'),
+          await tools.putArtifact(
+            outcome.run.id,
+            'review.json',
             `${JSON.stringify(applied.review, null, 2)}\n`,
-            'utf8',
-          );
-          await commitAll(
-            tools.ticketsRepoPath,
-            `conductor: ${id} fix claims (${payload})`,
-            gitActor(tools),
           );
         }
         if (applied.dismissed > 0) {
@@ -1090,17 +1222,22 @@ export class RealTransitionHandler implements TransitionHandler {
     // -- discuss --
     discussReplied: async ({ outcome, tools }) => {
       const id = outcome.run.ticket_id ?? outcome.run.subject;
-      const ticketDir = join(tools.ticketsRepoPath, 'tickets', id);
       const replyArtifact = outcome.result.artifacts.find((a) =>
         a.endsWith('reply.json'),
       );
       if (replyArtifact) {
         try {
-          const reply = JSON.parse(await readFile(replyArtifact, 'utf8')) as {
+          const found = await this.#runArtifact(
+            tools,
+            outcome.run,
+            replyArtifact,
+          );
+          if (!found) throw new Error('reply.json not ingested');
+          const reply = JSON.parse(found.content) as {
             thread_id?: string;
             body?: string;
           };
-          const review = await readReviewJson(ticketDir);
+          const review = await readReviewJson(tools, id);
           if (review) {
             const res = discussReply(review as unknown as ReviewDocument, {
               sentinel: 'REPLIED',
@@ -1109,29 +1246,24 @@ export class RealTransitionHandler implements TransitionHandler {
               ts: tools.now().toISOString(),
             });
             if (res.kind === 'appended') {
-              await writeFile(
-                join(ticketDir, 'review.json'),
+              await tools.putArtifact(
+                outcome.run.id,
+                'review.json',
                 `${JSON.stringify(res.review, null, 2)}\n`,
-                'utf8',
               );
-              await commitAll(
-                tools.ticketsRepoPath,
-                `conductor: ${id} discuss reply ${reply.thread_id}`,
-                gitActor(tools),
-              );
+              await emitEvent(tools, {
+                ticketId: id,
+                stage: 'discuss',
+                event: 'note_added',
+                run: outcome.run.id,
+                data: { what: 'thread reply', thread_id: reply.thread_id },
+              });
             }
           }
         } catch {
           /* malformed reply.json — the run's own lint path handles it */
         }
       }
-      await emitEvent(tools, {
-        ticketId: id,
-        stage: 'discuss',
-        event: 'commit',
-        run: outcome.run.id,
-        data: { what: 'thread reply' },
-      });
     },
 
     needsFixRun: async ({ outcome, tools }) => {
@@ -1236,7 +1368,6 @@ export class RealTransitionHandler implements TransitionHandler {
     // -- doc-repair --
     docRepaired: async ({ outcome, tools }) => {
       const id = outcome.run.ticket_id ?? outcome.run.subject;
-      const ticketDir = join(tools.ticketsRepoPath, 'tickets', id);
       const ticket = await tools.store.getTicket({
         workspace: tools.workspace,
         ticket_id: id,
@@ -1251,13 +1382,15 @@ export class RealTransitionHandler implements TransitionHandler {
       });
       // Re-lint → resume the interrupted transition (or escalate to a
       // repair gate when the fix didn't take — CONDUCTOR doc-repair).
+      // Repaired docs land as the LATEST doc_versions version / this
+      // run's artifacts (D29).
       const lintFor = async (): Promise<
         { rule: string; message: string }[] | null
       > => {
         switch (status) {
           case 'test-draft': {
-            const test = await readOrNull(join(ticketDir, 'test.md'));
-            const tdd = await readOrNull(join(ticketDir, 'tdd.md'));
+            const test = await tools.getDocText(id, 'test.md');
+            const tdd = await tools.getDocText(id, 'tdd.md');
             return test
               ? [
                   ...structuredDocLint('test.md', test),
@@ -1266,11 +1399,17 @@ export class RealTransitionHandler implements TransitionHandler {
               : null;
           }
           case 'tdd-draft': {
-            const tdd = await readOrNull(join(ticketDir, 'tdd.md'));
+            const tdd = await tools.getDocText(id, 'tdd.md');
             return tdd ? structuredDocLint('tdd.md', tdd) : null;
           }
           case 'triage': {
-            const plan = await readOrNull(join(ticketDir, 'split-plan.md'));
+            const plan =
+              (await runArtifactText(
+                tools,
+                outcome.run.id,
+                id,
+                'split-plan.md',
+              )) ?? (await ticketArtifactText(tools, id, 'split-plan.md'));
             return plan ? structuredDocLint('split-plan.md', plan) : null;
           }
           default:
@@ -1338,7 +1477,9 @@ export class RealTransitionHandler implements TransitionHandler {
       for (const artifact of outcome.result.artifacts) {
         if (!artifact.endsWith('.md')) continue;
         const section = basename(artifact, '.md');
-        const content = await readOrNull(artifact);
+        // Sections were ingested as this run's run_artifacts rows.
+        const found = await this.#runArtifact(tools, outcome.run, artifact);
+        const content = found?.content ?? null;
         if (content === null) continue;
         // Human dossier edits survive re-survey (DB-SCHEMA) — audit the
         // preserved edit as an event.
@@ -1440,17 +1581,35 @@ export class RealTransitionHandler implements TransitionHandler {
   // Shared helpers
   // ------------------------------------------------------------------
 
-  #ticketFile(ctx: TransitionContext, id: string): string {
-    return join(ctx.ticketsRepoPath, 'tickets', id, 'ticket.md');
+  /** Read an artifact the current run produced, by the adapter-reported
+   *  path — the ingest keys rows by run-dir-relative name (basename
+   *  covers scratch-dir artifacts). */
+  async #runArtifact(
+    tools: TransitionTools,
+    run: RunRow,
+    reportedPath: string,
+  ): Promise<{ name: string; content: string } | null> {
+    const dir = run.run_dir;
+    const rel =
+      dir && reportedPath.startsWith(`${dir}/`)
+        ? reportedPath.slice(dir.length + 1)
+        : reportedPath;
+    for (const name of new Set([rel, basename(rel)])) {
+      const content = await tools.getArtifactText(run.id, name);
+      if (content !== null) return { name, content };
+    }
+    return null;
   }
 
-  /** applyTicketStatus + LOG.md regen against a bare context (claim
-   *  path — TransitionTools isn't available outside reconcile). */
+  /** A TransitionTools view over a bare context (claim path — the
+   *  reconcile-side tools factory isn't available outside
+   *  onRunComplete). requestRun stays reconcile-only; everything else
+   *  is store-backed on either path. */
   #statusTools(ctx: TransitionContext): TransitionTools {
     return {
       ...ctx,
       applyTicketStatus: (opts: ApplyStatusOptions) =>
-        applyTicketStatus({ ctx, opts, actor: gitActor(ctx) }),
+        applyTicketStatus({ ctx, opts }),
       surfaceGateItem: async (item) => {
         const ts = ctx.now().toISOString();
         await ctx.store.upsertGateItem({
@@ -1497,6 +1656,30 @@ export class RealTransitionHandler implements TransitionHandler {
           'requestRun is reconcile-side (claim uses the pending-run queue)',
         );
       },
+      getDocText: (subject, doc) => getDocText(ctx, subject, doc),
+      putDoc: (subject, doc, content) => putDocText(ctx, subject, doc, content),
+      getArtifactText: (runId, name) => getArtifactText(ctx, runId, name),
+      putArtifact: (runId, name, content) =>
+        putArtifactText(ctx, runId, name, content),
+      getLatestArtifactText: async (name, filter) => {
+        if (filter.runId && !filter.ticketId) {
+          return getArtifactText(ctx, filter.runId, name);
+        }
+        if (filter.ticketId) {
+          return latestArtifactText(ctx, name, {
+            ticketId: filter.ticketId,
+          });
+        }
+        const runs = (
+          await ctx.store.listRuns({ workspace: ctx.workspace })
+        ).sort((a, b) => b.id.localeCompare(a.id));
+        for (const r of runs) {
+          const a = await ctx.store.getArtifact(r.id, name);
+          if (a) return a.content;
+        }
+        return null;
+      },
+      allocTicketId: () => ctx.store.allocTicketId(ctx.workspace),
     };
   }
 
@@ -1506,12 +1689,7 @@ export class RealTransitionHandler implements TransitionHandler {
     status: TicketStatus,
     extra: Partial<ApplyStatusOptions> = {},
   ): Promise<void> {
-    await applyTicketStatus({
-      ctx,
-      opts: { ticketId, status, ...extra },
-      actor: gitActor(ctx),
-    });
-    await regenerateLog(ctx, ticketId).catch(() => {});
+    await applyTicketStatus({ ctx, opts: { ticketId, status, ...extra } });
   }
 
   /** imported → spec-lint runs INLINE in the tick (CONDUCTOR "Runner
@@ -1521,7 +1699,7 @@ export class RealTransitionHandler implements TransitionHandler {
     ticket: TicketRow,
     ctx: TransitionContext,
   ): Promise<void> {
-    const raw = await readOrNull(this.#ticketFile(ctx, ticket.ticket_id));
+    const raw = await getDocText(ctx, ticket.ticket_id, 'ticket.md');
     if (raw === null) return;
     const result = specLint(raw);
     await ctx.store.upsertTicket({
@@ -1543,9 +1721,7 @@ export class RealTransitionHandler implements TransitionHandler {
     tools: TransitionTools,
     id: string,
   ): Promise<boolean> {
-    const review = await readReviewJson(
-      join(tools.ticketsRepoPath, 'tickets', id),
-    );
+    const review = await readReviewJson(tools, id);
     const done = new Set(review?.passes ?? []);
     const next = REVIEW_PASSES.find((p) => !done.has(p));
     if (!next) return false;
@@ -1601,7 +1777,7 @@ export class RealTransitionHandler implements TransitionHandler {
       stage: outcome.run.stage,
       event: 'doc_drafted',
       run: outcome.run.id,
-      refs: [`tickets/${id}/${doc}`],
+      refs: [`doc:${id}:${doc}`],
     });
     const gate = gateForStatus(status, this.gateMode);
     if (!gate || gate.disposition !== 'surface') return;
@@ -1613,15 +1789,10 @@ export class RealTransitionHandler implements TransitionHandler {
     });
   }
 
-  /** Record the spec-completion hash (stale-spec baseline). */
+  /** Record the spec-completion hash on `tickets.spec_hash` (stale-spec
+   *  baseline — CONDUCTOR "Stale-spec check"). */
   async #recordSpec(ctx: TransitionContext, id: string): Promise<void> {
-    const ticketDir = join(ctx.ticketsRepoPath, 'tickets', id);
-    await recordSpecHash(ticketDir);
-    await commitAll(
-      ctx.ticketsRepoPath,
-      `conductor: ${id} spec_hash baseline`,
-      gitActor(ctx),
-    );
+    await recordSpecHash(ctx, id);
   }
 
   /** Implement-launch re-hash; stale → `stale-spec` inbox item and the
@@ -1630,8 +1801,7 @@ export class RealTransitionHandler implements TransitionHandler {
     ticket: TicketRow,
     ctx: TransitionContext,
   ): Promise<boolean> {
-    const ticketDir = join(ctx.ticketsRepoPath, 'tickets', ticket.ticket_id);
-    if (!(await specIsStale(ticketDir))) return false;
+    if (!(await specIsStale(ctx, ticket.ticket_id))) return false;
     // Surface once — nextStage re-runs every tick; an open stale-spec
     // gate already in place must not re-notify (no event spam).
     const existing = await ctx.store.getGateItem({
@@ -1656,15 +1826,16 @@ export class RealTransitionHandler implements TransitionHandler {
   }
 
   /** Answers committed into triage.json/design.json on gate clear →
-   *  question_answered (+ question_autoaccepted for auto-skips). */
+   *  question_answered (+ question_autoaccepted for auto-skips). The
+   *  json is a run_artifacts row — the newest one across the ticket's
+   *  runs carries the human's answers (D29). */
   async #emitQuestionAnswers(
     ticket: TicketRow,
     ctx: TransitionContext,
     gate: 'needs-info' | 'design-qa',
   ): Promise<void> {
-    const ticketDir = join(ctx.ticketsRepoPath, 'tickets', ticket.ticket_id);
     const file = gate === 'needs-info' ? 'triage.json' : 'design.json';
-    const raw = await readOrNull(join(ticketDir, file));
+    const raw = await ticketArtifactText(ctx, ticket.ticket_id, file);
     let questions: { status?: string; auto?: boolean }[] = [];
     try {
       questions = raw
@@ -1689,11 +1860,13 @@ export class RealTransitionHandler implements TransitionHandler {
     });
   }
 
-  /** Probe CARD-WRITTEN/PROBE-FAILED → persist the card snapshot into
-   *  the tickets repo `.sprint-runner/cards/<repo>.json` (the durable
-   *  copy; the live config card is the probe agent's own write). */
+  /** Probe CARD-WRITTEN/PROBE-FAILED → persist the card snapshot as a
+   *  `card.json` run_artifacts row on the probe run (the durable copy;
+   *  the live config card is the probe agent's own write into the code
+   *  repo's `.sprint-runner/` — git-for-code is still real under D29). */
   async #persistCard(
     tools: TransitionTools,
+    runId: string,
     repo: string,
     verified: boolean,
   ): Promise<{ verified?: boolean } | null> {
@@ -1701,7 +1874,7 @@ export class RealTransitionHandler implements TransitionHandler {
     const repoPath = repoCfg?.path
       ? isAbsolute(repoCfg.path)
         ? repoCfg.path
-        : resolve(tools.ticketsRepoPath, repoCfg.path)
+        : resolve(tools.rootPath, repoCfg.path)
       : null;
     const cardRaw = repoPath
       ? await readOrNull(join(repoPath, '.sprint-runner', 'card.json'))
@@ -1712,18 +1885,10 @@ export class RealTransitionHandler implements TransitionHandler {
     // `verified` per the probe's own report (CONDUCTOR); PROBE-FAILED
     // forces false.
     parsed.verified = verified ? (parsed.verified ?? true) : false;
-    const dir = join(tools.ticketsRepoPath, '.sprint-runner', 'cards');
-    const { mkdir, writeFile } = await import('node:fs/promises');
-    await mkdir(dir, { recursive: true });
-    await writeFile(
-      join(dir, `${repo}.json`),
+    await tools.putArtifact(
+      runId,
+      'card.json',
       `${JSON.stringify(parsed, null, 2)}\n`,
-      'utf8',
-    );
-    await commitAll(
-      tools.ticketsRepoPath,
-      `conductor: probe card ${repo} verified=${parsed.verified}`,
-      gitActor(tools),
     );
     return parsed;
   }

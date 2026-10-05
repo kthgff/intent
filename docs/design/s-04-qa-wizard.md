@@ -2,19 +2,22 @@
 
 Design doc companion to `UI-INVENTORY.md` §2. Status: draft 2026-10-03.
 Stack: React+Vite · Tailwind · shadcn/ui (Radix). Style: Linear-inspired —
-dark-first, dense (13px base), minimal chrome.
+dual-theme (dark + light, D34), dense (13px base), minimal chrome.
 
 Purpose: THE shared question surface — one question at a time, answered
 fast or skipped to the recommended default. Backed by
 `triage.json.questions[]` (SCHEMAS §5). Reused for triage needs-info,
-design-Q&A, test-plan Q&A, interview mode, and fix-triage — context
-header changes, the card doesn't.
+design-Q&A, test-plan Q&A, interview mode, fix-triage, and **board
+synthesis** (WF-18 — `board-synthesize` runs land here after extract;
+context header shows the board name + item count, questions may cite
+the sticky/zone they were mined from) — context header changes, the
+card doesn't.
 
 ## Layout
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│ ◆ sprint-runner   ⌘K                                                     │
+│ ◆ veto            ⌘K                                                     │
 ├──────────────────────────────────────────────────────────────────────────┤
 │                                                                          │
 │            SR-0142 · team-a · triage — round 2                   [1]       │
@@ -44,8 +47,9 @@ header changes, the card doesn't.
 
 ## Annotations
 
-1. **Context header** — ticket ref, workspace, stage context
-   (`triage · round 2`, `interview`, `design-Q&A`), links to S-05.
+1. **Context header** — ticket ref, project, stage context
+   (`triage · round 2`, `interview`, `design-Q&A`, `board · Q1 Ideas`),
+   links to the subject (S-05, or S-16 for board synthesis).
    Centered single-column layout — this screen is a focus mode.
 2. **Progress rail** — dots per question (answered ● filled,
    auto-accepted half, open hollow) + count + rough remaining-time

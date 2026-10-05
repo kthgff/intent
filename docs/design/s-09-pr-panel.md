@@ -2,17 +2,20 @@
 
 Design doc companion to `UI-INVENTORY.md` §2. Status: draft 2026-10-03.
 Stack: React+Vite · Tailwind · shadcn/ui (Radix). Style: Linear-inspired —
-dark-first, dense (13px base), minimal chrome.
+dual-theme (dark + light, D34), dense (13px base), minimal chrome.
 
 Purpose: post-approve shepherding (WF-07) — one row per repo the
 ticket touches: CI checks, teammate comments auto-fed to the agent,
-agent fix cycles, then merge or revert.
+agent fix cycles, then merge or revert. Merge on every repo also
+fires the board loop signal (D26): the source board item flips toward
+`shipped` when all descendants merge, and a `retro` run may write a
+retro card back to the board (S-16).
 
 ## Layout
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│ ◆ sprint-runner   ⌘K                                                     │
+│ ◆ veto            ⌘K                                                     │
 ├────────────┬─────────────────────────────────────────────────────────────┤
 │            │ ← SR-0142  Session cache              pr-open · ci-watch[1] │
 │  SIDEBAR   │ ─────────────────────────────────────────────────────────── │

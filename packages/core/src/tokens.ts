@@ -58,6 +58,9 @@ export const PROMPT_TOKENS = [
   'CAPABILITY_NOTES',
   'RAW_ISSUES_JSON',
   'REPO_MAP',
+  /** Human feedback comment carried into a doc revision run
+   *  (S-06 doc_feedback → the re-run's prompt). */
+  'FEEDBACK',
 ] as const;
 
 export type PromptToken = (typeof PROMPT_TOKENS)[number];

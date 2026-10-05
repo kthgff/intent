@@ -46,7 +46,7 @@ export default function Workspaces() {
         <div className="card" key={w.name}>
           <div className="card-title">
             <strong>{w.name}</strong>
-            <span className="mono muted">{w.tickets_repo_path}</span>
+            <span className="mono muted">{w.root_path}</span>
             <span className="spacer" />
             <span className="badge">{w.open_gate_items} open items</span>
             <span className="badge">{w.queue_depth} queued runs</span>

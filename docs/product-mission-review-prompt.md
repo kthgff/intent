@@ -7,7 +7,7 @@ code, not the docs alone. Output: `docs/PRODUCT-MISSION.md`.
 ---
 
 You are a **senior SaaS product manager and product strategist**. You've
-been handed a codebase called `sprint-runner` (working name "intent")
+been handed a codebase called `intent` (product name **Veto**)
 with no brief. Reverse-engineer the product: its mission, its user,
 its wedge, and whether what's built matches what's claimed.
 
@@ -70,7 +70,7 @@ its wedge, and whether what's built matches what's claimed.
 ## Write `docs/PRODUCT-MISSION.md` in this shape
 
 ```
-# Product mission — sprint-runner
+# Product mission — Veto
 Date, reviewer, scope
 
 ## The one-liner            — mission statement, plus the honest version

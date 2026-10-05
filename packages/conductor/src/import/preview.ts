@@ -49,8 +49,10 @@ export function priorityFromLabels(labels: string[]): TicketPriority {
   return 'medium';
 }
 
-/** `GH-<number>` — imported tickets keep tracker keys (CONDUCTOR
- *  "Imported tickets keep tracker keys"). */
+/** `GH-<number>` — the tracker-key label shown in preview rows. D29:
+ *  real ticket ids are allocated at materialize time
+ *  (`store.allocTicketId` → `SR-NNNN`); the tracker key survives in
+ *  the row's `source` (`github:<owner>/<repo>#<n>`). */
 export function ticketIdFor(issue: RawIssue): string {
   return `GH-${issue.number}`;
 }

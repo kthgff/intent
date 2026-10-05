@@ -30,22 +30,28 @@ export const TICKET_STATUSES = [
   'pr-open',
   'ci-watch',
   'merged',
+  'verifying',
+  'verify_failed',
+  'released',
   'reverted',
   'failed',
   'blocked',
   'aborted',
   'split',
+  'discarded',
 ] as const;
 export type TicketStatus = (typeof TICKET_STATUSES)[number];
 
 /** Terminal statuses (SCHEMAS §1). `split` is terminal for the parent —
- *  work continues through children. */
+ *  work continues through children. `merged` is NOT terminal — the
+ *  verify→release stage runs after it (D27). */
 export const TERMINAL_STATUSES = [
-  'merged',
+  'released',
   'reverted',
   'wont-do',
   'aborted',
   'split',
+  'discarded',
 ] as const satisfies readonly TicketStatus[];
 export type TerminalStatus = (typeof TERMINAL_STATUSES)[number];
 
@@ -180,7 +186,7 @@ export const RUN_STATUSES = [
 ] as const;
 export type RunStatus = (typeof RUN_STATUSES)[number];
 
-// ---------- events.jsonl (SCHEMAS §7) ----------
+// ---------- events (SCHEMAS §7 — the `events` table, D29) ----------
 
 export const EVENT_NAMES = [
   'imported',
@@ -231,6 +237,16 @@ export const EVENT_NAMES = [
   'dossier_updated',
   'dossier_edited',
   'gap_reported',
+  'doc_edited',
+  'provenance_amended',
+  'item_captured',
+  'board_synthesized',
+  'initiative_planned',
+  'replanned',
+  'reparented',
+  'released',
+  'verify_failed',
+  'discarded',
 ] as const;
 export type EventName = (typeof EVENT_NAMES)[number];
 
@@ -325,6 +341,7 @@ export const GATE_KINDS = [
   'escalation',
   'split-plan',
   'repair',
+  'verify',
 ] as const;
 export type GateKind = (typeof GATE_KINDS)[number];
 
@@ -344,8 +361,86 @@ export const GATE_NAMES = [
   'ci-watch',
   'merge',
   'repair',
+  'verify-confirm',
+  'uat',
 ] as const;
 export type GateName = (typeof GATE_NAMES)[number];
+
+// ---------- hierarchy + boards (D26/D27, DB-SCHEMA) ----------
+
+export const BOARD_ITEM_KINDS = [
+  'idea',
+  'initiative',
+  'feature',
+  'ticket',
+  'note',
+  'zone',
+  'feedback',
+  'retro',
+] as const;
+export type BoardItemKind = (typeof BOARD_ITEM_KINDS)[number];
+
+export const BOARD_ITEM_STATUSES = [
+  'icebox',
+  'active',
+  'consumed',
+  'frozen',
+  'shipped',
+  'discarded',
+] as const;
+export type BoardItemStatus = (typeof BOARD_ITEM_STATUSES)[number];
+
+export const INITIATIVE_STATUSES = [
+  'draft',
+  'planned',
+  'active',
+  'shipped',
+  'discarded',
+] as const;
+export type InitiativeStatus = (typeof INITIATIVE_STATUSES)[number];
+
+export const FEATURE_STATUSES = [
+  'draft',
+  'ready',
+  'active',
+  'done',
+  'discarded',
+] as const;
+export type FeatureStatus = (typeof FEATURE_STATUSES)[number];
+
+/** doc_versions.doc — every persisted doc kind (DB-SCHEMA doc_versions). */
+export const DOC_KINDS = [
+  'ticket.md',
+  'prd.md',
+  'tdd.md',
+  'test.md',
+  'feature.md',
+  'ac.md',
+  'provenance.json',
+  'notes.md',
+  /** Merge-enable flag per subject — the DoD-evaluated "merge button"
+   *  doc (was tickets/<id>/merge.json; D29 → doc_versions). */
+  'merge.json',
+  /** Human DoD attestations for `manual` rows (was
+   *  dod-attestations.json in the ticket dir). */
+  'dod-attestations.json',
+] as const;
+export type DocKind = (typeof DOC_KINDS)[number];
+
+/** run_artifacts.name — structured runner output (DB-SCHEMA). */
+/** Names are conventional — `findings-<pass>.json` and
+ *  `edit-session-<id>.jsonl` also land here (DB-SCHEMA run_artifacts). */
+export const RUN_ARTIFACT_KINDS = [
+  'triage.json',
+  'review.json',
+  'usage.json',
+  'test-report.json',
+  'sentinel',
+  'pr-body.md',
+  'split-plan.md',
+  'proposed-diff.md',
+] as const;
+export type RunArtifactKind = (typeof RUN_ARTIFACT_KINDS)[number];
 
 // ---------- dossier / semantic layer (SCHEMAS §11-§12) ----------
 
@@ -410,6 +505,21 @@ export const RELATION_PREDICATES = [
   'contradicts',
 ] as const;
 export type RelationPredicate = (typeof RELATION_PREDICATES)[number];
+
+/** Where a relation edge came from (DB-SCHEMA relations.source — D37
+ *  distinguishes human-stated truth from model/tool inference). */
+export const RELATION_SOURCES = ['explicit', 'human', 'model', 'tool'] as const;
+export type RelationSource = (typeof RELATION_SOURCES)[number];
+
+/** Verification state of an inferred edge (DB-SCHEMA
+ *  relations.verification). */
+export const RELATION_VERIFICATIONS = [
+  'suggested',
+  'auto-verified',
+  'verified',
+  'rejected',
+] as const;
+export type RelationVerification = (typeof RELATION_VERIFICATIONS)[number];
 
 /** Taxonomies (SCHEMAS §12 controlled vocabularies). */
 export const DEVIATION_REASON_KINDS = [

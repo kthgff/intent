@@ -7,15 +7,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   GitError,
   NonFastForwardError,
-  acquireRefLock,
   commitAll,
   createWorktree,
   git,
   pullRebase,
   push,
   removeWorktree,
-  reserveNextId,
-  sweepExpiredLocks,
   worktreePath,
 } from '../src/index.js';
 
@@ -127,94 +124,9 @@ describe('pullRebase', () => {
   });
 });
 
-describe('ref CAS locks', () => {
-  it('two contenders → exactly one winner, loser sees holder payload', async () => {
-    const a = await cloneRepo('a');
-    const b = await cloneRepo('b');
-    const ref = 'refs/locks/ticket-42-triage';
-    const [ra, rb] = await Promise.all([
-      acquireRefLock(a, ref, { holder: 'run-a', ttlS: 600 }),
-      acquireRefLock(b, ref, { holder: 'run-b', ttlS: 600 }),
-    ]);
-    const results = [ra, rb];
-    expect(results.filter((r) => r.status === 'acquired')).toHaveLength(1);
-    expect(results.filter((r) => r.status === 'contested')).toHaveLength(1);
-    const loser = results.find((r) => r.status === 'contested');
-    const winner = results.find((r) => r.status === 'acquired');
-    expect(loser?.status === 'contested' && loser.holder?.holder).toBe(
-      winner?.status === 'acquired' ? winner.content.holder : undefined,
-    );
-  });
-
-  it('supports claims refs and never force-pushes a live lock', async () => {
-    const a = await cloneRepo('a');
-    const ref = 'refs/locks/claims/ticket-42-review';
-    const first = await acquireRefLock(a, ref, {
-      holder: 'run-a',
-      ttlS: 600,
-    });
-    expect(first.status).toBe('acquired');
-    const second = await acquireRefLock(a, ref, {
-      holder: 'run-b',
-      ttlS: 600,
-    });
-    expect(second.status).toBe('contested');
-    if (second.status === 'contested') {
-      expect(second.holder?.holder).toBe('run-a');
-      const holder = second.holder;
-      expect(holder).not.toBeNull();
-      expect(Date.parse(holder?.expires_at ?? '')).toBeGreaterThan(Date.now());
-    }
-  });
-});
-
-describe('sweepExpiredLocks', () => {
-  it('force-deletes expired refs, keeps live ones', async () => {
-    const a = await cloneRepo('a');
-    await acquireRefLock(a, 'refs/locks/dead', {
-      holder: 'ghost',
-      ttlS: -10,
-    });
-    await acquireRefLock(a, 'refs/locks/alive', {
-      holder: 'live',
-      ttlS: 600,
-    });
-    const deleted = await sweepExpiredLocks(a);
-    expect(deleted).toContain('refs/locks/dead');
-    expect(deleted).not.toContain('refs/locks/alive');
-    const { stdout } = await git(['ls-remote', 'origin', 'refs/locks/*'], {
-      cwd: a,
-    });
-    expect(stdout).toContain('refs/locks/alive');
-    expect(stdout).not.toContain('refs/locks/dead');
-  });
-});
-
-describe('reserveNextId', () => {
-  it('issues distinct SR-NNNN ids across contending clones', async () => {
-    // One clone per contender — two git writers on one working tree
-    // would just contend on .git/index.lock, which is not the CAS.
-    const a = await cloneRepo('a');
-    const b = await cloneRepo('b');
-    const d = await cloneRepo('d');
-    const ids = await Promise.all([
-      reserveNextId(a, 'SR', ACTOR),
-      reserveNextId(b, 'SR', ACTOR),
-      reserveNextId(d, 'SR', ACTOR),
-    ]);
-    expect(new Set(ids).size).toBe(3);
-    expect(ids).toEqual(
-      expect.arrayContaining([expect.stringMatching(/^SR-\d{4}$/)]),
-    );
-    const c = await cloneRepo('c');
-    await pullRebase(c);
-    const counter = await readFile(
-      join(c, '.sprint-runner', 'next-id'),
-      'utf8',
-    );
-    expect(Number.parseInt(counter, 10)).toBe(3);
-  });
-});
+// D29: ref-CAS locks, expired-lock sweeps, and ref-based next-id
+// reservation are gone — leases are DB rows and ticket ids come from
+// projects.next_ticket_seq inside a transaction.
 
 describe('worktrees', () => {
   it('create → dir+branch+gitignore injection; remove → cleans both', async () => {

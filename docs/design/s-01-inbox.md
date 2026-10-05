@@ -1,18 +1,24 @@
-# S-01 — Needs-attention inbox (home)
+# S-01 — Needs-attention inbox (Home tab 2)
 
-Design doc companion to `UI-INVENTORY.md` §2. Status: draft 2026-10-03.
-Stack: React+Vite · Tailwind · shadcn/ui (Radix). Style: Linear-inspired —
-dark-first, dense (13px base, 32px rows), keyboard-driven, minimal chrome.
+Design doc companion to `UI-INVENTORY.md` §2. Status: draft 2026-10-03;
+revised 2026-10-03 — **the inbox is now a tab on Home, not the home
+screen** (D21). The default home view is the Kanban board — see
+`s-01-board.md`. Stack: React+Vite · Tailwind · shadcn/ui (Radix).
+Style: Linear-inspired — dual-theme (dark + light, D34), dense (13px base, 32px rows),
+keyboard-driven, minimal chrome.
 
-Purpose: the daily surface. Every "your move" item across all tickets
-repos, grouped by kind, ranked blocking-first → priority → age. Clearing
-items here IS the product loop (WF-12).
+Purpose: the action list. Every "your move" item across all tickets
+repos, grouped by kind, ranked **human-anxiety-first** → priority → age
+(failures/escalations outrank routine agent Q&A — D21 supersedes the
+earlier blocking-first rule). Clearing items here IS the product loop
+(WF-12); the board answers "where is everything", this tab answers
+"what's on fire / what needs me".
 
 ## Layout
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│ ◆ sprint-runner   ⌘K      [All workspaces ▾]            🔔3  ⚙   [1]     │
+│ ◆ veto            ⌘K      [All projects ▾]            🔔3  ⚙   [1]     │
 ├────────────┬─────────────────────────────────────────────────────────────┤
 │            │  Inbox                                    9 items  [2]       │
 │  SIDEBAR   │  ─────────────────────────────────────────────────────────  │
@@ -40,22 +46,29 @@ items here IS the product loop (WF-12).
 
 ## Annotations
 
-1. **Top bar** — app mark, `⌘K` command palette, workspace scope
-   selector (unified vs single tickets repo), notification bell with
+1. **Top bar** — app mark, `⌘K` command palette, project scope
+   selector (unified vs single project), notification bell with
    unread count, settings link to S-02.
 2. **Screen header** — title + live count of open items; count ticks via
    SSE, no refresh.
-3. **Filter bar** — workspace/kind filters (compose with sidebar scope),
+3. **Filter bar** — project/kind filters (compose with sidebar scope),
    and the **worst-specs-first** grooming toggle that re-ranks by
    `spec_score` ascending.
 4. **Kind group** — collapsible section per `gate_items.kind`:
    question · approval · review · failure · escalation · split-plan ·
-   repair. Groups render in blocking order: kinds with
-   `blocked_agent = 1` (agent idle waiting) always sort above
-   human-step kinds; within a group, priority then `surfaced_at` age.
-5. **Sidebar** — primary nav w/ per-route badge counts; workspaces
-   section (expandable → S-13) with per-workspace open-item counts;
-   "+ Add" → S-02 tickets-repo tab.
+   repair, **plus initiative/feature kinds** (D26):
+   `initiative-doc-review` · `feature-test-review` · `batch-approve`
+   · `verify-confirm` · `board-digest` (D27).
+   Groups render **human-anxiety-first** (D21): failures and
+   escalations sort above routine questions/approvals; within a group,
+   priority then `surfaced_at` age. **Initiative grouping:** items
+   belonging to one initiative cluster under a collapsible
+   `IN-7 "Billing" — 4 gates` sub-header inside their kind group, so
+   the gate cost of an initiative stays visible (FEATURES.md §4).
+5. **Sidebar** — primary nav w/ per-route badge counts; **Boards** and
+   **Features** entries (per-project badge = open items); **projects**
+   section (expandable → S-13) with per-project open-item counts;
+   "+ Add" → S-02 project tab.
 6. **Collapsed groups** — one-liner summaries `▸ KIND (n)`; expand
    state persists per session.
 7. **Keyboard hint rail** — `j/k` navigate, `Enter` open, `x` snooze,
@@ -77,7 +90,7 @@ items here IS the product loop (WF-12).
 - **Kind chip** — small, colored per kind (questions=violet,
   approvals=blue, reviews=green, failures=red, escalations=orange,
   split-plans=cyan, repair=rose).
-- **Meta line** — workspace · priority · ticket status · age
+- **Meta line** — project · priority · ticket status · age
   (`surfaced_at` relative) · `spec_score` badge (`◐62`, red<50 /
   amber<75 / green≥75) · `claimed_by` initials if claimed.
 - **Hover actions** (right edge, also keyboard): snooze, claim/release,
@@ -89,11 +102,17 @@ items here IS the product loop (WF-12).
 | --- | --- | --- | --- |
 | Questions | question stem | S-04 wizard | claim, snooze, bail menu (force-ready, wont-do) |
 | Approvals | doc name + version | S-06 doc review | claim, snooze, quick-approve (confirm modal) |
+| Initiative docs | "IN-7 PRD v1 ready" | S-06 (initiative variant) | claim, snooze, quick-approve |
+| Feature tests | "FE-3 test plan ready" | S-06 | claim, snooze |
+| Batch approvals | "5 feature test plans" | S-06 plan-package | **approve all** (confirm lists subjects), claim, snooze |
 | Split plans | "N children proposed" | S-06 variant | claim, snooze |
 | Reviews | "review ready — diffstat" | S-08 | claim, snooze |
 | Failures | stage + reason | S-10 detail | retry, edit+retry, wont-do |
 | Escalations | unresolved question count | S-05 | claim, forward, wont-do |
 | Repair | "doc parse failed" | S-05 Documents | open file externally, snooze |
+| Board suggestions | "3 notes look like IN-7" | S-16 | accept → board, dismiss |
+| Verify confirms | "FE-3 merged — confirm live" | S-05 verify | confirm released, mark failed |
+| Board digests | "14 items stale 60d" | S-16 | synthesize / icebox / keep |
 
 ## Interactions
 
@@ -108,7 +127,7 @@ items here IS the product loop (WF-12).
 
 ## Style notes
 
-- Dark-first (zinc-950 canvas, zinc-900 cards, zinc-100 text);
+- Dual-theme (D34 — see docs/design/theming.md);
   accent = single indigo for primary actions.
 - Font: Inter 13px; ids/numbers in JetBrains Mono.
 - Rows 32px, 1px zinc-800 separators — no card chrome on list rows.

@@ -2,23 +2,26 @@
 
 Design doc companion to `UI-INVENTORY.md` §2. Status: draft 2026-10-03.
 Stack: React+Vite · Tailwind · shadcn/ui (Radix). Style: Linear-inspired —
-dark-first, dense (13px base), minimal chrome.
+dual-theme (dark + light, D34), dense (13px base), minimal chrome.
 
-Purpose: the intelligence layer (WF-16, WF-17) — product dossiers
-surfaced for humans: browse sections, review the gap report, correct
-wrong facts, confirm inferred personas, trigger re-surveys. Corrections
-are DB writes + ledger events — the human disposes, the agent proposes.
+Purpose: the intelligence layer (WF-16, WF-17) — **project dossiers**
+(formerly "product dossiers" — the product entity merged into project,
+D26) surfaced for humans: browse sections, review the gap report,
+correct wrong facts, confirm inferred personas, trigger re-surveys.
+Corrections are DB writes + ledger events — the human disposes, the
+agent proposes. Survey gaps can also be pushed to the project's idea
+board as `gap` items (S-16), feeding the next synthesis run.
 
 ## Layout
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│ ◆ sprint-runner   ⌘K                                                     │
+│ ◆ veto            ⌘K                                                     │
 ├────────────┬──────────────┬───────────────────────────────┬──────────────┤
 │            │              │                               │              │
 │  SIDEBAR   │  KB          │  backend · dossier v4         │  SYNC   [4]  │
 │            │  ────────────│  surveyed 3d ago · code,docs  │ ┌──────────┐ │
-│  Inbox   9 │  PRODUCTS    │ ─────────────────────────────  │ │surveyed  │ │
+│  Inbox   9 │  PROJECTS    │ ─────────────────────────────  │ │surveyed  │ │
 │  Tickets   │  ▾ myApp     │  ## Architecture map           │ │3d ago    │ │
 │  Review  2 │    backend●  │  ┌──────────────────────────┐  │ │sources:  │ │
 │  Queue   1 │    frontend  │  │ modules…data flow…  [5]  │  │ │code,docs │ │
@@ -40,7 +43,7 @@ are DB writes + ledger events — the human disposes, the agent proposes.
 
 ## Annotations
 
-1. **Section nav** — second rail: product tabs → repos → dossier
+1. **Section nav** — second rail: project tabs → repos → dossier
    sections (architecture, domain-model, workflows, personas, docs,
    ui-map, glossary, landmines, gap-report). Dots mark `stale`
    sections and unseen gaps (● count).

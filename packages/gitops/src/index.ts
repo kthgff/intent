@@ -10,17 +10,10 @@ export {
 export {
   type Actor,
   DEFAULT_ACTOR,
-  type LockContent,
-  type LockResult,
-  MAX_RETRIES,
-  acquireRefLock,
-  clone,
   commitAll,
   createWorktree,
   pullRebase,
   push,
   removeWorktree,
-  reserveNextId,
-  sweepExpiredLocks,
   worktreePath,
 } from './ops.js';

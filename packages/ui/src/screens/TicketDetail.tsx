@@ -133,7 +133,7 @@ function DocsTab({ ws, id }: { ws: string; id: string }) {
           {doc.data.diffs.map((dd) => (
             <details key={dd.to} className="card">
               <summary>
-                version diff {dd.from.slice(0, 7)} → {dd.to.slice(0, 7)}
+                version diff {dd.from} → {dd.to}
               </summary>
               <DiffView diff={dd.diff} />
             </details>

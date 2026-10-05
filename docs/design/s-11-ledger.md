@@ -2,17 +2,23 @@
 
 Design doc companion to `UI-INVENTORY.md` §2. Status: draft 2026-10-03.
 Stack: React+Vite · Tailwind · shadcn/ui (Radix). Style: Linear-inspired —
-dark-first, dense (13px base), minimal chrome.
+dual-theme (dark + light, D34), dense (13px base), minimal chrome.
 
-Purpose: full transaction history per ticket (WF-10) — the events.jsonl
+Purpose: full transaction history per ticket (WF-10) — the event
 timeline, per-run artifact tree, prompt/transcript/outputs inspection,
 version replay. Read-only audit surface; nothing here writes.
+
+**Revised (D26/D29):** the timeline reads the append-only `events`
+table (same event schema — one row per event, immutable; there is no
+events.jsonl). Ledger scope extends to
+initiatives, features, and boards — the filter rail gains an entity
+kind, so `IN-7` shows every event across its children.
 
 ## Layout
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│ ◆ sprint-runner   ⌘K                                                     │
+│ ◆ veto            ⌘K                                                     │
 ├────────────┬───────────────────────────┬─────────────────────────────────┤
 │            │ ← SR-0142  Ledger          [stage ▾][actor ▾]          [1] │
 │  SIDEBAR   │ ─────────────────────────────────────────────────────────── │
@@ -47,7 +53,7 @@ version replay. Read-only audit surface; nothing here writes.
 1. **Filters** — stage, actor (agent/human/runner/system), event kind,
    time range; ticket picker top (also reachable per-ticket from
    S-05 → Activity → "open in ledger").
-2. **Event timeline** — one line per events.jsonl entry: ts, stage
+2. **Event timeline** — one line per event row: ts, stage
    chip, actor-type chip (agent indigo / human green / runner gray /
    system zinc), event name, +inline numbers on run events
    (`$cost`, `tokens in/out`, `duration`, `~est` flag for estimated).
@@ -63,7 +69,7 @@ version replay. Read-only audit surface; nothing here writes.
      bottom sheet. Compare-mode: pick any two `usage.json` /
      doc versions → diff.
 
-## Fields (events.jsonl per SCHEMAS §7)
+## Fields (`events` table per SCHEMAS §7)
 
 `ts` · `ticket` · `stage` · `actor.type/id` · `event` · `run` ·
 `refs[]` · `cost_usd` · `tokens_in/out/cached` · `usage_source` ·

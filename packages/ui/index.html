@@ -3,7 +3,23 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>sprint-runner</title>
+    <meta name="theme-color" content="#0b0d10" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <title>Veto — Agents propose. Humans veto.</title>
+    <script>
+      (function () {
+        var stored = null;
+        try {
+          stored =
+            localStorage.getItem("veto.theme") ||
+            localStorage.getItem("intent.theme");
+        } catch (e) {}
+        var mode = stored === "light" || stored === "dark" ? stored : "system";
+        var dark = matchMedia("(prefers-color-scheme: dark)").matches;
+        document.documentElement.dataset.theme =
+          mode === "system" ? (dark ? "dark" : "light") : mode;
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

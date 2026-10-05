@@ -8,6 +8,8 @@ deep = edge cases, failure paths, boundary coverage.
 PRD: {{PRD_MD}}  ·  TDD: {{TDD_MD}}  ·  Repo cards: {{REPO_CARDS}}
 Product dossier (scoped — user workflows + personas to derive cases
 from REAL usage, not just file coverage): {{DOSSIER}}
+Human feedback on the previous draft (empty on first draft — when set,
+it is a reviewer comment you MUST address): {{FEEDBACK}}
 Artifact paths: {{ARTIFACT_TARGETS}}
 
 ## Rules

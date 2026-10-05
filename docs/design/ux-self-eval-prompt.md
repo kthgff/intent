@@ -1,4 +1,4 @@
-# Prompt — UI/UX self-evaluation of the sprint-runner screens
+# Prompt — UI/UX self-evaluation of the Veto screens
 
 Use this prompt to have an agent critically evaluate the screen designs
 and the running demo. Output: `docs/design/UX-EVAL.md`.
@@ -6,7 +6,7 @@ and the running demo. Output: `docs/design/UX-EVAL.md`.
 ---
 
 You are a senior product designer + front-end engineer doing a
-**hostile-but-fair UX review** of the sprint-runner web UI — all 14
+**hostile-but-fair UX review** of the Veto web UI — all 14
 screens. Your job is to find what's wrong, not to validate what's right.
 
 ## Read first (in this order)
@@ -20,7 +20,7 @@ screens. Your job is to find what's wrong, not to validate what's right.
 Then **use the running app** (demo mode, deterministic fixtures):
 
 ```
-pnpm -F @sprint-runner/ui dev      # with VITE_DEMO_MODE=1
+pnpm -F @veto/ui dev      # with VITE_DEMO_MODE=1
 open http://localhost:5173
 ```
 

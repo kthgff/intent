@@ -13,7 +13,7 @@
  * write + run request. Run queueing goes through the conductor's
  * `queuePendingRun` (pending rows are leased + launched by CLAIM).
  */
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -22,11 +22,13 @@ import type { ConductorDeps, StreamEvent } from '@sprint-runner/conductor';
 import {
   type Conductor,
   type ConductorWorkspace,
+  type RunnerTask,
   type ToolCtx,
   applyTicketStatus,
   fetchIssues,
   preview,
   queuePendingRun,
+  renderLogMd,
   upsertFrontmatterKeys,
 } from '@sprint-runner/conductor';
 import {
@@ -36,23 +38,109 @@ import {
   parsePartialConfig,
 } from '@sprint-runner/config';
 import type { EffectiveConfig } from '@sprint-runner/config';
-import type {
-  EventName,
-  GateItem,
-  Store,
-  TicketPriority,
-  TicketRow,
-  TicketStatus,
+import {
+  BOARD_ITEM_KINDS,
+  type BoardItem,
+  DOC_KINDS,
+  type DocKind,
+  type EventName,
+  type GateItem,
+  type Store,
+  type TicketPriority,
+  type TicketRow,
+  type TicketStatus,
 } from '@sprint-runner/core';
-import { git } from '@sprint-runner/gitops';
-import { commitAll } from '@sprint-runner/gitops';
 import Fastify, {
   type FastifyInstance,
   type FastifyReply,
   type FastifyRequest,
 } from 'fastify';
 import YAML from 'yaml';
+import { z } from 'zod';
+import { lineDiff } from './diff.js';
 import { StreamHub } from './sse.js';
+
+// ---------------------------------------------------------------------------
+// Request-body schemas (fail-closed — a malformed body is a 400, never
+// a half-parsed write)
+// ---------------------------------------------------------------------------
+
+/** Workspace names are directory names (workspace.rootPath anchoring)
+ *  and DB keys — slug-shaped only: no separators, no `..`, bounded. */
+const WorkspaceNameSchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(
+    /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/,
+    'workspace name must be slug-shaped ([a-zA-Z0-9._-], leading alnum)',
+  )
+  .refine((v) => !v.includes('..'), 'no `..` in workspace names');
+
+const AnswersBodySchema = z
+  .object({
+    answers: z
+      .record(z.string(), z.union([z.string(), z.array(z.string())]))
+      .optional(),
+    id: z.string().optional(),
+    answer: z.union([z.string(), z.array(z.string())]).optional(),
+    expected_status: z.string().optional(),
+  })
+  .passthrough();
+
+const FeedbackBodySchema = z
+  .object({
+    comment: z.string().min(1),
+    expected_status: z.string().optional(),
+  })
+  .passthrough();
+
+const WorkspaceBodySchema = z
+  .object({
+    name: WorkspaceNameSchema,
+    path: z.string().min(1).optional(),
+  })
+  .passthrough();
+
+const InterviewBodySchema = z
+  .object({
+    workspace: WorkspaceNameSchema,
+    text: z.string().min(1).optional(),
+    ticket_ref: z.string().optional(),
+    subject_ref: z.string().optional(),
+    message: z.string().optional(),
+    target: z.string().optional(),
+    session_id: z.string().optional(),
+  })
+  .passthrough();
+
+const ImportBodySchema = z
+  .object({
+    workspace: WorkspaceNameSchema,
+    source: z.string().min(1),
+    repo: z.string().min(1).optional(),
+    milestone: z.string().optional(),
+    labels: z.array(z.string()).optional(),
+    commit: z.boolean().optional(),
+  })
+  .passthrough();
+
+const CaptureBodySchema = z
+  .object({
+    workspace: WorkspaceNameSchema,
+    kind: z.string().optional(),
+    title: z.string().min(1),
+    body: z.string().optional(),
+    serves: z.union([z.string(), z.array(z.string())]).optional(),
+  })
+  .passthrough();
+
+const ClaimBodySchema = z
+  .object({
+    actor: z.string().optional(),
+    ttl_s: z.number().int().positive().optional(),
+  })
+  .passthrough();
 
 // ---------------------------------------------------------------------------
 // Public surface types
@@ -125,6 +213,20 @@ const notFound = (m: string) => new ApiError(404, 'not_found', m);
 const conflict = (m: string) => new ApiError(409, 'conflict', m);
 const notImplemented = (m: string) => new ApiError(501, 'not_implemented', m);
 
+/** Zod-parse a JSON body → the typed shape, or a 400 naming the
+ *  issues (fail-closed — a malformed body never reaches a write). */
+function parseBody<T>(schema: z.ZodType<T>, body: unknown, what: string): T {
+  const r = schema.safeParse(body ?? {});
+  if (!r.success) {
+    throw badRequest(
+      `${what}: ${r.error.issues
+        .map((i) => `${i.path.join('.') || '<body>'} ${i.message}`)
+        .join('; ')}`,
+    );
+  }
+  return r.data;
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -167,8 +269,6 @@ const DOC_GATES: Record<string, string[]> = {
   tdd: ['plan-package', 'tdd-review'],
   test: ['plan-package', 'test-review', 'test-approved'],
 };
-
-const DOCS = ['prd', 'tdd', 'test', 'split-plan'] as const;
 
 // ---------------------------------------------------------------------------
 // createServer
@@ -271,17 +371,12 @@ export function createServer(opts: ServerOptions): ApiServer {
   function transitionCtx(ws: ConductorWorkspace) {
     return {
       workspace: ws.name,
-      ticketsRepoPath: ws.ticketsRepoPath,
+      rootPath: ws.rootPath,
       store,
       actor,
       now: () => new Date(),
     };
   }
-
-  const gitActor = () => ({
-    name: actor,
-    email: `${actor}@sprint-runner.local`,
-  });
 
   async function emitEvent(
     ws: ConductorWorkspace,
@@ -383,6 +478,8 @@ export function createServer(opts: ServerOptions): ApiServer {
       ticketId?: string;
       model?: string;
       tokens?: Record<string, string>;
+      /** Runner-task spec for agent-less stages (verify/import). */
+      task?: RunnerTask;
     },
   ): Promise<string> {
     const ws = workspace(wsName);
@@ -393,6 +490,7 @@ export function createServer(opts: ServerOptions): ApiServer {
       ...(req.ticketId ? { ticketId: req.ticketId } : {}),
       ...(req.model ? { model: req.model } : {}),
       ...(req.tokens ? { tokens: req.tokens } : {}),
+      ...(req.task ? { task: req.task } : {}),
     });
     if (!id) {
       throw conflict(
@@ -402,16 +500,41 @@ export function createServer(opts: ServerOptions): ApiServer {
     return id;
   }
 
-  function ticketDir(ws: ConductorWorkspace, ticketId: string): string {
-    return join(ws.ticketsRepoPath, 'tickets', ticketId);
-  }
-
-  async function readOrNull(path: string): Promise<string | null> {
-    try {
-      return await readFile(path, 'utf8');
-    } catch {
-      return null;
+  /**
+   * Latest `run_artifacts` row with `name` across a ticket's runs
+   * (triage.json, review.json, split-plan.md — structured stage output
+   * lives on runs under D29, not in a ticket dir). Nested names are
+   * honored both ways: `name` may carry a path (`<repo>/x.json`), and
+   * a bare name matches nested artifacts (`verify` writes
+   * `<repo>/test-report.json`). Returns the owning run id + the real
+   * artifact name so write-back lands on the same row.
+   */
+  async function latestArtifact(
+    wsName: string,
+    ticketId: string,
+    name: string,
+    opts: { subject?: string } = {},
+  ): Promise<{ runId: string; name: string; content: string } | null> {
+    const runs = (
+      await store.listRuns(
+        opts.subject
+          ? { workspace: wsName, subject: opts.subject }
+          : { workspace: wsName, ticket_id: ticketId },
+      )
+    ).sort((a, b) => b.id.localeCompare(a.id));
+    for (const r of runs) {
+      const a = await store.getArtifact(r.id, name);
+      if (a) return { runId: r.id, name: a.name, content: a.content };
+      if (!name.includes('/')) {
+        const nested = (await store.listArtifacts(r.id))
+          .filter((x) => x.name.endsWith(`/${name}`))
+          .sort((x, y) => x.name.localeCompare(y.name))[0];
+        if (nested) {
+          return { runId: r.id, name: nested.name, content: nested.content };
+        }
+      }
     }
+    return null;
   }
 
   // ------------------------------------------------------------------
@@ -512,9 +635,17 @@ export function createServer(opts: ServerOptions): ApiServer {
     };
     const ws = workspace(wsName);
     const row = await getTicketOr404(wsName, ticket);
-    const dir = ticketDir(ws, ticket);
-    const ticketMd = await readOrNull(join(dir, 'ticket.md'));
-    const triageRaw = await readOrNull(join(dir, 'triage.json'));
+    // D29: ticket.md is a doc_versions doc; triage.json a run_artifact.
+    const ticketMd =
+      (
+        await store.getDoc({
+          workspace: wsName,
+          subject: ticket,
+          doc: 'ticket.md',
+        })
+      )?.content ?? null;
+    const triageRaw = (await latestArtifact(wsName, ticket, 'triage.json'))
+      ?.content;
     const repos = await store.listTicketRepos({
       workspace: wsName,
       ticket_id: ticket,
@@ -533,42 +664,37 @@ export function createServer(opts: ServerOptions): ApiServer {
     const children = (await store.listTickets({ workspace: wsName })).filter(
       (t) => t.parent === ticket,
     );
+    // Latest version of every doc on the subject (S-05 docs tab, D29).
+    const docs = (
+      await store.listDocs({ workspace: wsName, subject: ticket })
+    ).map((d) => ({
+      doc: d.doc,
+      version: d.version,
+      edited_by: d.edited_by,
+      created_at: d.created_at,
+    }));
     return {
       ticket: row,
       ticket_md: ticketMd,
       triage: triageRaw ? JSON.parse(triageRaw) : null,
       repos,
+      docs,
       open_gates: gates.filter((g) => g.subject === ticket),
       family: [...family, ...children],
     };
   });
 
-  // Version diffs for a doc: git log --follow, diff consecutive pairs.
-  async function docDiffs(
-    ws: ConductorWorkspace,
-    relPath: string,
-  ): Promise<{ from: string; to: string; diff: string }[]> {
-    try {
-      const log = await git(['log', '--follow', '--format=%H', '--', relPath], {
-        cwd: ws.ticketsRepoPath,
-      });
-      const shas = log.stdout
-        .split('\n')
-        .map((l) => l.trim())
-        .filter(Boolean);
-      const diffs: { from: string; to: string; diff: string }[] = [];
-      for (let i = 0; i + 1 < shas.length && diffs.length < 10; i++) {
-        const from = shas[i + 1] as string;
-        const to = shas[i] as string;
-        const d = await git(['diff', from, to, '--', relPath], {
-          cwd: ws.ticketsRepoPath,
-        });
-        diffs.push({ from, to, diff: d.stdout });
-      }
-      return diffs;
-    } catch {
-      return [];
-    }
+  /**
+   * Doc name → DOC_KINDS doc. Routes accept either the bare name
+   * (`prd`) or the full doc kind (`prd.md`). `split-plan` is the one
+   * exception: it's a run_artifact (RUN_ARTIFACT_KINDS), served from
+   * the latest producing run.
+   */
+  function docKindFor(name: string): DocKind | null {
+    if ((DOC_KINDS as readonly string[]).includes(name)) return name as DocKind;
+    const md = `${name}.md`;
+    if ((DOC_KINDS as readonly string[]).includes(md)) return md as DocKind;
+    return null;
   }
 
   app.get('/api/v1/tickets/:workspace/:ticket/docs/:name', async (req) => {
@@ -581,16 +707,63 @@ export function createServer(opts: ServerOptions): ApiServer {
       ticket: string;
       name: string;
     };
-    if (!(DOCS as readonly string[]).includes(name)) {
-      throw badRequest(`unknown doc '${name}' (expected ${DOCS.join('|')})`);
-    }
-    const ws = workspace(wsName);
+    workspace(wsName);
     await getTicketOr404(wsName, ticket);
-    const rel = `tickets/${ticket}/${name}.md`;
-    const content = await readOrNull(join(ws.ticketsRepoPath, rel));
-    if (content === null)
-      throw notFound(`no ${name}.md for ${wsName}/${ticket}`);
-    return { name, content, diffs: await docDiffs(ws, rel) };
+    const doc = docKindFor(name);
+    if (doc === null) {
+      // split-plan.md is a run artifact, not a doc_versions kind.
+      if (name === 'split-plan') {
+        const art = await latestArtifact(wsName, ticket, 'split-plan.md');
+        if (!art) throw notFound(`no split-plan.md for ${wsName}/${ticket}`);
+        return {
+          name,
+          doc: 'split-plan.md',
+          content: art.content,
+          versions: [],
+          diffs: [],
+        };
+      }
+      throw badRequest(
+        `unknown doc '${name}' (expected ${DOC_KINDS.join('|')} or split-plan)`,
+      );
+    }
+    const dv = await store.getDoc({
+      workspace: wsName,
+      subject: ticket,
+      doc,
+    });
+    if (!dv) throw notFound(`no ${doc} for ${wsName}/${ticket}`);
+    // Version history replaces the old git-log diffs (D29 — doc_versions
+    // are immutable; diffs derive from consecutive immutable versions).
+    const all = await store.listDocVersions({
+      workspace: wsName,
+      subject: ticket,
+      doc,
+    });
+    const versions = all.map((v) => ({
+      version: v.version,
+      edited_by: v.edited_by,
+      created_at: v.created_at,
+    }));
+    const diffs: { from: string; to: string; diff: string }[] = [];
+    for (let i = 1; i < all.length; i++) {
+      const prev = all.at(i - 1);
+      const cur = all.at(i);
+      if (!prev || !cur) continue;
+      diffs.push({
+        from: `v${prev.version}`,
+        to: `v${cur.version}`,
+        diff: lineDiff(prev.content, cur.content),
+      });
+    }
+    return {
+      name,
+      doc,
+      content: dv.content,
+      version: dv.version,
+      versions,
+      diffs,
+    };
   });
 
   app.get('/api/v1/tickets/:workspace/:ticket/events', async (req) => {
@@ -600,41 +773,43 @@ export function createServer(opts: ServerOptions): ApiServer {
     };
     workspace(wsName);
     await getTicketOr404(wsName, ticket);
+    const events = await store.listEvents({
+      workspace: wsName,
+      ticket_id: ticket,
+    });
     return {
-      events: await store.listEvents({
-        workspace: wsName,
-        ticket_id: ticket,
-      }),
+      events,
+      // LOG.md is a derived render of the events rows (DB-SCHEMA).
+      log_md: renderLogMd(ticket, events),
     };
   });
 
   // ---- S-04 wizard answers → commit → re-run ----
 
-  app.post('/api/v1/tickets/:workspace/:ticket/answers', async (req) => {
+  app.post('/api/v1/tickets/:workspace/:ticket/answers', async (req, reply) => {
     const { workspace: wsName, ticket } = req.params as {
       workspace: string;
       ticket: string;
     };
-    const body = req.body as {
-      answers?: Record<string, string | string[]>;
-      id?: string;
-      answer?: string | string[];
-      expected_status?: string;
-    } | null;
+    const body = parseBody(AnswersBodySchema, req.body, 'answers');
     const ws = workspace(wsName);
-    const row = await getTicketOr404(wsName, ticket);
-    if (
-      body?.expected_status !== undefined &&
-      row.status !== body.expected_status
-    ) {
-      throw conflict(
-        `stale write: expected status '${body.expected_status}', ` +
-          `ticket is '${row.status}'`,
-      );
+    const isInterview = ticket.startsWith('interview:');
+    let row: TicketRow | null = null;
+    if (!isInterview) {
+      row = await getTicketOr404(wsName, ticket);
+      if (
+        body.expected_status !== undefined &&
+        row.status !== body.expected_status
+      ) {
+        throw conflict(
+          `stale write: expected status '${body.expected_status}', ` +
+            `ticket is '${row.status}'`,
+        );
+      }
     }
     const answers: Record<string, string | string[]> = {
-      ...(body?.answers ?? {}),
-      ...(body?.id !== undefined && body?.answer !== undefined
+      ...(body.answers ?? {}),
+      ...(body.id !== undefined && body.answer !== undefined
         ? { [body.id]: body.answer }
         : {}),
     };
@@ -642,18 +817,33 @@ export function createServer(opts: ServerOptions): ApiServer {
       throw badRequest('answers: provide {id, answer} or {answers: {…}}');
     }
 
-    // Commit answers into triage.json (fail-closed: a missing/unparseable
-    // triage file means nothing to answer).
-    const dir = ticketDir(ws, ticket);
-    const triagePath = join(dir, 'triage.json');
-    const raw = await readOrNull(triagePath);
-    if (raw === null) throw notFound('triage.json not found for ticket');
-    const triage = JSON.parse(raw) as {
+    // Route by the OPEN gate — the artifact that takes the answers is
+    // the one that surfaced the questions (design-qa → design.json;
+    // interview-qa → the interview subject's triage.json). Picking the
+    // file before checking the gate avoids writing triage.json when a
+    // design-qa gate is what actually stands open.
+    const gate = isInterview
+      ? await openGate(wsName, ticket, ['interview-qa'])
+      : await openGate(wsName, ticket, ['needs-info', 'design-qa']);
+    const file =
+      gate === 'design-qa' ? 'design.json' : ('triage.json' as const);
+    const art = await latestArtifact(
+      wsName,
+      ticket,
+      file,
+      isInterview ? { subject: ticket } : {},
+    );
+    if (art === null) {
+      throw notFound(
+        `${file} not found for ${isInterview ? 'subject' : 'ticket'}`,
+      );
+    }
+    const doc = JSON.parse(art.content) as {
       questions?: Array<Record<string, unknown>>;
     };
     const ts = now();
     const answered: string[] = [];
-    for (const q of triage.questions ?? []) {
+    for (const q of doc.questions ?? []) {
       const a = answers[q.id as string];
       if (a === undefined) continue;
       q.answer = a;
@@ -666,23 +856,49 @@ export function createServer(opts: ServerOptions): ApiServer {
     if (answered.length === 0) {
       throw badRequest(`no open question matched: ${missing.join(', ')}`);
     }
-    await writeFile(triagePath, `${JSON.stringify(triage, null, 2)}\n`, 'utf8');
-    const commit = await commitAll(
-      ws.ticketsRepoPath,
-      `answers: ${ticket} (${answered.join(', ')})`,
-      gitActor(),
-    );
+    // Write back under the artifact's real name — a nested artifact
+    // (`<repo>/triage.json`) is replaced at its own path, not forked
+    // under a top-level name.
+    await store.putArtifact({
+      run_id: art.runId,
+      name: art.name,
+      content: `${JSON.stringify(doc, null, 2)}\n`,
+      created_at: ts,
+    });
     await emitEvent(ws, {
-      ticketId: ticket,
+      ticketId: isInterview ? null : ticket,
       event: 'question_answered',
-      data: { questions: answered, commit },
+      run: art.runId,
+      data: {
+        questions: answered,
+        ...(isInterview ? { subject: ticket } : {}),
+      },
     });
 
-    // Clear the open question gate — nextStage's cleared-gate path does
-    // the status write + re-run (API.md: answers → commit → re-run).
-    const gate = await openGate(wsName, ticket, ['needs-info', 'design-qa']);
     if (gate) await clearGate({ ws, subject: ticket, gate });
-    return { answered, commit, gate_cleared: gate };
+    if (isInterview) {
+      // Re-run the interview on the same subject — NEW_ID rides the
+      // prior run's persisted request so re-runs draft into the SAME
+      // reserved id (WONT-DRAFT burns it; answers never allocate).
+      const prior = await store.getRun(art.runId);
+      const priorReq =
+        prior?.request && typeof prior.request === 'object'
+          ? (prior.request as { tokens?: Record<string, string> }).tokens
+          : undefined;
+      const run = await requestRun(wsName, {
+        subject: ticket,
+        stage: 'interview',
+        tokens: {
+          ...(priorReq?.NEW_ID ? { NEW_ID: priorReq.NEW_ID } : {}),
+          // The answered question set rides the next run's prompt —
+          // artifacts are DB rows under D29, not files the agent can
+          // re-open (the interview template reads {{TRIAGE_JSON}}).
+          TRIAGE_JSON: `${JSON.stringify(doc, null, 2)}\n`,
+        },
+      });
+      return reply.status(202).send({ answered, gate_cleared: gate, run });
+    }
+    return { answered, gate_cleared: gate };
   });
 
   // ---- S-06 doc feedback → doc_feedback → revision run ----
@@ -707,14 +923,11 @@ export function createServer(opts: ServerOptions): ApiServer {
       };
       const stage = DOC_STAGE[name];
       if (!stage) throw badRequest(`unknown doc '${name}'`);
-      const body = req.body as {
-        comment?: string;
-        expected_status?: string;
-      } | null;
+      const body = parseBody(FeedbackBodySchema, req.body, 'feedback');
       const ws = workspace(wsName);
       const row = await getTicketOr404(wsName, ticket);
       if (
-        body?.expected_status !== undefined &&
+        body.expected_status !== undefined &&
         row.status !== body.expected_status
       ) {
         throw conflict(
@@ -722,28 +935,22 @@ export function createServer(opts: ServerOptions): ApiServer {
             `ticket is '${row.status}'`,
         );
       }
-      const comment = body?.comment;
-      if (!comment) throw badRequest('feedback: {comment} is required');
-      const dir = ticketDir(ws, ticket);
-      const file = `feedback-${name}-${Date.now()}.md`;
-      await mkdir(dir, { recursive: true });
-      await writeFile(join(dir, file), `${comment}\n`, 'utf8');
-      const commit = await commitAll(
-        ws.ticketsRepoPath,
-        `feedback: ${ticket}/${name}`,
-        gitActor(),
-      );
+      const comment = body.comment;
+      // D29: the comment rides the doc_feedback event row AND the
+      // pending run's request tokens — the revision run's prompt gets
+      // {{FEEDBACK}} even when the queued row is claimed hours later
+      // (the event row alone would bury it in the ledger).
       await emitEvent(ws, {
         ticketId: ticket,
         stage,
         event: 'doc_feedback',
-        refs: [`tickets/${ticket}/${file}`],
-        data: { doc: name, commit },
+        data: { doc: name, comment },
       });
       const run = await requestRun(wsName, {
         subject: ticket,
         stage,
         ticketId: ticket,
+        tokens: { FEEDBACK: comment },
       });
       return reply.status(202).send({ accepted: true, run });
     },
@@ -838,10 +1045,11 @@ export function createServer(opts: ServerOptions): ApiServer {
       if (!verdict || !['accept', 'dismiss', 'wontfix'].includes(verdict)) {
         throw badRequest('verdict must be accept|dismiss|wontfix');
       }
-      const reviewPath = join(ticketDir(ws, ticket), 'review.json');
-      const raw = await readOrNull(reviewPath);
-      if (raw === null) throw notFound('review.json not found for ticket');
-      const review = JSON.parse(raw) as {
+      // review.json is a run_artifact under D29 — write the verdict
+      // back onto its producing run.
+      const art = await latestArtifact(wsName, ticket, 'review.json');
+      if (art === null) throw notFound('review.json not found for ticket');
+      const review = JSON.parse(art.content) as {
         findings: Array<Record<string, unknown>>;
       };
       const finding = review.findings.find((f) => f.thread_id === fid);
@@ -854,23 +1062,20 @@ export function createServer(opts: ServerOptions): ApiServer {
           : verdict === 'dismiss'
             ? 'dismissed'
             : 'wontfix';
-      await writeFile(
-        reviewPath,
-        `${JSON.stringify(review, null, 2)}\n`,
-        'utf8',
-      );
-      const commit = await commitAll(
-        ws.ticketsRepoPath,
-        `verdict: ${ticket}/${fid} → ${verdict}`,
-        gitActor(),
-      );
+      await store.putArtifact({
+        run_id: art.runId,
+        name: 'review.json',
+        content: `${JSON.stringify(review, null, 2)}\n`,
+        created_at: now(),
+      });
       await emitEvent(ws, {
         ticketId: ticket,
         event: verdict === 'accept' ? 'finding_created' : 'finding_dismissed',
-        refs: [`tickets/${ticket}/review.json`],
-        data: { finding: fid, verdict, commit },
+        run: art.runId,
+        refs: ['review.json'],
+        data: { finding: fid, verdict },
       });
-      return { verdict, finding: fid, commit };
+      return { verdict, finding: fid };
     },
   );
 
@@ -957,10 +1162,8 @@ export function createServer(opts: ServerOptions): ApiServer {
           opts: {
             ticketId: ticket,
             status: to as TicketStatus,
-            commitMessage: `send_back: ${ticket} → ${to}`,
             data: { action },
           },
-          actor: gitActor(),
         });
         await emitEvent(ws, {
           ticketId: ticket,
@@ -971,25 +1174,38 @@ export function createServer(opts: ServerOptions): ApiServer {
       }
       case 'force_ready': {
         // Human override: stamp forced: true (nextStage reads it →
-        // gate_overridden ledger entries) + land ready.
-        const file = join(ticketDir(ws, ticket), 'ticket.md');
-        const raw = await readOrNull(file);
-        if (raw !== null) {
-          await writeFile(
-            file,
-            upsertFrontmatterKeys(raw, { forced: 'true' }),
-            'utf8',
-          );
+        // gate_overridden ledger entries) + land ready. The flag lives
+        // on the tickets row AND the ticket.md doc's frontmatter (a new
+        // doc_version — D24/D29).
+        await store.upsertTicket({
+          ...row,
+          forced: true,
+          updated_at: now(),
+        });
+        const dv = await store.getDoc({
+          workspace: wsName,
+          subject: ticket,
+          doc: 'ticket.md',
+        });
+        if (dv) {
+          const next = upsertFrontmatterKeys(dv.content, {
+            forced: 'true',
+          });
+          if (next !== dv.content) {
+            await store.appendDocVersion(
+              { workspace: wsName, subject: ticket, doc: 'ticket.md' },
+              next,
+              actor,
+            );
+          }
         }
         await applyTicketStatus({
           ctx: transitionCtx(ws),
           opts: {
             ticketId: ticket,
             status: 'ready',
-            commitMessage: `force_ready: ${ticket} → ready`,
             data: { action, forced: true },
           },
-          actor: gitActor(),
         });
         return { action, status: 'ready' };
       }
@@ -999,10 +1215,8 @@ export function createServer(opts: ServerOptions): ApiServer {
           opts: {
             ticketId: ticket,
             status: 'wont-do',
-            commitMessage: `wont_do: ${ticket}`,
             data: { action },
           },
-          actor: gitActor(),
         });
         return { action, status: 'wont-do' };
       }
@@ -1071,15 +1285,11 @@ export function createServer(opts: ServerOptions): ApiServer {
   // Run ids contain '/' — callers URL-encode them (encodeURIComponent).
   app.get('/api/v1/runs/:id', async (req) => {
     const { id } = req.params as { id: string };
-    const run = await store.getRun(decodeURIComponent(id));
+    const runId = decodeURIComponent(id);
+    const run = await store.getRun(runId);
     if (!run) throw notFound(`unknown run '${id}'`);
-    const artifacts = run.run_dir
-      ? await git(['ls-files', '--others', '--exclude-standard'], {
-          cwd: run.run_dir,
-        })
-          .then((r) => r.stdout.split('\n').filter(Boolean))
-          .catch(() => [] as string[])
-      : [];
+    // D29: structured output is run_artifacts rows, not files on disk.
+    const artifacts = (await store.listArtifacts(runId)).map((a) => a.name);
     return { run, artifacts };
   });
 
@@ -1109,7 +1319,7 @@ export function createServer(opts: ServerOptions): ApiServer {
     const workspaces = await Promise.all(
       conductor.deps.workspaces.map(async (ws) => ({
         name: ws.name,
-        tickets_repo_path: ws.ticketsRepoPath,
+        root_path: ws.rootPath,
         queue_depth: pending.filter((r) => r.workspace === ws.name).length,
         open_gate_items: (
           await store.listGateItems({ workspace: ws.name, open: true })
@@ -1120,39 +1330,42 @@ export function createServer(opts: ServerOptions): ApiServer {
   });
 
   app.post('/api/v1/workspaces', async (req, reply) => {
-    const body = req.body as {
-      name?: string;
-      url?: string;
-      path?: string;
-    } | null;
-    if (!body?.name || !body.url) {
-      throw badRequest('workspaces: {name, url} are required');
-    }
+    const body = parseBody(WorkspaceBodySchema, req.body, 'workspaces');
     if (conductor.deps.workspaces.some((w) => w.name === body.name)) {
       throw conflict(`workspace '${body.name}' already exists`);
     }
-    const dir =
+    // D29: a workspace is a plain root dir (run dirs, repo anchoring,
+    // .veto/ scratch) — no tickets repo to clone, no tickets_repos
+    // config key. The project row is the DB registration.
+    const rootPath =
       body.path ??
       join(
         homedir(),
         '.local',
         'share',
         'sprint-runner',
-        'tickets-repos',
+        'workspaces',
         body.name,
       );
-    if (!existsSync(dir)) {
-      // Real add: clone the tickets repo (shell out to real git).
-      await mkdir(dirname(dir), { recursive: true });
-      await git(['clone', body.url, dir]);
+    await mkdir(rootPath, { recursive: true });
+    const ts = now();
+    if (!(await store.getProject(body.name))) {
+      await store.upsertProject({
+        workspace: body.name,
+        name: body.name,
+        next_ticket_seq: 1,
+        next_feature_seq: 1,
+        next_initiative_seq: 1,
+        settings: {},
+        created_at: ts,
+      });
     }
     conductor.deps.workspaces.push({
       name: body.name,
-      ticketsRepoPath: dir,
+      rootPath,
     });
-    config.tickets_repos.push({ name: body.name, url: body.url });
     return reply.status(201).send({
-      workspace: { name: body.name, url: body.url, tickets_repo_path: dir },
+      workspace: { name: body.name, root_path: rootPath },
     });
   });
 
@@ -1161,38 +1374,31 @@ export function createServer(opts: ServerOptions): ApiServer {
   // ------------------------------------------------------------------
 
   app.post('/api/v1/interview', async (req, reply) => {
-    const body = req.body as {
-      workspace?: string;
-      text?: string;
-    } | null;
-    if (!body?.workspace || !body.text) {
-      throw badRequest('interview: {workspace, text} are required');
+    const body = parseBody(InterviewBodySchema, req.body, 'interview');
+    if (!body.text) {
+      throw badRequest('interview: {text} is required');
     }
     const ws = workspace(body.workspace);
     const slug = `interview-${Date.now()}`;
     const subject = `interview:${slug}`;
-    // Seed text lands durably in the tickets repo before the run queues
-    // (the stream/pending row is never the only copy).
-    const intake = join(ws.ticketsRepoPath, 'intake');
-    await mkdir(intake, { recursive: true });
-    await writeFile(join(intake, `${slug}.md`), `${body.text}\n`, 'utf8');
-    await commitAll(ws.ticketsRepoPath, `interview seed ${slug}`, gitActor());
-    const run = await requestRun(ws.name, { subject, stage: 'interview' });
+    // D29: the seed lands durably as a notes.md doc_version on the
+    // interview subject before the run queues (the pending row is never
+    // the only copy), and rides the run's SEED_TEXT prompt token.
+    await store.appendDocVersion(
+      { workspace: ws.name, subject, doc: 'notes.md' },
+      `${body.text}\n`,
+      actor,
+    );
+    const run = await requestRun(ws.name, {
+      subject,
+      stage: 'interview',
+      tokens: { SEED_TEXT: body.text },
+    });
     return reply.status(202).send({ subject, run });
   });
 
   app.post('/api/v1/import', async (req, reply) => {
-    const body = req.body as {
-      workspace?: string;
-      source?: string;
-      repo?: string;
-      milestone?: string;
-      labels?: string[];
-      commit?: boolean;
-    } | null;
-    if (!body?.workspace || !body.source) {
-      throw badRequest('import: {workspace, source} are required');
-    }
+    const body = parseBody(ImportBodySchema, req.body, 'import');
     const ws = workspace(body.workspace);
     if (body.source !== 'github') {
       throw notImplemented(`import source '${body.source}' is not implemented`);
@@ -1220,13 +1426,75 @@ export function createServer(opts: ServerOptions): ApiServer {
         rows: preview(fetched.issues, config.importers.default_repo_map),
       };
     }
-    // Commit → queue the `import:<source>` subject run (CONDUCTOR
-    // import run does fetch→materialize→commit itself).
+    // Commit → queue the `import:<source>` subject run as a RUNNER
+    // TASK (CONDUCTOR "Runner tasks") — the conductor fetches +
+    // materializes rows itself; no agent is spawned. The fetch spec
+    // rides runs.request.task so the pending row is self-contained.
+    if (!body.repo) throw badRequest('import commit: {repo} is required');
     const run = await requestRun(ws.name, {
       subject: `import:${body.source}`,
       stage: 'import',
+      task: {
+        kind: 'import',
+        repo: body.repo,
+        ...(body.milestone ? { milestone: body.milestone } : {}),
+        ...(body.labels ? { labels: body.labels } : {}),
+      },
     });
     return reply.status(202).send({ run, subject: `import:${body.source}` });
+  });
+
+  // ------------------------------------------------------------------
+  // /capture — D27 tray ingress (API.md): board:null board_items
+  // ------------------------------------------------------------------
+
+  app.post('/api/v1/capture', async (req, reply) => {
+    const body = parseBody(CaptureBodySchema, req.body, 'capture');
+    const ws = workspace(body.workspace);
+    const kind = body.kind ?? 'idea';
+    if (!(BOARD_ITEM_KINDS as readonly string[]).includes(kind)) {
+      throw badRequest(
+        `unknown kind '${kind}' (expected ${BOARD_ITEM_KINDS.join('|')})`,
+      );
+    }
+    const ts = now();
+    const item: BoardItem = {
+      id: randomUUID(),
+      workspace: ws.name,
+      board: null, // capture tray (D27)
+      kind: kind as BoardItem['kind'],
+      ref: null,
+      title: body.title,
+      body: body.body ?? null,
+      x: null,
+      y: null,
+      w: null,
+      h: null,
+      zone: null,
+      /** D33: goal board_item ids this item serves — the canonical edge
+       *  (the event carries it too, but the row is the truth). */
+      serves:
+        body.serves === undefined
+          ? null
+          : Array.isArray(body.serves)
+            ? body.serves
+            : [body.serves],
+      status: 'icebox',
+      consumed_by: null,
+      created_at: ts,
+      updated_at: ts,
+    };
+    await store.upsertBoardItem(item);
+    await emitEvent(ws, {
+      event: 'item_captured',
+      data: {
+        item_id: item.id,
+        kind: item.kind,
+        title: item.title,
+        ...(body.serves !== undefined ? { serves: body.serves } : {}),
+      },
+    });
+    return reply.status(201).send({ item });
   });
 
   // ------------------------------------------------------------------
@@ -1431,7 +1699,7 @@ export function createServer(opts: ServerOptions): ApiServer {
         subject: string;
         gate: string;
       };
-      const body = req.body as { actor?: string; ttl_s?: number } | null;
+      const body = parseBody(ClaimBodySchema, req.body, 'claim');
       const ws = workspace(wsName);
       const item = await store.getGateItem({
         workspace: ws.name,
@@ -1441,11 +1709,11 @@ export function createServer(opts: ServerOptions): ApiServer {
       if (!item || item.cleared_at) {
         throw notFound(`no open gate item '${gate}' for ${ws.name}/${subject}`);
       }
-      const claimActor = body?.actor ?? actor;
+      const claimActor = body.actor ?? actor;
       const claim = await store.acquireClaim(
         { workspace: ws.name, subject, gate },
         claimActor,
-        body?.ttl_s ?? 900,
+        body.ttl_s ?? 900,
       );
       if (!claim) {
         const held = await store.getClaim({

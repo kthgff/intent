@@ -16,7 +16,6 @@
  */
 import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
-import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   PROMPT_TOKENS,
@@ -41,6 +40,7 @@ import {
 } from '../loop/deps.js';
 import type { LeaseManager } from '../loop/lease.js';
 import { blockTicketForCap } from './caps-action.js';
+import { runRunnerTask, taskForStage } from './runner.js';
 
 export interface LaunchContext {
   deps: ConductorDeps;
@@ -123,6 +123,15 @@ export async function queuePendingRun(
     depth: null,
     pid: null,
     worktree: null,
+    container_id: null,
+    request:
+      req.tokens || req.model || req.task
+        ? {
+            ...(req.tokens ? { tokens: req.tokens } : {}),
+            ...(req.model ? { model: req.model } : {}),
+            ...(req.task ? { task: req.task } : {}),
+          }
+        : null,
     status: 'pending',
     started_at: null,
     heartbeat_at: null,
@@ -154,6 +163,7 @@ async function buildTokens(
   req: RunRequest,
   ticket: TicketRow | null,
   runId: string,
+  runDir: string,
 ): Promise<TokenValues> {
   // Every token starts as '' so fail-closed rendering never dies on a
   // token this wp can't produce yet — the prompt still names it.
@@ -163,14 +173,20 @@ async function buildTokens(
 
   let ticketDir = '';
   if (ticket) {
-    ticketDir = join(ws.ticketsRepoPath, 'tickets', ticket.ticket_id);
+    // D29: ticket docs live in doc_versions (DB truth). The agent
+    // writes its outputs under <run_dir>/<ticket_id>/ — reconcile
+    // ingests them into run_artifacts/doc_versions on collect.
+    ticketDir = join(runDir, ticket.ticket_id);
     tokens.TICKET_ID = ticket.ticket_id;
     tokens.TICKET_DIR = ticketDir;
-    try {
-      tokens.TICKET_MD = await readFile(join(ticketDir, 'ticket.md'), 'utf8');
-    } catch {
-      tokens.TICKET_MD = '';
-    }
+    tokens.TICKET_MD =
+      (
+        await ctx.deps.store.getDoc({
+          workspace: ws.name,
+          subject: ticket.ticket_id,
+          doc: 'ticket.md',
+        })
+      )?.content ?? '';
     tokens.REPO_NAMES = ticket.repos.join(', ');
     tokens.REPO_NAME = ticket.repos[0] ?? '';
     tokens.DEPTH = ticket.depth ?? ctx.deps.config.spec_depth;
@@ -182,7 +198,11 @@ async function buildTokens(
   } else {
     tokens.TICKET_ID = req.subject;
   }
-  tokens.TICKETS_DIR = ws.ticketsRepoPath;
+  // TICKETS_DIR resolves to the run dir: doc-writing stages (interview
+  // `<NEW_ID>/ticket.md`, import `<KEY>/ticket.md`) drop files under
+  // their artifact dir and reconcile ingests them (D29 — no tickets
+  // repo exists to write into).
+  tokens.TICKETS_DIR = runDir;
   tokens.DOSSIER = 'dossier pending';
   tokens.PRIOR_ART = 'none';
   tokens.SPEC_LINT = 'not computed (wp-032)';
@@ -203,6 +223,32 @@ async function buildTokens(
     tokens.CARD_PATH = join(path, '.sprint-runner', 'card.json');
   }
   return { ...tokens, ...(req.tokens ?? {}) } as TokenValues;
+}
+
+/**
+ * Merge a pending row's saved `runs.request` with what this launch
+ * computed — tokens (NEW_ID, FEEDBACK, …), the runner-task spec, model.
+ * Returns null when there is nothing to persist.
+ */
+function persistedRequest(
+  pendingRow: RunRow | undefined,
+  tokens: Record<string, string>,
+  task: RunRequest['task'],
+  model: string | undefined,
+): RunRow['request'] {
+  const prev = (pendingRow?.request ?? {}) as Record<string, unknown>;
+  const { tokens: prevTokensRaw, ...prevRest } = prev;
+  const merged = {
+    ...((prevTokensRaw ?? {}) as Record<string, string>),
+    ...tokens,
+  };
+  const out: Record<string, unknown> = {
+    ...prevRest,
+    ...(Object.keys(merged).length ? { tokens: merged } : {}),
+    ...(task ? { task } : {}),
+    ...(model ? { model } : {}),
+  };
+  return Object.keys(out).length ? out : null;
 }
 
 /**
@@ -234,8 +280,22 @@ export async function launch(
   };
   if (!(await ctx.leases.acquire(ws, leaseKey))) return null;
 
+  // --- durable per-run request fields ---
+  // Interview NEW_ID is allocated ONCE per run and carried on
+  // `runs.request.tokens` — a pending row's re-launch (or a WONT-DRAFT
+  // re-interview that deliberately burns the id) must not allocate
+  // again. allocTicketId needs a projects row (D29 id rule); the
+  // workspace may predate project registration → self-heal.
+  const reqTokens = { ...(req.tokens ?? {}) };
+  if (req.stage === 'interview' && !reqTokens.NEW_ID) {
+    // allocTicketId self-heals a missing projects row with sequences
+    // seeded above the existing ids — NEW_ID can never collide with a
+    // ticket that already exists.
+    reqTokens.NEW_ID = await store.allocTicketId(ws.name);
+  }
+  const task = req.task ?? taskForStage(req.stage);
+
   const backend = (ticket?.backend ?? deps.config.backend) as string;
-  const adapter = adapterFor(deps, backend);
   const model = req.model ?? ticket?.model ?? deps.config.main_model ?? null;
   const depth = (ticket?.depth ?? deps.config.spec_depth) as RunRow['depth'];
   const ts = nowIso(deps);
@@ -243,7 +303,7 @@ export async function launch(
   await mkdir(runDir, { recursive: true });
 
   // --- worktrees (CONDUCTOR LAUNCH step 3) ---
-  let worktree = ws.ticketsRepoPath;
+  let worktree = ws.rootPath;
   if (
     ticket &&
     (REPO_EXECUTING_STAGES as readonly string[]).includes(req.stage)
@@ -280,31 +340,97 @@ export async function launch(
     }
   }
 
-  // --- render + spawn ---
-  const ticketDir = ticket
-    ? join(ws.ticketsRepoPath, 'tickets', ticket.ticket_id)
-    : undefined;
-  // `verify` is a runner task with no agent and no prompt template
-  // (CONDUCTOR "Runner tasks"; renderPrompt throws for it) — synthesize
-  // a minimal rendered prompt carrying just the ARTIFACT_TARGETS line
-  // so adapters can still place their artifact dir.
-  const rendered =
-    req.stage === 'verify'
-      ? {
-          template: 'verify',
-          text: `${runDir}/ (absolute — write all run artifacts under this directory)\n`,
-          tokens: {} as TokenValues,
-        }
-      : await adapter.prepare(req.subject, req.stage, {
+  // --- runner-task lane (CONDUCTOR "Runner tasks") ---
+  // `verify`/`import` carry a stage but no agent: register a
+  // `backend: 'runner'` row, run the conductor-side task, settle it
+  // through the normal reconcile collect path.
+  if (task) {
+    const row: RunRow = {
+      id: runId,
+      workspace: ws.name,
+      subject: req.subject,
+      ticket_id: ticket?.ticket_id ?? req.ticketId ?? null,
+      stage: req.stage,
+      attempt,
+      backend: 'runner',
+      model: null,
+      depth: null,
+      pid: null,
+      worktree,
+      container_id: null,
+      request: persistedRequest(req.pendingRow, reqTokens, task, req.model),
+      status: 'running',
+      started_at: ts,
+      heartbeat_at: ts,
+      exited_at: null,
+      sentinel: null,
+      sentinel_raw: null,
+      cost_usd: null,
+      tokens_in: null,
+      tokens_out: null,
+      tokens_cached: null,
+      usage_source: null,
+      duration_s: null,
+      run_dir: runDir,
+    };
+    if (req.pendingRow) await store.updateRun(runId, row);
+    else await store.createRun(row);
+    deps.notify?.({ type: 'run_status', payload: { ...row } });
+    await store.appendEvent({
+      workspace: ws.name,
+      ticket_id: row.ticket_id,
+      ts,
+      stage: req.stage,
+      actor_type: 'runner',
+      actor_id: actorOf(deps),
+      event: 'run_started',
+      run: runId,
+      refs: [],
+      data: { attempt, task: task.kind, worktree },
+      cost_usd: null,
+      tokens_in: null,
+      tokens_out: null,
+      tokens_cached: null,
+      usage_source: null,
+      duration_s: null,
+      human_minutes: null,
+    });
+    const ticketRepos = ticket
+      ? await store.listTicketRepos({
           workspace: ws.name,
-          run_dir: runDir,
-          run_id: runId,
-          backend: adapter.name,
-          ...(model ? { model } : {}),
-          ...(depth ? { depth } : {}),
-          ...(ticketDir ? { ticket_dir: ticketDir } : {}),
-          tokens: await buildTokens(ctx, req, ticket, runId),
-        });
+          ticket_id: ticket.ticket_id,
+        })
+      : [];
+    void runRunnerTask({
+      deps,
+      ws,
+      leases: ctx.leases,
+      run: row,
+      task,
+      ticketRepos,
+    }).catch((e) => deps.onError?.(e));
+    return runId;
+  }
+
+  // --- render + spawn ---
+  const adapter = adapterFor(deps, backend);
+  const ticketDir = ticket ? join(runDir, ticket.ticket_id) : undefined;
+  const rendered = await adapter.prepare(req.subject, req.stage, {
+    workspace: ws.name,
+    run_dir: runDir,
+    run_id: runId,
+    backend: adapter.name,
+    ...(model ? { model } : {}),
+    ...(depth ? { depth } : {}),
+    ...(ticketDir ? { ticket_dir: ticketDir } : {}),
+    tokens: await buildTokens(
+      ctx,
+      { ...req, tokens: reqTokens },
+      ticket,
+      runId,
+      runDir,
+    ),
+  });
   const handle = await adapter.run(
     worktree,
     rendered,
@@ -326,6 +452,8 @@ export async function launch(
     depth,
     pid: handle.pid,
     worktree,
+    container_id: null,
+    request: persistedRequest(req.pendingRow, reqTokens, undefined, req.model),
     status: 'running',
     started_at: ts,
     heartbeat_at: ts,

@@ -1,6 +1,6 @@
 import type { EventRow } from '@sprint-runner/core';
 /**
- * S-11 — ledger browser. Per-ticket events.jsonl timeline (filterable
+ * S-11 — ledger browser. Per-ticket event timeline (filterable
  * by event name / stage / actor). At `/ledger` a ticket picker lists
  * all tickets; at `/tickets/:ws/:id/ledger` the timeline shows inline.
  */
@@ -67,7 +67,7 @@ export function TicketLedger({ ws, id }: { ws: string; id: string }) {
       <h1 className="page-title">Ledger — {id}</h1>
       <p className="page-sub">
         <Link to={`/tickets/${ws}/${id}`}>← ticket</Link> · {events.length}{' '}
-        events (durable events.jsonl projection)
+        events (durable DB rows)
       </p>
       {ev.loading && <Loading />}
       {ev.error != null && <ErrorBox error={ev.error} />}

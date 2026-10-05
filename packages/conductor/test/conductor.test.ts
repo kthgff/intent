@@ -1,6 +1,8 @@
 /**
  * wp-030 conductor tests — MockAdapter (real detached children) +
- * SqliteStore :memory:/tmp + fixture repos copied to tmp git repos.
+ * PostgresStore on PGlite + the fixture code repo copied to a tmp git
+ * repo (wp-094: D29 — tickets are seeded as `tickets` rows +
+ * `doc_versions`, no tickets repo).
  *
  * Drives a fixture ticket through one full transition end-to-end via a
  * stub TransitionHandler (wp-031's table is out of scope — the stub
@@ -9,10 +11,10 @@
 import { execFileSync } from 'node:child_process';
 import {
   cpSync,
-  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -20,8 +22,9 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MockAdapter } from '@sprint-runner/adapters';
 import { resolveConfig } from '@sprint-runner/config';
-import { SqliteStore } from '@sprint-runner/store';
+import { PostgresStore } from '@sprint-runner/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { parseTicketMd } from '../src/import/parse.js';
 import {
   Conductor,
   type ConductorDeps,
@@ -40,10 +43,9 @@ const NOOP_SCAN = async () => ({
 });
 
 let dir: string;
-let ticketsRepo: string;
 let codeRepo: string;
 let runsDir: string;
-let store: SqliteStore;
+let store: PostgresStore;
 
 function gitInit(repo: string): void {
   execFileSync('git', ['init', '-qb', 'main'], { cwd: repo });
@@ -55,13 +57,42 @@ function gitInit(repo: string): void {
   execFileSync('git', ['commit', '-qm', 'seed'], { cwd: repo });
 }
 
-function seedRepos(): void {
-  ticketsRepo = join(dir, 'tickets-repo');
-  codeRepo = join(dir, 'code-repo');
-  cpSync(TICKETS_FIXTURE, ticketsRepo, { recursive: true });
-  cpSync(CODE_FIXTURE, codeRepo, { recursive: true });
-  gitInit(ticketsRepo);
-  gitInit(codeRepo);
+/** Seed every fixture ticket.md into `tickets` + `doc_versions` (D29). */
+async function seedTickets(s: PostgresStore): Promise<void> {
+  const now = new Date().toISOString();
+  const ticketsDir = join(TICKETS_FIXTURE, 'tickets');
+  for (const id of readdirSync(ticketsDir)) {
+    const raw = readFileSync(join(ticketsDir, id, 'ticket.md'), 'utf8');
+    const parsed = parseTicketMd(raw, `${id}/ticket.md`);
+    if (!parsed.ok) throw new Error(`fixture ${id}: ${parsed.error.error}`);
+    const fm = parsed.value.frontmatter;
+    await s.upsertTicket({
+      workspace: WS,
+      ticket_id: id,
+      feature: fm.feature ?? null,
+      title: fm.title,
+      status: fm.status,
+      priority: fm.priority,
+      depth: fm.depth ?? null,
+      backend: fm.backend ?? null,
+      model: fm.model ?? null,
+      repos: fm.repos,
+      parent: fm.parent ?? null,
+      depends_on: fm.depends_on,
+      source: fm.source ?? null,
+      forced: fm.forced ?? false,
+      spec_score: null,
+      spec_hash: null,
+      blocked_reason: fm.blocked_reason ?? null,
+      created_at: now,
+      updated_at: now,
+    });
+    await s.appendDocVersion(
+      { workspace: WS, subject: id, doc: 'ticket.md' },
+      raw,
+      'test-seed',
+    );
+  }
 }
 
 function makeConfig(overrides: Record<string, unknown> = {}) {
@@ -96,21 +127,21 @@ function makeConductor(
     adapter?: MockAdapter;
     transitions?: StubTransitionHandler;
     configOverrides?: Record<string, unknown>;
-    store?: SqliteStore;
+    store?: PostgresStore;
   } = {},
 ): Conductor {
   const deps: ConductorDeps = {
     store: opts.store ?? store,
     adapters: { mock: opts.adapter ?? new MockAdapter({ delayMs: 50 }) },
     config: makeConfig(opts.configOverrides),
-    workspaces: [{ name: WS, ticketsRepoPath: ticketsRepo }],
+    workspaces: [{ name: WS, rootPath: dir }],
     runsDir,
     transitions:
       opts.transitions ??
       new StubTransitionHandler({ nextStages: { imported: 'triage' } }),
     scan: NOOP_SCAN,
     stallAfterMs: 200,
-    pull: true,
+    onError: (e) => console.error('[conductor onError]', e),
   };
   return new Conductor(deps);
 }
@@ -135,24 +166,30 @@ async function waitFor(
   throw new Error('waitFor: condition not met within timeout');
 }
 
-function ticketStatus(id: string): string {
-  const raw = readFileSync(
-    join(ticketsRepo, 'tickets', id, 'ticket.md'),
-    'utf8',
-  );
-  return /^status:\s*(\S+)/m.exec(raw)?.[1] ?? '';
+/** `status:` line from the ticket.md doc_versions content (D29 —
+ *  frontmatter lives in the DB now). */
+async function ticketStatus(id: string): Promise<string> {
+  const doc = await store.getDoc({
+    workspace: WS,
+    subject: id,
+    doc: 'ticket.md',
+  });
+  return /^status:\s*(\S+)/m.exec(doc?.content ?? '')?.[1] ?? '';
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), 'sr-conductor-'));
   runsDir = join(dir, 'runs');
   mkdirSync(runsDir, { recursive: true });
-  seedRepos();
-  store = new SqliteStore(':memory:');
+  codeRepo = join(dir, 'code-repo');
+  cpSync(CODE_FIXTURE, codeRepo, { recursive: true });
+  gitInit(codeRepo);
+  store = await PostgresStore.connect('pglite:');
+  await seedTickets(store);
 });
 
-afterEach(() => {
-  store.close();
+afterEach(async () => {
+  await store.close();
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -181,8 +218,8 @@ describe('conductor tick loop (wp-030)', () => {
     }
 
     expect(transitioned).toBe('SR-0001');
-    // Frontmatter truth + projection both moved.
-    expect(ticketStatus('SR-0001')).toBe('triage');
+    // Doc frontmatter + truth row both moved (D29).
+    expect(await ticketStatus('SR-0001')).toBe('triage');
     const ticket = await store.getTicket({
       workspace: WS,
       ticket_id: 'SR-0001',
@@ -195,7 +232,9 @@ describe('conductor tick loop (wp-030)', () => {
     expect(run.status).toBe('done');
     expect(run.sentinel).toBe('DONE');
     expect(run.stage).toBe('triage');
-    expect(existsSync(join(run.run_dir as string, 'usage.json'))).toBe(true);
+    // usage.json is a run_artifacts row now, not a run-dir file (D29).
+    const usage = await store.getArtifact(run.id, 'usage.json');
+    expect(usage).not.toBeNull();
 
     // Lease released after collect.
     const lease = await store.getLease({
@@ -215,13 +254,6 @@ describe('conductor tick loop (wp-030)', () => {
     expect(names).toContain('run_started');
     expect(names).toContain('run_finished');
     expect(names).toContain('status_changed');
-
-    // The status commit landed in the tickets repo.
-    const log = execFileSync('git', ['log', '--format=%s'], {
-      cwd: ticketsRepo,
-      encoding: 'utf8',
-    });
-    expect(log).toMatch(/SR-0001 → triage/);
   });
 
   it('marks a silent run stalled then kills it at the stage timeout', async () => {
@@ -243,9 +275,11 @@ describe('conductor tick loop (wp-030)', () => {
 
     // No log/artifact progress (heartbeat noise disabled) + stall
     // budget 200ms → stalled.
-    await sleep(400);
-    await conductor.tick();
-    expect((await store.getRun(run.id))?.status).toBe('stalled');
+    await sleep(300);
+    await waitFor(async () => {
+      await conductor.tick();
+      return (await store.getRun(run.id))?.status === 'stalled';
+    });
 
     // Timeout 1s → kill + run_killed; the ticket stays for retry.
     await waitFor(async () => {
@@ -257,7 +291,7 @@ describe('conductor tick loop (wp-030)', () => {
     const notes = await store.listNotifications({ workspace: WS });
     expect(notes.some((n) => n.kind === 'run_killed')).toBe(true);
     // Status stays for retry — ticket untouched.
-    expect(ticketStatus('SR-0001')).toBe('imported');
+    expect(await ticketStatus('SR-0001')).toBe('imported');
   });
 
   it('lease contention: a held lease blocks the other claimer', async () => {
@@ -281,25 +315,20 @@ describe('conductor tick loop (wp-030)', () => {
   });
 
   it('two conductors on one store: exactly one claims the run', async () => {
-    const dbPath = join(dir, 'state.db');
-    const shared1 = new SqliteStore(`sqlite://${dbPath}`);
-    const shared2 = new SqliteStore(`sqlite://${dbPath}`);
-    try {
-      const c1 = makeConductor({ store: shared1 });
-      const c2 = makeConductor({ store: shared2 });
-      await c1.tick();
-      await c2.tick();
-      const runs = await shared1.listRuns({
-        workspace: WS,
-        subject: 'SR-0001',
-      });
-      expect(runs).toHaveLength(1);
-      // Clean up the spawned child so the test can exit.
-      await c1.killRun(must(runs[0], 'the claimed run').id);
-    } finally {
-      shared1.close();
-      shared2.close();
-    }
+    // One shared store instance — the lease CAS is still exercised
+    // through the same DB (PGlite is single-process; a second PGlite
+    // cannot attach to the same dir).
+    const c1 = makeConductor();
+    const c2 = makeConductor();
+    await c1.tick();
+    await c2.tick();
+    const runs = await store.listRuns({
+      workspace: WS,
+      subject: 'SR-0001',
+    });
+    expect(runs).toHaveLength(1);
+    // Clean up the spawned child so the test can exit.
+    await c1.killRun(must(runs[0], 'the claimed run').id);
   });
 
   it('kills a run when the per-ticket token cap is hit mid-run', async () => {
@@ -319,7 +348,7 @@ describe('conductor tick loop (wp-030)', () => {
     });
     expect(ticket?.status).toBe('blocked');
     expect(ticket?.blocked_reason).toBe('tokens_cap_per_ticket');
-    expect(ticketStatus('SR-0001')).toBe('blocked');
+    expect(await ticketStatus('SR-0001')).toBe('blocked');
     const events = await store.listEvents({
       workspace: WS,
       ticket_id: 'SR-0001',

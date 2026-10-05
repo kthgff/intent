@@ -14,7 +14,7 @@ depends_on: [wp-010]
 Render shipped templates with the ADAPTERS.md token table:
 `renderPrompt(stage, ctx) -> string`. Every `{{TOKEN}}` resolves or
 errors loudly (no silent empties). ARTIFACT_TARGETS renders absolute
-`runs/<id>/` when `can_write_outside_tree`, else `.sprint-runner/<id>/`
+`runs/<id>/` when `can_write_outside_tree`, else `.veto/<id>/`
 scratch. CAPABILITY_NOTES injected per flags. DOSSIER renders
 "dossier pending" when unsurveyed (depth-gated: light/standard proceed,
 deep parks — expose the check as a helper for the conductor).

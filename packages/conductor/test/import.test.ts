@@ -1,24 +1,25 @@
-import { execFileSync } from 'node:child_process';
 /**
- * wp-061 GitHub importer tests — stub `gh` binaries (tmp scripts), a tmp
- * git tickets repo, and an in-memory SqliteStore.
+ * wp-061 GitHub importer tests (wp-093 D29) — stub `gh` binaries (tmp
+ * scripts) + a PGlite PostgresStore.
+ *
+ * `materialize` writes `tickets` truth rows + `ticket.md` doc_versions
+ * + `ticket_repos` rows directly — there is no tickets repo, no git
+ * commit, no filesystem output. Ids come from `store.allocTicketId`
+ * (`SR-NNNN` via `projects.next_ticket_seq`); the tracker key survives
+ * in the `source` column (`github:org/repo#N`) and re-imports of an
+ * already-seen source surface `import` gate items instead of dirs.
  */
-import {
-  chmodSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { SqliteStore } from '@sprint-runner/store';
+import { join } from 'node:path';
+import type { TicketRow } from '@sprint-runner/core';
+import { PostgresStore } from '@sprint-runner/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  IMPORT_FAILURE_GATE,
   fetchIssues,
   materialize,
-  parseTicketFile,
+  parseTicketMd,
   preview,
   runImport,
 } from '../src/index.js';
@@ -28,30 +29,7 @@ const WORKSPACE = 'import-ws';
 const REPO_MAP = { backend: 'api-repo', frontend: 'web-repo' };
 
 let dir: string;
-let repo: string;
-let store: SqliteStore;
-
-function initTicketsRepo(): string {
-  const dest = join(dir, 'tickets-repo');
-  mkdirSync(join(dest, 'tickets'), { recursive: true });
-  execFileSync('git', ['init', '-q'], { cwd: dest });
-  execFileSync('git', ['add', '-A'], { cwd: dest });
-  execFileSync(
-    'git',
-    [
-      '-c',
-      'user.email=test@example.com',
-      '-c',
-      'user.name=test',
-      'commit',
-      '-qm',
-      'seed',
-      '--allow-empty',
-    ],
-    { cwd: dest },
-  );
-  return dest;
-}
+let store: PostgresStore;
 
 /** Stub `gh` that prints `stdoutJson` (or fails when exitCode != 0). */
 function stubGh(stdoutJson: string, exitCode = 0): string {
@@ -108,14 +86,21 @@ const ISSUES: RawIssue[] = [
   },
 ];
 
-beforeEach(() => {
+async function getTicket(id: string): Promise<TicketRow | null> {
+  return store.getTicket({ workspace: WORKSPACE, ticket_id: id });
+}
+
+async function getDoc(subject: string, doc: 'ticket.md') {
+  return store.getDoc({ workspace: WORKSPACE, subject, doc });
+}
+
+beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), 'sr-import-'));
-  store = new SqliteStore('sqlite:///:memory:');
-  repo = initTicketsRepo();
+  store = await PostgresStore.connect('pglite:');
 });
 
-afterEach(() => {
-  store.close();
+afterEach(async () => {
+  await store.close();
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -182,74 +167,106 @@ describe('preview', () => {
 });
 
 describe('materialize', () => {
-  it('writes schema-1 ticket.md and commits', async () => {
+  it('writes tickets rows + ticket.md doc_versions + ticket_repos (D29)', async () => {
     const r = await materialize(ISSUES, {
-      ticketsRepoPath: repo,
-      repoMap: REPO_MAP,
       workspace: WORKSPACE,
       store,
+      repoMap: REPO_MAP,
     });
-    expect(r.imported.map((t) => t.id)).toEqual(['GH-42', 'GH-43']);
+    // allocTicketId assigns SR-NNNN in issue order.
+    expect(r.imported.map((t) => t.id)).toEqual(['SR-0001', 'SR-0002']);
+    expect(r.imported.map((t) => t.source)).toEqual([
+      'github:acme/app#42',
+      'github:acme/app#43',
+    ]);
+    expect(r.imported[0]?.docVersion).toBe(1);
     expect(r.collisions).toEqual([]);
-    expect(r.commit).toBeTruthy();
 
-    const parsed = await parseTicketFile(
-      join(repo, 'tickets', 'GH-42', 'ticket.md'),
-    );
+    // The tickets truth row.
+    const row = await getTicket('SR-0001');
+    expect(row?.status).toBe('imported');
+    expect(row?.priority).toBe('high');
+    expect(row?.repos).toEqual(['api-repo']);
+    expect(row?.source).toBe('github:acme/app#42');
+    expect(row?.spec_hash).toMatch(/^[0-9a-f]{64}$/);
+
+    // The ticket.md doc_version — schema-1 frontmatter + issue body.
+    const doc = await getDoc('SR-0001', 'ticket.md');
+    expect(doc?.version).toBe(1);
+    const parsed = parseTicketMd(doc?.content ?? '', 'SR-0001/ticket.md');
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
     const fm = parsed.value.frontmatter;
     expect(fm.schema).toBe(1);
+    expect(fm.id).toBe('SR-0001');
     expect(fm.status).toBe('imported');
     expect(fm.priority).toBe('high');
     expect(fm.repos).toEqual(['api-repo']);
     expect(fm.source).toBe('github:acme/app#42');
     expect(parsed.value.body).toContain('## Description');
     expect(parsed.value.body).toContain('Users land on /home');
+    // Task-list lines double as ## Acceptance criteria (verbatim).
     expect(parsed.value.body).toContain('- [ ] Redirect after login');
 
-    const unmapped = await parseTicketFile(
-      join(repo, 'tickets', 'GH-43', 'ticket.md'),
-    );
+    const unmappedDoc = await getDoc('SR-0002', 'ticket.md');
+    const unmapped = parseTicketMd(unmappedDoc?.content ?? '');
     expect(unmapped.ok).toBe(true);
     if (!unmapped.ok) return;
     expect(unmapped.value.frontmatter.repos).toEqual([]);
     expect(unmapped.value.body).toContain('repo-map-unmapped');
 
-    // committed, not just written
-    const log = execFileSync('git', ['log', '--oneline'], {
-      cwd: repo,
-      encoding: 'utf8',
+    // One ticket_repos row per mapped repo — branch/worktree/pr land
+    // later when a stage claims them.
+    const repos = await store.listTicketRepos({
+      workspace: WORKSPACE,
+      ticket_id: 'SR-0001',
     });
-    expect(log).toContain('import:');
+    expect(repos.map((t) => t.repo)).toEqual(['api-repo']);
+    expect(repos[0]?.branch).toBeNull();
+    expect(repos[0]?.pr_url).toBeNull();
+    expect(
+      await store.listTicketRepos({
+        workspace: WORKSPACE,
+        ticket_id: 'SR-0002',
+      }),
+    ).toEqual([]);
   });
 
-  it('id collision → failure gate item + notification, original untouched', async () => {
-    mkdirSync(join(repo, 'tickets', 'GH-42'), { recursive: true });
-    writeFileSync(
-      join(repo, 'tickets', 'GH-42', 'ticket.md'),
-      'ORIGINAL — do not touch\n',
-    );
-
-    const r = await materialize(ISSUES, {
-      ticketsRepoPath: repo,
-      repoMap: REPO_MAP,
+  it('source collision → failure gate item + notification, original untouched', async () => {
+    // Seed the already-imported source: a first import of issue #42.
+    const first = await materialize([ISSUES[0] as RawIssue], {
       workspace: WORKSPACE,
       store,
-      commit: false,
+      repoMap: REPO_MAP,
     });
-    expect(r.imported.map((t) => t.id)).toEqual(['GH-43']);
-    expect(r.collisions.map((c) => c.id)).toEqual(['GH-42']);
-    expect(
-      readFileSync(join(repo, 'tickets', 'GH-42', 'ticket.md'), 'utf8'),
-    ).toBe('ORIGINAL — do not touch\n');
+    const existingId = first.imported[0]?.id as string;
+    const before = await getTicket(existingId);
+    const docBefore = await getDoc(existingId, 'ticket.md');
+
+    const r = await materialize(ISSUES, {
+      workspace: WORKSPACE,
+      store,
+      repoMap: REPO_MAP,
+    });
+    expect(r.imported.map((t) => t.id)).toEqual(['SR-0002']);
+    expect(r.collisions).toEqual([
+      { source: 'github:acme/app#42', existing: existingId },
+    ]);
+
+    // The original row + doc are untouched (never renumbered/rewritten).
+    expect(before).not.toBeNull();
+    expect(await getTicket(existingId)).toEqual(before);
+    expect((await getDoc(existingId, 'ticket.md'))?.version).toBe(
+      docBefore?.version,
+    );
 
     const gates = await store.listGateItems({ workspace: WORKSPACE });
     expect(gates).toHaveLength(1);
-    expect(gates[0]?.subject).toBe('GH-42');
+    expect(gates[0]?.subject).toBe(existingId);
+    expect(gates[0]?.gate).toBe(IMPORT_FAILURE_GATE);
     expect(gates[0]?.kind).toBe('failure');
     const notes = await store.listNotifications({ workspace: WORKSPACE });
-    // ≥1: store auto-generates on gate insert; ours carries the payload.
+    // ≥1: the store auto-generates on gate insert; ours carries the payload.
     expect(notes.some((n) => n.payload?.includes('id-collision'))).toBe(true);
   });
 });
@@ -260,7 +277,6 @@ describe('runImport', () => {
       subject: 'import:github',
       workspace: WORKSPACE,
       store,
-      ticketsRepoPath: repo,
       repoMap: REPO_MAP,
       fetch: {
         repo: 'acme/app',
@@ -269,6 +285,9 @@ describe('runImport', () => {
     });
     expect(r.sentinelLine).toBe('IMPORTED: 2');
     expect(r.outcome.sentinel).toBe('IMPORTED');
+    // The tickets landed as rows this time, not files.
+    expect((await getTicket('SR-0001'))?.status).toBe('imported');
+    expect((await getTicket('SR-0002'))?.status).toBe('imported');
   });
 
   it('fetch failure → IMPORT-FAILED + failure gate item', async () => {
@@ -276,13 +295,13 @@ describe('runImport', () => {
       subject: 'import:github',
       workspace: WORKSPACE,
       store,
-      ticketsRepoPath: repo,
       repoMap: REPO_MAP,
       fetch: { repo: 'acme/app', ghPath: join(dir, 'missing-gh') },
     });
     expect(r.sentinelLine).toMatch(/^IMPORT-FAILED: gh-missing/);
     const gates = await store.listGateItems({ workspace: WORKSPACE });
     expect(gates[0]?.subject).toBe('import:github');
+    expect(gates[0]?.gate).toBe(IMPORT_FAILURE_GATE);
     expect(gates[0]?.kind).toBe('failure');
   });
 });

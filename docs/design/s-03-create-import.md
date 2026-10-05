@@ -2,20 +2,26 @@
 
 Design doc companion to `UI-INVENTORY.md` §2. Status: draft 2026-10-03.
 Stack: React+Vite · Tailwind · shadcn/ui (Radix). Style: Linear-inspired —
-dark-first, dense (13px base), minimal chrome.
+dual-theme (dark + light, D34), dense (13px base), minimal chrome.
 
 Purpose: the two entry points for tickets (WF-02) — **Interview**
 (rough idea → AI interview → well-formed ticket.md committed) and
 **Import** (external source → preview+edit → commit). Both land tickets
 at `imported` → spec lint → triage.
 
+**Revised (D26):** "workspace" reads "project" in the UI; this screen
+remains the direct/orphan-ticket authoring path. The upstream path —
+board items → synthesis → initiative → features → tickets — lives in
+S-16 (WF-18/19/20); a single board item may also be promoted straight
+to an orphan ticket from the board canvas.
+
 ## Layout
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│ ◆ sprint-runner   ⌘K      [All workspaces ▾]            🔔3  ⚙           │
+│ ◆ veto            ⌘K      [All projects ▾]            🔔3  ⚙           │
 ├────────────┬─────────────────────────────────────────────────────────────┤
-│            │  New tickets                                     [workspace]│
+│            │  New tickets                                     [project]│
 │  SIDEBAR   │  ────────────────────────────────────────────────────────── │
 │            │  ┌ Interview ─────────┬─── Import ────────────────┐  [1]    │
 │  Inbox   9 │  │                                       [2]       │        │
@@ -41,8 +47,8 @@ at `imported` → spec lint → triage.
 ## Annotations
 
 1. **Tab pair** — Interview | Import, full-width segmented control.
-   Workspace target picker top-right (required — tickets land in one
-   tickets repo).
+   Project target picker top-right (required — tickets land in one
+   project).
 2. **Source picker** — GitHub (milestone/issue-query) and CSV file
    (v1 sources per WF-02); Jira shown disabled with "post-v1" hint
    (MVP defers Jira/Linear).
@@ -56,14 +62,14 @@ at `imported` → spec lint → triage.
    (editable select), suggested repo map (editable multi-chip,
    `→ ——` = unmapped → imports with `repos: []`, triage flags it),
    row-level ✎ expand to edit title/description before import.
-6. **Import CTA** — count reflects checked rows; commits ticket folders
-   to the tickets repo; result toast links each new id to S-05.
+6. **Import CTA** — count reflects checked rows; inserts `tickets`
+   rows + `doc_versions` bodies; result toast links each new id to S-05.
 
 ## Interview tab
 
 ```
 │  Describe what you want built — rough is fine, the interview    │
-│  will dig.                                      [workspace ▾]  │
+│  will dig.                                      [project ▾]  │
 │  ┌─────────────────────────────────────────────────────────┐   │
 │  │ "We keep getting paged when the ETL stalls — add a       │   │
 │  │  heartbeat + alert path…"                                │   │
@@ -84,9 +90,9 @@ at `imported` → spec lint → triage.
 
 | Zone | Fields |
 | --- | --- |
-| Import config | source (github / csv / jira*), workspace, query-or-file, column mapping (csv), auth env display (`GITHUB_TOKEN set ✓`; *jira post-v1) |
+| Import config | source (github / csv / jira*), project (`workspace` key), query-or-file, column mapping (csv), auth env display (`GITHUB_TOKEN set ✓`; *jira post-v1) |
 | Preview row | selected, source_id, title (editable), priority (editable), repos (editable chips), description (expand) |
-| Interview | seed text, workspace, depth hint |
+| Interview | seed text, project, depth hint |
 | Result | ticket id, spec_score badge, edit-before-commit link |
 
 ## Interactions

@@ -2,7 +2,7 @@
 
 Design doc companion to `UI-INVENTORY.md` §2 + `FEATURES.md` §2.
 Status: draft 2026-10-04. Stack: React+Vite · Tailwind · shadcn/ui.
-Style: Linear-inspired — dark-first, dense, minimal chrome.
+Style: Linear-inspired — dual-theme (dark + light, D34), dense, minimal chrome.
 
 Purpose: named idea boards per **project** (many per project —
 "Q1 goals", "bug wishes"). Entry to the idea space (WF-18) and the
@@ -12,7 +12,7 @@ synthesis launch point.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│ ◆ sprint-runner   ⌘K      [myApp ▾]                     🔔3  ⚙           │
+│ ◆ veto            ⌘K      [myApp ▾]                     🔔3  ⚙           │
 ├────────────┬─────────────────────────────────────────────────────────────┤
 │            │  Boards · myApp                                             │
 │  SIDEBAR   │  ────────────────────────────────────────────────────────── │
@@ -66,6 +66,6 @@ synthesis launch point.
 
 ## Style notes
 
-- Same card-grid anatomy as S-13 (workspace switcher) — learn-once
+- Same card-grid anatomy as S-13 (project switcher) — learn-once
   pattern for "pick a container" screens.
 - Sticky-note yellow accent reserved for board iconography only.

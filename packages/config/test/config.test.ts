@@ -114,10 +114,7 @@ describe('precedence — frontmatter > repo > global > defaults', () => {
       entity_linking: true,
       dedupe: true,
     });
-    expect(eff.storage_url).toBe(
-      'sqlite://~/.local/share/sprint-runner/state.db',
-    );
-    expect(eff.leases_via).toBe('auto');
+    expect(eff.storage_url).toBe('postgres://localhost:5432/sprint-runner');
     expect(eff.security).toMatchObject({
       scanner: 'gitleaks',
       scan_on_commit: true,

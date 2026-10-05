@@ -1,44 +1,42 @@
 /**
  * transitions/actions.ts — the mechanical helpers behind the
- * sentinel→transition table rows (wp-031).
+ * sentinel→transition table rows (wp-031; rewired wp-092 for D29).
  *
  * CONDUCTOR "Special paths" implemented here:
  *   - Suggestions application (triage READY → write backend/model/
  *     priority/depth into frontmatter; human-set fields win).
- *   - Split materialization (split-plan approve → reserve child ids,
- *     rewrite child frontmatter, move drafts, parent → `split`).
+ *   - Split materialization (split-plan approve → allocate child ids,
+ *     insert child tickets rows + ticket.md doc_versions, parent →
+ *     `split`).
  *   - Stale-spec check (implement launch re-hashes spec inputs vs the
  *     hash recorded at spec completion → `stale-spec` inbox item).
  *   - Review merge (findings-<pass>.json fragments → review.json
  *     envelope with runner-computed fingerprints + thread ids, §6).
- *   - Doc lint routing (structuredDocLint/coverageLint fail-closed →
- *     doc-repair run → repair gate).
+ *
+ * D29: docs live in `doc_versions`, structured stage output in
+ * `run_artifacts`, ids come from `projects.next_ticket_seq` — there is
+ * no tickets repo and no ticket.md files on disk. The only filesystem
+ * read left is the live `.sprint-runner/card.json` inside a CODE repo
+ * (git-for-code is still real).
  */
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { readFile } from 'node:fs/promises';
 import {
+  type DocKind,
   type FindingSeverity,
   REVIEW_PASSES,
-  type Stage,
   type TicketRow,
 } from '@sprint-runner/core';
-import { commitAll, git, push, reserveNextId } from '@sprint-runner/gitops';
+import { git, push } from '@sprint-runner/gitops';
 import { fingerprint, matchThread, threadIdFor } from '@sprint-runner/lints';
-import type { TransitionContext, TransitionTools } from '../contracts.js';
+import type { TransitionContext } from '../contracts.js';
 
 export const FRONTMATTER_RE =
   /^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
 
-export function gitActor(ctx: TransitionContext): {
-  name: string;
-  email: string;
-} {
-  return { name: ctx.actor, email: `${ctx.actor}@sprint-runner.local` };
-}
-
-/** Read a file, or null when absent. */
+/** Read a file, or null when absent. Used ONLY for files inside code
+ *  repos (e.g. `.sprint-runner/card.json`) — ticket docs/artifacts are
+ *  DB rows now. */
 export async function readOrNull(path: string): Promise<string | null> {
   try {
     return await readFile(path, 'utf8');
@@ -89,6 +87,124 @@ export function flatFrontmatter(raw: string): Record<string, string> {
     }
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// doc_versions / run_artifacts access (D29)
+//
+// These take a bare `TransitionContext` (not TransitionTools) so the
+// claim path — which has ctx but no tools — uses the same read path as
+// reconcile. TransitionTools extends the context, so either works.
+// ---------------------------------------------------------------------------
+
+/** Latest content of a `doc_versions` doc for a subject, or null. */
+export async function getDocText(
+  ctx: TransitionContext,
+  subject: string,
+  doc: DocKind,
+): Promise<string | null> {
+  const v = await ctx.store.getDoc({
+    workspace: ctx.workspace,
+    subject,
+    doc,
+  });
+  return v?.content ?? null;
+}
+
+/** Append a new immutable doc version; returns the version number. */
+export async function putDocText(
+  ctx: TransitionContext,
+  subject: string,
+  doc: DocKind,
+  content: string,
+): Promise<number> {
+  const v = await ctx.store.appendDocVersion(
+    { workspace: ctx.workspace, subject, doc },
+    content,
+    ctx.actor,
+  );
+  return v.version;
+}
+
+/** Content of one `run_artifacts` row, or null. */
+export async function getArtifactText(
+  ctx: TransitionContext,
+  runId: string,
+  name: string,
+): Promise<string | null> {
+  const a = await ctx.store.getArtifact(runId, name);
+  return a?.content ?? null;
+}
+
+/** Write/replace a `run_artifacts` row. */
+export async function putArtifactText(
+  ctx: TransitionContext,
+  runId: string,
+  name: string,
+  content: string,
+): Promise<void> {
+  await ctx.store.putArtifact({
+    run_id: runId,
+    name,
+    content,
+    created_at: ctx.now().toISOString(),
+  });
+}
+
+/**
+ * Latest artifact `name` across a ticket's runs, newest-first —
+ * the read for output produced by an EARLIER run (triage's
+ * split-plan.md read at gate clear, the review.json a later pass
+ * accumulates over).
+ */
+export async function latestArtifactText(
+  ctx: TransitionContext,
+  name: string,
+  filter: { ticketId: string },
+): Promise<string | null> {
+  const runs = (
+    await ctx.store.listRuns({
+      workspace: ctx.workspace,
+      ticket_id: filter.ticketId,
+    })
+  ).sort((a, b) => b.id.localeCompare(a.id));
+  for (const r of runs) {
+    const a = await ctx.store.getArtifact(r.id, name);
+    if (a) return a.content;
+  }
+  return null;
+}
+
+/**
+ * Ticket-scoped artifact read with the nested-path fallback: agents
+ * write under `<runDir>/<ticket_id>/` (TICKET_DIR), so the ingest often
+ * stores `<ticketId>/<name>` — try the bare name first, then the
+ * nested relpath. For THIS run's output prefer {@link runArtifactText}.
+ */
+export async function ticketArtifactText(
+  ctx: TransitionContext,
+  ticketId: string,
+  name: string,
+): Promise<string | null> {
+  return (
+    (await latestArtifactText(ctx, name, { ticketId })) ??
+    (await latestArtifactText(ctx, `${ticketId}/${name}`, { ticketId }))
+  );
+}
+
+/** Same bare→nested fallback for an artifact produced by the CURRENT
+ *  run (it was ingested under whichever relpath the run wrote). */
+export async function runArtifactText(
+  ctx: TransitionContext,
+  runId: string,
+  ticketId: string | null,
+  name: string,
+): Promise<string | null> {
+  const bare = await getArtifactText(ctx, runId, name);
+  if (bare !== null) return bare;
+  return ticketId === null
+    ? null
+    : await getArtifactText(ctx, runId, `${ticketId}/${name}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -145,11 +261,13 @@ export function applySuggestionsToTicketMd(
   return { content: upsertFrontmatterKeys(raw, entries), applied };
 }
 
-/** Read `tickets/<id>/triage.json` suggestions, tolerating absence. */
+/** Read the triage run's `triage.json` run_artifacts row, tolerating
+ *  absence. */
 export async function readTriageJson(
-  ticketDir: string,
+  ctx: TransitionContext,
+  ticketId: string,
 ): Promise<Record<string, unknown> | null> {
-  const raw = await readOrNull(join(ticketDir, 'triage.json'));
+  const raw = await ticketArtifactText(ctx, ticketId, 'triage.json');
   if (raw === null) return null;
   try {
     return JSON.parse(raw) as Record<string, unknown>;
@@ -164,18 +282,21 @@ export async function readTriageJson(
 
 const SPEC_INPUTS = ['ticket.md', 'prd.md', 'tdd.md', 'test.md'] as const;
 
-/** sha256 over the spec inputs present in the ticket dir — the value
- *  recorded in frontmatter `spec_hash:` at spec completion. */
-export async function specInputsHash(ticketDir: string): Promise<string> {
+/** sha256 over the spec inputs' doc_versions contents — the value
+ *  recorded on `tickets.spec_hash` at spec completion. */
+export async function specInputsHash(
+  ctx: TransitionContext,
+  ticketId: string,
+): Promise<string> {
   const h = createHash('sha256');
   for (const name of SPEC_INPUTS) {
-    let raw = await readOrNull(join(ticketDir, name));
+    let raw = await getDocText(ctx, ticketId, name);
     if (name === 'ticket.md' && raw !== null) {
       // Exclude the `spec_hash:` frontmatter line entirely —
-      // recordSpecHash appends it to ticket.md AFTER computing the
-      // baseline; hashing the file with the line present (even emptied)
-      // self-invalidates on the next check and the ticket parks at
-      // test-approved forever.
+      // recordSpecHash used to append it to ticket.md AFTER computing
+      // the baseline; hashing the doc with the line present (even
+      // emptied) self-invalidates on the next check and the ticket
+      // parks at test-approved forever.
       raw = raw
         .split('\n')
         .filter((l) => !/^spec_hash\s*:/.test(l))
@@ -187,34 +308,56 @@ export async function specInputsHash(ticketDir: string): Promise<string> {
 }
 
 /**
- * Record the spec-completion hash into ticket.md frontmatter
- * (`spec_hash:` — additive §1 key; the projection's spec_hash column
- * covers ticket.md alone, so the baseline for spec *inputs* lives in
- * frontmatter). Call when the spec package becomes test-approved.
+ * Record the spec-completion hash on `tickets.spec_hash` (CONDUCTOR
+ * "Stale-spec check": `tickets.spec_hash` = hash of ticket.md + spec
+ * inputs recorded at spec completion). Call when the spec package
+ * becomes test-approved.
  */
-export async function recordSpecHash(ticketDir: string): Promise<string> {
-  const file = join(ticketDir, 'ticket.md');
-  const raw = await readFile(file, 'utf8');
-  const hash = await specInputsHash(ticketDir);
-  await writeFile(
-    file,
-    upsertFrontmatterKeys(raw, { spec_hash: hash }),
-    'utf8',
-  );
+export async function recordSpecHash(
+  ctx: TransitionContext,
+  ticketId: string,
+): Promise<string> {
+  const hash = await specInputsHash(ctx, ticketId);
+  // Fresh row read — the caller's TicketRow may predate status writes
+  // this tick already made.
+  const row = await ctx.store.getTicket({
+    workspace: ctx.workspace,
+    ticket_id: ticketId,
+  });
+  if (row) {
+    await ctx.store.upsertTicket({
+      ...row,
+      spec_hash: hash,
+      updated_at: ctx.now().toISOString(),
+    });
+  }
   return hash;
 }
 
-/** True when the on-disk spec inputs still match the recorded hash.
+/** True when the stored spec inputs still match the recorded hash.
  *  Missing baseline → not stale (record it now for next time). */
-export async function specIsStale(ticketDir: string): Promise<boolean> {
-  const raw = await readOrNull(join(ticketDir, 'ticket.md'));
-  if (raw === null) return false;
-  const recorded = flatFrontmatter(raw).spec_hash;
+export async function specIsStale(
+  ctx: TransitionContext,
+  ticketId: string,
+): Promise<boolean> {
+  const row = await ctx.store.getTicket({
+    workspace: ctx.workspace,
+    ticket_id: ticketId,
+  });
+  let recorded = row?.spec_hash ?? null;
   if (!recorded) {
-    await recordSpecHash(ticketDir);
+    // Legacy baseline: a ticket.md doc written before the spec_hash
+    // column existed may still carry `spec_hash:` in frontmatter.
+    const raw = await getDocText(ctx, ticketId, 'ticket.md');
+    if (raw !== null) {
+      recorded = flatFrontmatter(raw).spec_hash ?? null;
+    }
+  }
+  if (!recorded) {
+    await recordSpecHash(ctx, ticketId);
     return false;
   }
-  return (await specInputsHash(ticketDir)) !== recorded;
+  return (await specInputsHash(ctx, ticketId)) !== recorded;
 }
 
 // ---------------------------------------------------------------------------
@@ -267,37 +410,21 @@ export function parseSplitPlan(md: string): SplitChild[] | null {
 }
 
 /**
- * Reserve the next `SR-NNNN` id via next-id CAS (gitops
- * `reserveNextId`); when the tickets repo has no `origin` remote the
- * push CAS can't run — fall back to a local increment+commit (same
- * file, same format; the CAS only matters across installs).
+ * Transactional `SR-NNNN` allocation (DB-SCHEMA `projects.next_ticket_seq`
+ * — D29; replaces the git-ref CAS + `.sprint-runner/next-id` file).
  */
-export async function reserveId(
-  repo: string,
-  actor: { name: string; email: string },
-): Promise<string> {
-  try {
-    return await reserveNextId(repo, 'SR', actor);
-  } catch (e) {
-    const msg = (e as Error).message ?? '';
-    if (!/origin|fetch|remote/i.test(msg)) throw e;
-  }
-  const file = join(repo, '.sprint-runner', 'next-id');
-  const current = existsSync(file)
-    ? Number.parseInt((await readFile(file, 'utf8')).trim(), 10) || 0
-    : 0;
-  const next = current + 1;
-  await mkdir(join(repo, '.sprint-runner'), { recursive: true });
-  await writeFile(file, `${next}\n`, 'utf8');
-  await commitAll(repo, `reserve SR-${next}`, actor);
-  return `SR-${String(next).padStart(4, '0')}`;
+export async function reserveId(ctx: TransitionContext): Promise<string> {
+  return ctx.store.allocTicketId(ctx.workspace);
 }
 
 /**
- * Materialize split children: reserve real ids, rewrite each
- * `children/<label>.md` frontmatter (`id`, `depends_on` → sibling ids),
- * move drafts to `tickets/<new-id>/ticket.md`. Returns the label→id map.
- * The parent's `→ split` status write is the caller's job.
+ * Materialize split children (CONDUCTOR special path): allocate real
+ * ids transactionally, insert each child `tickets` row (`imported`,
+ * `parent`, `depends_on` → sibling ids, repos/feature inherited), and
+ * append its `ticket.md` doc_version (frontmatter rewritten from the
+ * split run's `children/<label>.md` run_artifact draft). Returns the
+ * label→id map. The parent's `→ split` status write is the caller's
+ * job.
  */
 export async function materializeSplit(args: {
   ctx: TransitionContext;
@@ -305,36 +432,74 @@ export async function materializeSplit(args: {
   children: SplitChild[];
 }): Promise<Record<string, string>> {
   const { ctx, ticketId } = args;
-  const ticketDir = join(ctx.ticketsRepoPath, 'tickets', ticketId);
-  const actor = gitActor(ctx);
-  const ids: Record<string, string> = {};
-  for (const child of args.children) {
-    ids[child.label] = await reserveId(ctx.ticketsRepoPath, actor);
-  }
-  for (const child of args.children) {
-    const draftPath = join(ticketDir, 'children', `${child.label}.md`);
-    const raw = await readFile(draftPath, 'utf8');
-    const newId = ids[child.label] as string;
-    const depIds = child.dependsOn.map((l) => ids[l]).filter(Boolean);
-    const next = upsertFrontmatterKeys(raw, {
-      id: newId,
-      status: 'imported',
-      parent: ticketId,
-      depends_on: `[${depIds.join(', ')}]`,
-      ...(child.repos.length > 0
-        ? { repos: `[${child.repos.join(', ')}]` }
-        : {}),
+  // ids + rows + doc versions in ONE transaction (CONDUCTOR split
+  // materialization: "allocates child ids transactionally").
+  return ctx.store.transaction(async (store) => {
+    const tx: TransitionContext = { ...ctx, store };
+    const parent = await store.getTicket({
+      workspace: ctx.workspace,
+      ticket_id: ticketId,
     });
-    const destDir = join(ctx.ticketsRepoPath, 'tickets', newId);
-    await mkdir(destDir, { recursive: true });
-    await writeFile(join(destDir, 'ticket.md'), next, 'utf8');
-  }
-  await commitAll(
-    ctx.ticketsRepoPath,
-    `conductor: materialize split ${ticketId} → ${Object.values(ids).join(', ')}`,
-    actor,
-  );
-  return ids;
+    const ts = ctx.now().toISOString();
+    const ids: Record<string, string> = {};
+    for (const child of args.children) {
+      ids[child.label] = await store.allocTicketId(ctx.workspace);
+    }
+    for (const child of args.children) {
+      const newId = ids[child.label] as string;
+      const depIds = child.dependsOn
+        .map((l) => ids[l])
+        .filter((x): x is string => x !== undefined);
+      // The split run's per-child draft — a run_artifact, never a
+      // doc_version (`c1.md` isn't a DOC_KIND).
+      const draft = await ticketArtifactText(
+        tx,
+        ticketId,
+        `children/${child.label}.md`,
+      );
+      if (draft === null) {
+        throw new Error(
+          `materializeSplit: no children/${child.label}.md draft artifact for ${ticketId} (fail-closed — a missing draft must not silently materialize)`,
+        );
+      }
+      const next = upsertFrontmatterKeys(draft, {
+        id: newId,
+        status: 'imported',
+        parent: ticketId,
+        depends_on: `[${depIds.join(', ')}]`,
+        ...(child.repos.length > 0
+          ? { repos: `[${child.repos.join(', ')}]` }
+          : {}),
+      });
+      await store.appendDocVersion(
+        { workspace: ctx.workspace, subject: newId, doc: 'ticket.md' },
+        next,
+        ctx.actor,
+      );
+      await store.upsertTicket({
+        workspace: ctx.workspace,
+        ticket_id: newId,
+        feature: parent?.feature ?? null,
+        title: child.title,
+        status: 'imported',
+        priority: parent?.priority ?? 'medium',
+        depth: parent?.depth ?? null,
+        backend: parent?.backend ?? null,
+        model: parent?.model ?? null,
+        repos: child.repos.length > 0 ? child.repos : (parent?.repos ?? []),
+        parent: ticketId,
+        depends_on: depIds,
+        source: parent?.source ?? null,
+        forced: false,
+        spec_score: null,
+        spec_hash: null,
+        blocked_reason: null,
+        created_at: ts,
+        updated_at: ts,
+      } satisfies TicketRow);
+    }
+    return ids;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -364,10 +529,14 @@ interface ReviewEnvelope {
   findings: Array<Record<string, unknown> & { thread_id: string }>;
 }
 
+/** The accumulated review.json — the newest `review.json` run_artifact
+ *  across the ticket's runs (written per-pass/per-round by this merge,
+ *  fix-claims application, and discuss replies). */
 export async function readReviewJson(
-  ticketDir: string,
+  ctx: TransitionContext,
+  ticketId: string,
 ): Promise<ReviewEnvelope | null> {
-  const raw = await readOrNull(join(ticketDir, 'review.json'));
+  const raw = await ticketArtifactText(ctx, ticketId, 'review.json');
   if (raw === null) return null;
   try {
     const parsed = JSON.parse(raw) as ReviewEnvelope;
@@ -380,17 +549,21 @@ export async function readReviewJson(
 }
 
 /**
- * Merge one pass's `findings-<pass>.json` fragment into
- * `tickets/<id>/review.json`: runner-computed fingerprints +
- * thread_ids (§6 — agents never emit either), `rounds_seen` growth +
- * `open → fixed → reopened` thread transitions via `matchThread`.
- * Returns {merged, newFindings, reopened} counts.
+ * Merge one pass's `findings-<pass>.json` fragment into the ticket's
+ * review.json: runner-computed fingerprints + thread_ids (§6 — agents
+ * never emit either), `rounds_seen` growth + `open → fixed → reopened`
+ * thread transitions via `matchThread`. The merged document is written
+ * as a `review.json` run_artifacts row on the current run (newest-
+ * first scan picks it up for the next pass/round). `findingsText` is
+ * the raw fragment content — a non-array is a malformed structured
+ * output and throws (fail-closed). Returns the merge counts.
  */
 export async function mergeFindingsPass(args: {
-  ticketDir: string;
+  ctx: TransitionContext;
+  runId: string;
   ticketId: string;
   pass: string;
-  findingsPath: string;
+  findingsText: string;
   round: number;
 }): Promise<{
   merged: number;
@@ -398,15 +571,14 @@ export async function mergeFindingsPass(args: {
   reopened: number;
   fixed: number;
 }> {
-  const { ticketDir, ticketId, pass, findingsPath, round } = args;
-  const raw = await readFile(findingsPath, 'utf8');
-  const fragment = JSON.parse(raw) as RawFinding[];
+  const { ctx, runId, ticketId, pass, findingsText, round } = args;
+  const fragment = JSON.parse(findingsText) as RawFinding[];
   if (!Array.isArray(fragment)) {
     throw new Error(`findings-${pass}.json is not a JSON array — fail-closed`);
   }
 
   const review =
-    (await readReviewJson(ticketDir)) ??
+    (await readReviewJson(ctx, ticketId)) ??
     ({
       schema: 1,
       ticket: ticketId,
@@ -499,15 +671,16 @@ export async function mergeFindingsPass(args: {
     }
   }
 
-  await writeFile(
-    join(ticketDir, 'review.json'),
+  await putArtifactText(
+    ctx,
+    runId,
+    'review.json',
     `${JSON.stringify(review, null, 2)}\n`,
-    'utf8',
   );
   return { merged: fragment.length, created, reopened, fixed };
 }
 
-/** Find `findings-<pass>.json` among a run's collected artifacts. */
+/** Find `findings-<pass>.json` among a run's reported artifact paths. */
 export function findingsArtifact(
   artifacts: string[],
   pass: string,
@@ -536,7 +709,8 @@ export function openBlockingSeverities(
 
 // ---------------------------------------------------------------------------
 // Push helper — shepherd-bound transitions push best-effort (no remote
-// in tests → warning, never a stranded ticket).
+// in tests → warning, never a stranded ticket). CODE-repo pushes —
+// git-for-code is still real under D29.
 // ---------------------------------------------------------------------------
 
 export async function pushBranches(

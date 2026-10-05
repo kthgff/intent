@@ -1,5 +1,5 @@
 You are an IMPORTER run. Normalize raw tracker issues into
-sprint-runner tickets per SCHEMAS.md §1.
+Veto tickets per SCHEMAS.md §1.
 
 ## Inputs
 Raw issues (JSON): {{RAW_ISSUES_JSON}}

@@ -2,7 +2,7 @@
 
 Design doc companion to `UI-INVENTORY.md` §2. Status: draft 2026-10-03.
 Stack: React+Vite · Tailwind · shadcn/ui (Radix). Style: Linear-inspired —
-dark-first, dense (13px base), minimal chrome.
+dual-theme (dark + light, D34), dense (13px base), minimal chrome.
 
 Purpose: the centerpiece — where a human approves generated code
 (WF-06). Everything the reviewer needs is pre-digested in a header
@@ -13,7 +13,7 @@ agent's own findings.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│ ◆ sprint-runner   ⌘K                                                     │
+│ ◆ veto            ⌘K                                                     │
 ├────────────┬─────────────────────────────────────────────────────────────┤
 │            │ ← SR-0142  Session cache            review · round 2  [1]   │
 │  SIDEBAR   │ ─────────────────────────────────────────────────────────── │
@@ -77,7 +77,10 @@ agent's own findings.
   input; status stays `open` until `finding_fixed`), **dismiss**
   (feeds `fix_dismissal_cap` logic), **wontfix**, **reply** — labels
   map onto SCHEMAS §6 statuses `open|fixed|dismissed|wontfix`; there
-  is no "accepted" status.
+  is no "accepted" status. **Spec-bug extra action** (D26): a
+  spec-bug finding offers "note to board" — writes the spec gap back
+  to the parent board as a `spec-bug` typed item linked to the
+  initiative, so the spec learns (FEATURES.md §6).
 - **Batch-fix** — checkbox column + "send N to fix" bar.
 - Group by severity; filter by category/kind/status/round.
 

@@ -1,10 +1,15 @@
 /**
- * ticket.md frontmatter parsing for the projection pass (wp-013;
- * SCHEMAS §1, DB-SCHEMA ticket projections, CONDUCTOR reconcile step 1).
+ * ticket.md frontmatter parsing (was projection/parse.ts, wp-013;
+ * moved into import/ under wp-093 D29).
  *
- * Fail-closed per AGENTS.md but never throws: a malformed ticket yields a
- * structured error so the projection can surface a `failure` gate item
- * and continue with the remaining tickets.
+ * Still useful wherever a ticket.md *document* needs validating —
+ * import tooling, fixtures, doc render checks. Docs are Postgres
+ * `doc_versions` truth (D29): there is no projection pass rebuilding
+ * rows from disk, so this is a standalone parser, not a pipeline stage.
+ *
+ * Fail-closed per AGENTS.md but never throws: malformed content yields
+ * a structured error so callers can surface a `failure` gate item and
+ * continue.
  *
  * Spec defaults (SCHEMAS §1 documents every default inline): when the
  * frontmatter omits `depth`, `depends_on`, or `forced`, the documented
@@ -40,8 +45,8 @@ export type ParseTicketResult =
 const FRONTMATTER_RE = /^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
 
 /**
- * Parse `tickets/<id>/ticket.md`. Returns a discriminated result —
- * malformed frontmatter is a structured error, never a throw.
+ * Parse a ticket.md file. Returns a discriminated result — malformed
+ * frontmatter is a structured error, never a throw.
  */
 export async function parseTicketFile(
   path: string,
@@ -55,7 +60,14 @@ export async function parseTicketFile(
       error: { path, error: `unreadable: ${(e as Error).message}` },
     };
   }
+  return parseTicketMd(raw, path);
+}
 
+/**
+ * Parse ticket.md *content* (e.g. a `doc_versions` row) — same rules
+ * as {@link parseTicketFile} without the filesystem read.
+ */
+export function parseTicketMd(raw: string, path = '<doc>'): ParseTicketResult {
   const m = FRONTMATTER_RE.exec(raw);
   if (!m || m[1] === undefined) {
     return {

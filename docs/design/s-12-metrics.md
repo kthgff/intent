@@ -2,18 +2,23 @@
 
 Design doc companion to `UI-INVENTORY.md` §2. Status: draft 2026-10-03.
 Stack: React+Vite · Tailwind · shadcn/ui (Radix). Style: Linear-inspired —
-dark-first, dense (13px base), minimal chrome.
+dual-theme (dark + light, D34), dense (13px base), minimal chrome.
 
 Purpose: ROI proof (WF-14) — is the machine worth it, and is the SPEC
 the thing to fix. Aggregates from `events_idx`/`usage_calls`
 (`/metrics` endpoint). All numbers honest: estimated usage flagged,
 nulls shown as `—`, never synthesized.
 
+**Revised (D26):** the headline metric becomes **idea→merge lead time**
+(sticky/idea → merged code, via `provenance.json` links — the number no
+competitor can print). Scope filter is project; panels add board/initiative
+aggregates.
+
 ## Layout
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│ ◆ sprint-runner   ⌘K      [All workspaces ▾]  [30d ▾]      🔔3  ⚙   [1]  │
+│ ◆ veto            ⌘K      [All projects ▾]  [30d ▾]      🔔3  ⚙   [1]  │
 ├────────────┬─────────────────────────────────────────────────────────────┤
 │            │  Metrics                                                     │
 │  SIDEBAR   │  ────────────────────────────────────────────────────────── │
@@ -43,10 +48,12 @@ nulls shown as `—`, never synthesized.
 
 ## Annotations
 
-1. **Scope controls** — workspace filter + time range (7d/30d/90d/all).
+1. **Scope controls** — project filter + time range (7d/30d/90d/all).
 2. **KPI cards** — headline numbers: tickets→merged rate, cost-per-
    merge, human-minutes/ticket (from `human_minutes` / gate dwell),
-   avg fix rounds.
+   avg fix rounds — plus **idea→merge lead time** (median board-item→
+   merge via provenance) and **board yield** (% board items that reach
+   shipped/delivered vs iceboxed/dead).
 3. **Stage funnel + token column** — funnel shows where tickets die
    (count per exit stage under it); tokens table per stage in/out/
    cached with `~est` flags — dollars sit beside, never replace,
@@ -63,7 +70,10 @@ nulls shown as `—`, never synthesized.
 | Panel | Data |
 | --- | --- |
 | KPIs | `tickets` + `events_idx` aggregates |
-| Funnel | status transitions per ticket |
+| Idea→merge lead time | board item `created_at` → descendant ticket `merged` event (`provenance.json`) |
+| Cost per feature | `usage_calls` rolled up through feature/initiative lineage |
+| Board yield | board items by lifecycle state (open/consumed/shipped/icebox) |
+| Funnel | status transitions per ticket (+ initiative/feature rollup) |
 | Tokens/stage | `usage_calls` grouped by stage, `usage_source` flags |
 | Per-model | `usage_calls` × `runs.model` |
 | Deviation | `DEVIATIONS.md` reason_kind events |

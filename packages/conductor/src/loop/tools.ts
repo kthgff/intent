@@ -1,8 +1,11 @@
 /**
  * TransitionTools factory — builds the narrow transition-application
  * API handed to `TransitionHandler.onRunComplete` (contracts.ts;
- * CONDUCTOR reconcile step 1). wp-031's table drives the pipeline
- * through these methods and nothing else.
+ * CONDUCTOR reconcile step 1). The transition table drives the
+ * pipeline through these methods and nothing else.
+ *
+ * wp-092 (D29): tools are DB-only — doc_versions for docs,
+ * run_artifacts for structured output, projects.next_*_seq for ids.
  */
 import type { ActorType, EventName } from '@sprint-runner/core';
 import {
@@ -12,7 +15,7 @@ import {
   applyTicketStatus,
 } from '../contracts.js';
 import { queuePendingRun } from '../launch/index.js';
-import { actorOf, gitActor } from './deps.js';
+import { actorOf } from './deps.js';
 import type { ConductorDeps, ConductorWorkspace } from './deps.js';
 import type { LeaseManager } from './lease.js';
 
@@ -25,10 +28,30 @@ export interface ToolCtx {
   killedForCap: Set<string>;
 }
 
+/**
+ * Artifact lookup tolerant of nested names: `name` may itself carry a
+ * nested path (`<repo>/test-report.json`), or be a basename that landed
+ * nested (`verify` writes `run_dir/<repo>/test-report.json`). Exact
+ * match wins; otherwise the deepest-first basename/nested match.
+ */
+async function findArtifact(deps: ConductorDeps, runId: string, name: string) {
+  const exact = await deps.store.getArtifact(runId, name);
+  if (exact) return exact;
+  if (name.includes('/')) return null;
+  const all = await deps.store.listArtifacts(runId);
+  return (
+    all.find((a) => a.name === name) ??
+    all
+      .filter((a) => a.name.endsWith(`/${name}`))
+      .sort((a, b) => a.name.localeCompare(b.name))[0] ??
+    null
+  );
+}
+
 export function transitionContext(ctx: ToolCtx): TransitionContext {
   return {
     workspace: ctx.ws.name,
-    ticketsRepoPath: ctx.ws.ticketsRepoPath,
+    rootPath: ctx.ws.rootPath,
     store: ctx.deps.store,
     actor: actorOf(ctx.deps),
     now: () => ctx.deps.now?.() ?? new Date(),
@@ -42,7 +65,7 @@ export function makeTransitionTools(ctx: ToolCtx): TransitionTools {
     ...base,
 
     applyTicketStatus: (opts): Promise<ApplyStatusResult> =>
-      applyTicketStatus({ ctx: base, opts, actor: gitActor(deps) }),
+      applyTicketStatus({ ctx: base, opts }),
 
     surfaceGateItem: async (item) => {
       const ts = base.now().toISOString();
@@ -99,5 +122,63 @@ export function makeTransitionTools(ctx: ToolCtx): TransitionTools {
 
     requestRun: (req) =>
       queuePendingRun(ctx, { ...req, workspace: base.workspace }),
+
+    // ---- doc + artifact + id helpers (wp-092) ----
+
+    getDocText: async (subject, doc) => {
+      const v = await deps.store.getDoc({
+        workspace: base.workspace,
+        subject,
+        doc,
+      });
+      return v?.content ?? null;
+    },
+
+    putDoc: async (subject, doc, content) => {
+      const v = await deps.store.appendDocVersion(
+        { workspace: base.workspace, subject, doc },
+        content,
+        base.actor,
+      );
+      return v.version;
+    },
+
+    getArtifactText: async (runId, name) => {
+      const a = await deps.store.getArtifact(runId, name);
+      return a?.content ?? null;
+    },
+
+    putArtifact: (runId, name, content) =>
+      deps.store.putArtifact({
+        run_id: runId,
+        name,
+        content,
+        created_at: base.now().toISOString(),
+      }),
+
+    getLatestArtifactText: async (name, filter) => {
+      // Current run only.
+      if (filter.runId && !filter.ticketId) {
+        const a = await findArtifact(deps, filter.runId, name);
+        return a?.content ?? null;
+      }
+      // Scan the subject's runs newest-first for the latest artifact
+      // with this name (e.g. the triage run's triage.json read back at
+      // a later gate clear).
+      const runs = (
+        await deps.store.listRuns(
+          filter.ticketId
+            ? { workspace: base.workspace, ticket_id: filter.ticketId }
+            : { workspace: base.workspace },
+        )
+      ).sort((a, b) => b.id.localeCompare(a.id));
+      for (const r of runs) {
+        const a = await findArtifact(deps, r.id, name);
+        if (a) return a.content;
+      }
+      return null;
+    },
+
+    allocTicketId: () => deps.store.allocTicketId(base.workspace),
   };
 }

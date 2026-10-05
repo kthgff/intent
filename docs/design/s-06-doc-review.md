@@ -2,18 +2,27 @@
 
 Design doc companion to `UI-INVENTORY.md` §2. Status: draft 2026-10-03.
 Stack: React+Vite · Tailwind · shadcn/ui (Radix). Style: Linear-inspired —
-dark-first, dense (13px base), minimal chrome.
+dual-theme (dark + light, D34), dense (13px base), minimal chrome.
 
 Purpose: human review of agent-drafted markdown — PRD, TDD, test plan
 (WF-04), plus the split-plan variant (WF-15). One doc-review component
 serves all: rendered markdown + paragraph-anchored comments + version
 diff + approve / request-changes.
 
+**Revised (D26):** the same component reviews initiative docs
+(`prd.md`/`tdd.md` at initiative scope) and feature docs
+(`feature.md`, `test.md`). Two additions: a **provenance badge** on
+initiative docs (`grounded in 14 board items` → opens `provenance.json`
+viewer / back to S-16), and a **trust-inheritance delta view** — under
+`plan-package` mode, child tickets inherit the approved initiative spec;
+the delta view shows only what a child adds/changes vs the inherited
+baseline, so reviews stay cheap.
+
 ## Layout
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│ ◆ sprint-runner   ⌘K                                                     │
+│ ◆ veto            ⌘K                                                     │
 ├────────────┬──────────────────────────────────────────────┬──────────────┤
 │            │ ← SR-0142 · PRD — v3               [v3 ▾][1]  │              │
 │  SIDEBAR   │ [Rendered][Diff v2→v3][Coverage]        [2]   │   DECISION   │
@@ -58,11 +67,16 @@ diff + approve / request-changes.
    thread shows the reply + diff link. Resolve per thread.
 6. **Decision panel** — sticky right rail: AC/coverage mini-map,
    **Approve**, **Request changes** (requires ≥1 comment or a note),
-   Reject. `plan-package` gates mode: all three docs stacked in one
-   scroll with a single decision panel.
+   Reject. `plan-package` gates mode (the default — D26): all three docs
+   stacked in one scroll with a single decision panel; **batch
+   approvals** render a subjects list ("5 feature test plans — FE-2…FE-6")
+   above one Approve-all action.
 
 ## Split-plan variant (WF-15)
 
+The same table serves **all three decompose levels** (D26):
+initiative → features (`initiative-decompose` run), feature → tickets
+(`feature-decompose` run), and ticket → children (the original split).
 Doc area replaced by the split table — read from `split-plan.md`:
 
 | child | title | repos | depends_on | covers |
@@ -88,9 +102,8 @@ Doc area replaced by the split table — read from `split-plan.md`:
 
 - `a` approve (confirm shows doc+version), `r` request changes,
   `d` toggle diff view.
-- Approving a doc also merges its mirror PR on the tickets repo when
-  one exists (github.com channel parity) — shown as a sub-note on the
-  approve confirm.
+- Approving a doc is a transactional `doc_versions` write + gate clear
+  (D29 — in-app only; there is no mirror-PR channel).
 - Threads left open on approve → warning ("2 unresolved threads —
   approve anyway?").
 

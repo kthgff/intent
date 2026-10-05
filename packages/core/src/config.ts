@@ -33,12 +33,6 @@ export const RepoEntrySchema = z.object({
 });
 export type RepoEntry = z.infer<typeof RepoEntrySchema>;
 
-export const TicketsRepoEntrySchema = z.object({
-  name: z.string().min(1),
-  url: z.string().min(1),
-});
-export type TicketsRepoEntry = z.infer<typeof TicketsRepoEntrySchema>;
-
 export const ProductSchema = z.object({
   repos: z.array(z.string()).default([]),
   docs: z.array(z.string()).default([]),
@@ -125,7 +119,6 @@ export const ConfigSchema = z.object({
   review_model: z.string().nullish(),
   escalation_model: z.string().nullish(),
   capabilities: z.record(CapabilitiesSchema).default({}),
-  tickets_repos: z.array(TicketsRepoEntrySchema).default([]),
   repos: z.record(RepoEntrySchema).default({}),
   products: z.record(ProductSchema).default({}),
   survey: SurveyConfigSchema.default({}),
@@ -141,10 +134,8 @@ export const ConfigSchema = z.object({
   budgets: BudgetsSchema.default({}),
   prior_art_recall: z.boolean().default(true),
   semantic: SemanticConfigSchema.default({}),
-  storage_url: z
-    .string()
-    .default('sqlite://~/.local/share/sprint-runner/state.db'),
-  leases_via: z.enum(['auto', 'db', 'git-ref']).default('auto'),
+  /** Postgres only (D29); PGlite powers tests. */
+  storage_url: z.string().default('postgres://localhost:5432/sprint-runner'),
   importers: ImportersConfigSchema.default({}),
   security: SecurityConfigSchema.default({}),
   ui: UiConfigSchema.default({}),

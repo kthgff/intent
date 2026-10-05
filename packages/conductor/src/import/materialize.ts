@@ -1,51 +1,50 @@
 /**
- * Materialize normalized issues into `tickets/<id>/ticket.md` folders
- * (SCHEMAS §1 frontmatter, status `imported`; import.md rules 1–5) and
- * commit them via gitops.
+ * Materialize normalized issues into DB rows (D29 — was ticket folders
+ * + a tickets-repo commit under wp-061). For each issue:
  *
- * Spec behaviors:
- * - id = `GH-<number>` — tracker key preserved; a collision with an
- *   existing `tickets/<id>/` dir surfaces a flagged `failure` gate item
- *   + notification and the original is left untouched. NEVER renumbered
- *   (CONDUCTOR "Special paths").
+ *   - `id = store.allocTicketId(workspace)` — `SR-NNNN` from
+ *     `projects.next_ticket_seq`; the tracker key is preserved in
+ *     `source` (`github:<owner>/<repo>#<n>`), per SCHEMAS §1.
+ *   - one `tickets` truth row (`status: 'imported'`),
+ *   - one immutable `ticket.md` `doc_versions` row,
+ *   - one `ticket_repos` row per mapped repo (branch/worktree null —
+ *     run stages claim them later).
+ *
+ * No filesystem, no git: Postgres is the ledger. Each ticket's write
+ * set lands in one transaction (ARCHITECTURE §4.4).
+ *
+ * Spec behaviors preserved:
+ * - Re-import of an already-imported `source` → flagged `failure`
+ *   gate item + notification; the original row is left untouched,
+ *   NEVER renumbered or duplicated (was the dir-collision rule).
  * - `repos` from `default_repo_map`; unmapped → `repos: []` +
- *   `repo-map-unmapped` note for triage.
+ *   `repo-map-unmapped` note for triage (D17 — the deterministic
+ *   importer never guesses).
  * - Issue body lands verbatim under `## Description`; `- [ ]`/`- [x]`
  *   checkbox lines additionally populate `## Acceptance criteria`.
  *   No ACs → section stays empty (never fabricated).
- * - Commit via gitops `commitAll` (pull-rebase first so a concurrent
- *   commit doesn't fail the batch); any commit error is thrown to the
- *   caller, which emits `IMPORT-FAILED`.
  */
-import { existsSync } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import {
   type Store,
   type TicketFrontmatter,
   TicketFrontmatterSchema,
 } from '@sprint-runner/core';
-import {
-  type Actor,
-  DEFAULT_ACTOR,
-  commitAll,
-  pullRebase,
-} from '@sprint-runner/gitops';
 import YAML from 'yaml';
 import {
   flagsFor,
   priorityFromLabels,
   reposFor,
   sourceFor,
-  ticketIdFor,
 } from './preview.js';
 import type { RawIssue } from './types.js';
 
-/** Gate instance name for import-surface failures (id collision,
- *  commit failure). A human clears it in the inbox. */
+/** Gate instance name for import-surface failures (already-imported
+ *  collision, store failure). A human clears it in the inbox. */
 export const IMPORT_FAILURE_GATE = 'import';
 
 const CHECKBOX_RE = /^[-*]\s+\[( |x|X)\]\s+(.+)$/;
+const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 
 /** GitHub task-list lines → AC checklist entries (verbatim text). */
 export function extractAcceptanceCriteria(body: string): string[] {
@@ -56,13 +55,14 @@ export function extractAcceptanceCriteria(body: string): string[] {
     .map((m) => `- [ ] ${m[2]}`);
 }
 
-/** Render `tickets/<id>/ticket.md` contents. The frontmatter is
- *  schema-validated before emit — fail-closed even though we built it. */
+/** Render the ticket.md doc (frontmatter + body) for an already-
+ *  allocated `id`. The frontmatter is schema-validated before emit —
+ *  fail-closed even though we built it. */
 export function renderTicketMd(
   issue: RawIssue,
   repoMap: Record<string, string>,
+  id: string,
 ): { id: string; frontmatter: TicketFrontmatter; contents: string } {
-  const id = ticketIdFor(issue);
   const repos = reposFor(issue, repoMap);
   const flags = flagsFor(issue, repos);
   const acs = extractAcceptanceCriteria(issue.body);
@@ -119,97 +119,129 @@ export function renderTicketMd(
 }
 
 export interface MaterializeOptions {
-  ticketsRepoPath: string;
-  /** `importers.default_repo_map` — label → repo name. */
-  repoMap: Record<string, string>;
   workspace: string;
   store: Store;
-  actor?: Actor;
-  /** Set false to skip git ops entirely (dry-run/preview callers). */
-  commit?: boolean;
+  /** `importers.default_repo_map` — label → repo name. */
+  repoMap: Record<string, string>;
+  /** `actor:` for `doc_versions.edited_by` + notification attribution. */
+  actor?: string;
 }
 
-export interface MaterializedTicket {
+export interface ImportedTicket {
+  /** Allocated `SR-NNNN` ticket id. */
   id: string;
-  path: string;
-}
-
-export interface CollisionItem {
-  id: string;
-  /** Existing dir that blocked the import — left untouched. */
-  path: string;
+  /** Tracker source key (`github:<owner>/<repo>#<n>`). */
   source: string;
+  /** ticket.md doc_versions.version written (always 1 on first import). */
+  docVersion: number;
+}
+
+export interface ImportCollision {
+  /** Source key that was already imported — left untouched. */
+  source: string;
+  /** Existing ticket_id holding this source. */
+  existing: string;
 }
 
 export interface MaterializeResult {
-  imported: MaterializedTicket[];
-  collisions: CollisionItem[];
-  /** New commit sha, or null when commit was skipped/no-op. */
-  commit: string | null;
+  imported: ImportedTicket[];
+  collisions: ImportCollision[];
 }
 
 export async function materialize(
   issues: RawIssue[],
   opts: MaterializeOptions,
 ): Promise<MaterializeResult> {
-  const ticketsDir = join(opts.ticketsRepoPath, 'tickets');
+  const { workspace, store } = opts;
+  const actor = opts.actor ?? 'sprint-runner';
   const now = new Date().toISOString();
-  const result: MaterializeResult = {
-    imported: [],
-    collisions: [],
-    commit: null,
-  };
+  const result: MaterializeResult = { imported: [], collisions: [] };
+
+  // allocTicketId self-heals a missing projects row with sequences
+  // seeded above the existing ids (pg.ts allocSeq) — no caller-side
+  // project bootstrap needed.
+
+  // Dedup on the tracker source key — re-importing the same issue is a
+  // no-op + gate item (was: existing tickets/<KEY>/ dir blocked it).
+  const bySource = new Map<string, string>();
+  for (const t of await store.listTickets({ workspace })) {
+    if (t.source) bySource.set(t.source, t.ticket_id);
+  }
 
   for (const issue of issues) {
-    const { id, contents } = renderTicketMd(issue, opts.repoMap);
-    const dir = join(ticketsDir, id);
-
-    // Id collision → flagged inbox item, NEVER auto-renumber, original
-    // untouched (CONDUCTOR "Special paths").
-    if (existsSync(dir)) {
-      result.collisions.push({
-        id,
-        path: dir,
-        source: sourceFor(issue),
-      });
-      await opts.store.upsertGateItem({
-        workspace: opts.workspace,
-        subject: id,
+    const source = sourceFor(issue);
+    const existing = bySource.get(source);
+    if (existing) {
+      result.collisions.push({ source, existing });
+      await store.upsertGateItem({
+        workspace,
+        subject: existing,
         gate: IMPORT_FAILURE_GATE,
         kind: 'failure',
         surfaced_at: now,
         blocked_agent: false,
       });
-      await opts.store.insertNotification({
-        workspace: opts.workspace,
-        subject: id,
+      await store.insertNotification({
+        workspace,
+        subject: existing,
         kind: 'gate:failure',
         payload: JSON.stringify({
           gate: IMPORT_FAILURE_GATE,
           reason: 'id-collision',
-          source: sourceFor(issue),
-          path: dir,
+          source,
+          existing,
         }),
         created_at: now,
       });
       continue;
     }
 
-    await mkdir(dir, { recursive: true });
-    const path = join(dir, 'ticket.md');
-    await writeFile(path, contents, 'utf8');
-    result.imported.push({ id, path });
-  }
-
-  if (opts.commit !== false && result.imported.length > 0) {
-    await pullRebase(opts.ticketsRepoPath).catch(() => {
-      /* no remote / offline — local commit still proceeds */
+    const imported = await store.transaction(async (s) => {
+      const id = await s.allocTicketId(workspace);
+      const { frontmatter, contents } = renderTicketMd(issue, opts.repoMap, id);
+      await s.upsertTicket({
+        workspace,
+        ticket_id: id,
+        feature: frontmatter.feature ?? null,
+        title: frontmatter.title,
+        status: 'imported',
+        priority: frontmatter.priority,
+        depth: frontmatter.depth,
+        backend: frontmatter.backend ?? null,
+        model: frontmatter.model ?? null,
+        repos: frontmatter.repos,
+        parent: frontmatter.parent ?? null,
+        depends_on: frontmatter.depends_on,
+        source,
+        forced: frontmatter.forced,
+        spec_score: null,
+        spec_hash: sha256(contents),
+        blocked_reason: frontmatter.blocked_reason ?? null,
+        created_at: now,
+        updated_at: now,
+      });
+      const doc = await s.appendDocVersion(
+        { workspace, subject: id, doc: 'ticket.md' },
+        contents,
+        actor,
+      );
+      for (const repo of frontmatter.repos) {
+        await s.upsertTicketRepo({
+          workspace,
+          ticket_id: id,
+          repo,
+          branch: null,
+          worktree: null,
+          pr_url: null,
+          pr_state: null,
+          ci_state: null,
+          merged_sha: null,
+        });
+      }
+      return { id, source, docVersion: doc.version };
     });
-    result.commit = await commitAll(
-      opts.ticketsRepoPath,
-      `import: ${issues[0]?.repo ?? 'github'} — ${result.imported.length} ticket(s)`,
-      opts.actor ?? DEFAULT_ACTOR,
-    );
+    bySource.set(source, imported.id);
+    result.imported.push(imported);
   }
 
   return result;

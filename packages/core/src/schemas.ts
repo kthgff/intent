@@ -7,27 +7,34 @@ import { z } from 'zod';
 import {
   ACTOR_TYPES,
   BACKENDS,
+  BOARD_ITEM_KINDS,
+  BOARD_ITEM_STATUSES,
   CALL_USAGE_SOURCES,
   CI_STATES,
   COVERAGE_KINDS,
   DEPTH_TIERS,
   DEVIATION_REASON_KINDS,
+  DOC_KINDS,
   DOSSIER_SCOPES,
   DOSSIER_SECTIONS,
   DOSSIER_SOURCES,
   ENTITY_KINDS,
   ENTITY_SOURCES,
   EVENT_NAMES,
+  FEATURE_STATUSES,
   FINDING_CATEGORIES,
   FINDING_KINDS,
   FINDING_SEVERITIES,
   FINDING_STATUSES,
   GAP_KINDS,
   GATE_KINDS,
+  INITIATIVE_STATUSES,
   PR_STATES,
   QUESTION_FORMATS,
   QUESTION_STATUSES,
   RELATION_PREDICATES,
+  RELATION_SOURCES,
+  RELATION_VERIFICATIONS,
   RUN_STATUSES,
   SENTINELS,
   TEST_CASE_TYPES,
@@ -59,6 +66,8 @@ export const TicketFrontmatterSchema = z.object({
   title: z.string().min(1),
   status: enumOf(TICKET_STATUSES),
   priority: enumOf(TICKET_PRIORITIES),
+  /** Parent feature (D26); null = orphan ticket. */
+  feature: z.string().nullish(),
   /** One branch+worktree+PR per repo (§1). */
   repos: z.array(z.string().min(1)),
   depth: enumOf(DEPTH_TIERS),
@@ -75,7 +84,7 @@ export const TicketFrontmatterSchema = z.object({
 });
 export type TicketFrontmatter = z.infer<typeof TicketFrontmatterSchema>;
 
-// ---------- §7 events.jsonl ----------
+// ---------- §7 events (the `events` table — D29; was events.jsonl) ----------
 
 export const EventActorSchema = z.object({
   type: enumOf(ACTOR_TYPES),
@@ -310,6 +319,8 @@ export const GateItemSchema = z.object({
   kind: enumOf(GATE_KINDS),
   surfaced_at: z.string(),
   cleared_at: z.string().nullish(),
+  /** Snoozed items stay open but leave badge counts/inbox (D20). */
+  snoozed_until: z.string().nullish(),
   blocked_agent: z.boolean().default(false),
   priority: enumOf(TICKET_PRIORITIES).nullish(),
 });
@@ -390,7 +401,13 @@ export const RelationSchema = z.object({
   predicate: enumOf(RELATION_PREDICATES),
   object: z.string().min(1),
   evidence: z.string().optional(),
-  source: z.string().optional(),
+  /** Edge provenance (DB-SCHEMA relations.source — D37). */
+  source: enumOf(RELATION_SOURCES).optional(),
+  /** Required on inferred links (DB-SCHEMA relations.confidence). */
+  confidence: z.number().min(0).max(1).optional(),
+  verification: enumOf(RELATION_VERIFICATIONS).optional(),
+  /** Commit/version/time boundary the edge is valid at. */
+  valid_at: z.string().optional(),
 });
 export type Relation = z.infer<typeof RelationSchema>;
 
@@ -484,6 +501,12 @@ export const RunRowSchema = z.object({
   depth: enumOf(DEPTH_TIERS).nullish(),
   pid: z.number().int().nullish(),
   worktree: z.string().nullish(),
+  /** Docker container id when `runtime: container` (D30); null for
+   *  process runs. */
+  container_id: z.string().nullish(),
+  /** Serialized launch request for `pending` rows — {tokens, model} —
+   *  survives the queue→claim relaunch (D29). */
+  request: z.record(z.unknown()).nullish(),
   status: enumOf(RUN_STATUSES),
   started_at: z.string().nullish(),
   heartbeat_at: z.string().nullish(),
@@ -503,6 +526,8 @@ export type RunRow = z.infer<typeof RunRowSchema>;
 export const TicketRowSchema = z.object({
   workspace: z.string().min(1),
   ticket_id: z.string().min(1),
+  /** Parent feature ref (D26); null = orphan. */
+  feature: z.string().nullish(),
   title: z.string(),
   status: enumOf(TICKET_STATUSES),
   priority: enumOf(TICKET_PRIORITIES),
@@ -512,12 +537,114 @@ export const TicketRowSchema = z.object({
   repos: z.array(z.string()),
   parent: z.string().nullish(),
   depends_on: z.array(z.string()).default([]),
+  /** D33: goal board_item ids — inherited feature→initiative chain or
+   *  direct override. */
+  serves: z.array(z.string()).nullish(),
+  source: z.string().nullish(),
+  forced: z.boolean().default(false),
   spec_score: z.number().nullish(),
   spec_hash: z.string().nullish(),
   blocked_reason: z.string().nullish(),
+  created_at: z.string().nullish(),
   updated_at: z.string(),
 });
 export type TicketRow = z.infer<typeof TicketRowSchema>;
+
+// ---------- hierarchy + boards (D26/D27, DB-SCHEMA) ----------
+
+export const ProjectRowSchema = z.object({
+  workspace: z.string().min(1),
+  name: z.string().nullish(),
+  next_ticket_seq: z.number().int().default(1),
+  next_feature_seq: z.number().int().default(1),
+  next_initiative_seq: z.number().int().default(1),
+  settings: z.record(z.unknown()).default({}),
+  created_at: z.string().nullish(),
+});
+export type ProjectRow = z.infer<typeof ProjectRowSchema>;
+
+export const BoardRowSchema = z.object({
+  workspace: z.string().min(1),
+  board: z.string().min(1),
+  name: z.string().nullish(),
+  created_at: z.string().nullish(),
+});
+export type BoardRow = z.infer<typeof BoardRowSchema>;
+
+export const BoardItemSchema = z.object({
+  id: z.string().min(1),
+  workspace: z.string().min(1),
+  /** NULL = capture tray (D27). */
+  board: z.string().nullish(),
+  kind: enumOf(BOARD_ITEM_KINDS),
+  ref: z.string().nullish(),
+  title: z.string().nullish(),
+  body: z.string().nullish(),
+  x: z.number().nullish(),
+  y: z.number().nullish(),
+  w: z.number().nullish(),
+  h: z.number().nullish(),
+  zone: z.string().nullish(),
+  /** D33: goal board_item ids this item serves — the canonical edge. */
+  serves: z.array(z.string()).nullish(),
+  status: enumOf(BOARD_ITEM_STATUSES),
+  consumed_by: z.string().nullish(),
+  created_at: z.string().nullish(),
+  updated_at: z.string().nullish(),
+});
+export type BoardItem = z.infer<typeof BoardItemSchema>;
+
+export const InitiativeRowSchema = z.object({
+  workspace: z.string().min(1),
+  initiative: z.string().min(1),
+  board: z.string().nullish(),
+  title: z.string(),
+  status: enumOf(INITIATIVE_STATUSES),
+  owner: z.string().nullish(),
+  priority: enumOf(TICKET_PRIORITIES).nullish(),
+  /** D33: json goals — board_item ids this initiative serves. */
+  serves: z.array(z.string()).nullish(),
+  provenance: z.string().nullish(),
+  created_at: z.string().nullish(),
+  updated_at: z.string().nullish(),
+});
+export type InitiativeRow = z.infer<typeof InitiativeRowSchema>;
+
+export const FeatureRowSchema = z.object({
+  workspace: z.string().min(1),
+  feature: z.string().min(1),
+  initiative: z.string().nullish(),
+  title: z.string(),
+  status: enumOf(FEATURE_STATUSES),
+  owner: z.string().nullish(),
+  priority: enumOf(TICKET_PRIORITIES).nullish(),
+  /** D33: goal board_item ids — inherited from initiative, direct
+   *  override allowed. */
+  serves: z.array(z.string()).nullish(),
+  created_at: z.string().nullish(),
+  updated_at: z.string().nullish(),
+});
+export type FeatureRow = z.infer<typeof FeatureRowSchema>;
+
+export const DocVersionSchema = z.object({
+  workspace: z.string().min(1),
+  subject: z.string().min(1),
+  doc: enumOf(DOC_KINDS),
+  /** 1,2,3… per (workspace, subject, doc) — assigned by the store. */
+  version: z.number().int().positive(),
+  content: z.string(),
+  edited_by: z.string().nullish(),
+  created_at: z.string().nullish(),
+});
+export type DocVersion = z.infer<typeof DocVersionSchema>;
+
+export const RunArtifactSchema = z.object({
+  run_id: z.string().min(1),
+  name: z.string().min(1),
+  content: z.string(),
+  created_at: z.string().nullish(),
+});
+export type RunArtifact = z.infer<typeof RunArtifactSchema>;
 
 export const TicketRepoRowSchema = z.object({
   workspace: z.string().min(1),

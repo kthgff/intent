@@ -49,7 +49,7 @@ freeze responses from DB-SCHEMA row shapes.
   follow-up should route it through `deps.notify` or
   `tools.surfaceGateItem`).
 - **Additive config export**: `parsePartialConfig` re-exported from
-  `@sprint-runner/config` (used to fail-closed validate PUT /settings
+  `@veto/config` (used to fail-closed validate PUT /settings
   merges before writing config.yaml).
 - Gate writes = `gate_items.cleared_at` + `gate_cleared` notify +
   durable event row; the conductor's `nextStage` cleared-gate path

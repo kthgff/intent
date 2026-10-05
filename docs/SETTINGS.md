@@ -1,18 +1,19 @@
-# SETTINGS — sprint-runner configuration spec
+# SETTINGS — Veto configuration spec
 
 Companion to `PRD.md`. Draft 2026-10-03.
-Format: **YAML**. Precedence (highest wins): **ticket frontmatter >
-tickets-repo config > global config > defaults**. Secrets live ONLY in
-`.env` files or env vars — never in config, tickets, or prompts.
+Format: **YAML**. Precedence (highest wins): **ticket row fields >
+project settings (`projects.settings`, DB) > global config >
+defaults** (D29 — the tickets-repo layer moved into the DB). Secrets
+live ONLY in `.env` files or env vars — never in config, tickets, or
+prompts.
 
 ## Files
 
 ```
-~/.config/sprint-runner/config.yaml         # global defaults
-~/.config/sprint-runner/.env                # secrets (gitignored)
-<tickets-repo>/.sprint-runner/config.yaml   # per-tickets-repo overrides
-<tickets-repo>/.sprint-runner/.env          # per-repo secrets (gitignored)
-ticket frontmatter                          # per-ticket overrides
+~/.config/veto/config.yaml                  # global defaults
+~/.config/veto/.env                         # secrets (gitignored)
+projects.settings (Postgres)                # per-project overrides (DB)
+tickets row fields                          # per-ticket overrides (DB)
 ```
 
 ## config.yaml
@@ -39,9 +40,8 @@ capabilities:                  # per-backend flags; override only if you must
   aider:  {can_exec: true,  can_write_outside_tree: false, has_gh: false}
 
 # --- repos ---
-tickets_repos:                 # the ledger repos; workspace switcher lists these
-  - name: team-a
-    url: git@github.com:org/team-a-sprint-tickets.git
+# (projects/workspaces live in the DB `projects` table — created via
+#  UI/API, not config. D29.)
 repos:                         # code repos tickets may target
   backend:
     path: /abs/path/backend
@@ -80,8 +80,23 @@ spec_depth: standard           # light | standard | deep — default tier;
 merge_strategy: squash         # squash | merge | rebase
 concurrency:
   implement: 1                 # MVP default; raise deliberately —
-                               # worktree-isolated but each run spends
+                               # worktree-isolated but each run spends;
+                               # N parallel tickets = N running containers
 worktree_root: sibling         # sibling → <repo>.worktrees/<id>
+containers:                    # D30 — containerized run runtime
+  runtime: container           # container | process — default for
+                               # container-capable backends (aider);
+                               # `process` = detached-OS-process fallback
+  image: veto/agent:latest
+                               # single shared image: git, gh, aider,
+                               # runtimes; repo deps install inside via
+                               # repo-card setup. Built/pulled at
+                               # conductor start; absent docker daemon =
+                               # hard startup error for container backends
+  cpu: 2                       # --cpus cap per ticket container
+  memory: 4g                   # --memory cap per ticket container
+  stop_on_gate: true           # docker stop when ticket parks at a gate;
+                               # start on next launch; rm on terminal status
 timeouts:                      # seconds per run type; kill on expiry
   interview: 900
   import: 600
@@ -122,7 +137,7 @@ prior_art_recall: true             # inject {{PRIOR_ART}} into triage/
 # --- semantic layer ---
 semantic:
   embeddings: local            # local | openrouter | off — local keeps
-                               # it free + private; sqlite-vec/pgvector
+                               # it free + private; pgvector
   embedding_model: null        # provider default; 'local' = a bundled
                                # MiniLM-class encoder shipped with the
                                # app — no download, no API spend
@@ -130,10 +145,60 @@ semantic:
   dedupe: true                 # semantic near-dup detection (tickets,
                                # findings, gaps)
 
+# --- evidence plane / code intelligence (D37) ---
+intelligence:
+  code_index: true             # commit-pinned code units + FTS; when false,
+                               # code retrieval degrades to live exact search
+  grounding: true              # default-on evidence for PRD/TDD/test/
+                               # implementation/review; user may disable
+  index_on_project_connect: true
+  reindex_on_default_branch_change: true
+  parser: tree-sitter          # fallback chunks unsupported/broken files
+  incremental: true            # reuse content hashes; changed/deleted paths only
+  max_results: 20
+  context_tokens: 8000         # hard evidence-bundle budget per stage
+  allow_stale: false           # false = stale evidence is labeled/excluded
+  structural_depth: 2          # bounded graph expansion; prevents context blowup
+  prd_quality: true            # cited AI quality findings; spec_score remains
+                               # deterministic/advisory and is not replaced
+  critical_prd_findings: block # block | advisory; block allows explicit
+                               # human waiver with recorded rationale
+  auto_verify_confidence: 0.90 # >= threshold → visibly `auto-verified`;
+                               # below it requires human verification
+  alignment: off               # off | manual | on-merge (Phase B)
+  evaluation_suite: null       # path/ref to versioned retrieval golden set
+  exclude: []                  # extra generated/vendor/forbidden globs;
+                               # VCS ignores + secret/binary rules always apply
+
+# Phase C (D37): no connector is enabled by default. Connector config stores
+# secret ENV NAMES only. Raw telemetry remains in its backend.
+telemetry:
+  enabled: false
+  first_connector: otlp        # D37 decision: OpenTelemetry/OTLP first
+  redaction_policy: telemetry-redaction-v1
+  fingerprint_version: v1
+  representative_max_bytes: 8192
+  retention_days: 90           # signatures/investigations, not raw events
+  draft_ticket_threshold:      # crossing creates a DRAFT proposal only;
+    count: 25                  # actual ticket always requires human approval
+    window_minutes: 15
+    regression_multiplier: 2.0
+  sources: []                  # {id, kind: otlp|loki|opensearch|file|...,
+                               #  endpoint?, token_env?, project}
+
 # --- coordination / state ---
-storage_url: sqlite://~/.local/share/sprint-runner/state.db
-                             # postgres://… in daemon mode; same schema
-leases_via: auto               # auto | db | git-ref  (git-ref CAS fallback)
+database:                    # D38 — desktop/daemon manages local Docker PG
+  mode: managed-docker       # managed-docker is the v1 production mode
+  image: pgvector/pgvector:0.8.6-pg17-bookworm
+                             # release build also pins the image digest
+  container: veto-postgres
+  volume: veto-postgres-data
+  port: auto                 # loopback-only dynamic published port
+  startup_timeout_s: 60
+  backup_dir: ~/.local/share/veto/backups
+storage_url: null            # derived from managed container + `.env`
+                             # password; explicit URL = dev/test override
+                             # only. PGlite is test-only.
 
 # --- ingest ---
 importers:
@@ -144,17 +209,19 @@ importers:
 # --- security ---
 security:
   scanner: gitleaks            # gitleaks | trufflehog — scans staged
-                               # artifacts before every tickets-repo commit
+                               # artifacts before every code-repo commit
   scan_on_commit: true         # FAIL-CLOSED — a scan error or finding
                                # blocks the commit + surfaces a repair
                                # inbox item
 
 # --- ux ---
 ui:
+  theme: system                # system | dark | light (D34) — system
+                               # follows prefers-color-scheme live
   bind: 127.0.0.1              # localhost only by default — agents exec
                                # arbitrary code; wider bind = CSRF→RCE door
   port: 4711                   # conductor serves the web UI here
-  token_file: ~/.config/sprint-runner/ui-token
+  token_file: ~/.config/veto/ui-token
                                # auto-generated (32-byte hex, 0600) on
                                # first launch; required on EVERY request
                                # incl. SSE — see API.md
@@ -162,9 +229,11 @@ ui:
                                # everywhere, ?token= bootstrap refused
                                # off-loopback. Tunnel/LAN use (approve
                                # from the couch) — warns on save
+  draft_recovery: true         # versioned non-secret localStorage drafts;
+                               # reconnect protection, NOT offline sync
 voice: auto                    # auto | off  (webview speech api — shell-
-                               # dependent: Chromium via Electron,
-                               # WKWebView via Tauri; on-device preferred)
+                               # dependent: WKWebView on macOS, WebView2 on
+                               # Windows via Tauri; on-device preferred)
 notifications: {desktop: true, badge: true}
 review:
   auto_fix_severities: [blocker, major]   # minors/nits/questions → human triage
@@ -173,9 +242,9 @@ review:
 
 ## Precedence examples
 
-- `model:` in ticket frontmatter > `main_model` in tickets-repo config >
+- `model` on the ticket row > `main_model` in `projects.settings` >
   global.
-- `gates: minimal` in a tickets-repo config applies to that repo's
+- `gates: minimal` in a project's `settings` applies to that project's
   tickets only.
 - Missing repo card → triage auto-probes (executes commands to verify) →
   writes card → `verified: true`. `verified: false` fails pre-flight.

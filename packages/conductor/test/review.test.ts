@@ -3,27 +3,24 @@
  * severity-gated fix rounds, re-review lifecycle, dismissal cap,
  * discuss replies. Pure-function coverage plus one handler-level
  * dismissal-cap-breach path (the escalation gate item).
+ *
+ * D29: review.json / DEVIATIONS.md are `run_artifacts` rows, not files
+ * in a ticket dir — the handler reads the ticket's latest artifact
+ * (newest-first across its runs) and writes the updated review.json
+ * back onto the current run.
  */
-import { execFileSync } from 'node:child_process';
-import {
-  cpSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { resolveConfig } from '@sprint-runner/config';
 import type {
   AgentFinding,
   RunResult,
   RunRow,
   Stage,
+  TicketRow,
 } from '@sprint-runner/core';
-import { SqliteStore } from '@sprint-runner/store';
+import { PostgresStore } from '@sprint-runner/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   type ApplyStatusOptions,
@@ -32,6 +29,7 @@ import {
   type TransitionTools,
   applyTicketStatus,
 } from '../src/contracts.js';
+import { parseTicketMd } from '../src/import/parse.js';
 import {
   applyFixResults,
   discussReply,
@@ -44,9 +42,8 @@ import {
 import type { ReviewDocument } from '../src/review/index.js';
 import { RealTransitionHandler } from '../src/transitions/index.js';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const TICKETS_FIXTURE = join(HERE, '../../../fixtures/tickets-repo');
 const WS = 'ws';
+const NOW = '2026-10-05T00:00:00Z';
 
 /** Minimal valid AgentFinding. */
 function af(p: Partial<AgentFinding> & { body: string }): AgentFinding {
@@ -389,40 +386,28 @@ describe('discussReply', () => {
 // ---------------------------------------------------------------------------
 
 let dir: string;
-let ticketsRepo: string;
-let store: SqliteStore;
+let store: PostgresStore;
 let handler: RealTransitionHandler;
 let requestedRuns: { subject: string; stage: string }[];
-
-function gitInit(repo: string): void {
-  execFileSync('git', ['init', '-qb', 'main'], { cwd: repo });
-  execFileSync('git', ['config', 'user.name', 'test'], { cwd: repo });
-  execFileSync('git', ['config', 'user.email', 'test@example.com'], {
-    cwd: repo,
-  });
-  execFileSync('git', ['add', '-A'], { cwd: repo });
-  execFileSync('git', ['commit', '-qm', 'seed'], { cwd: repo });
-}
 
 function ctx(): TransitionContext {
   return {
     workspace: WS,
-    ticketsRepoPath: ticketsRepo,
+    rootPath: dir,
     store,
     actor: 'test-bot',
-    now: () => new Date('2026-10-05T00:00:00Z'),
+    now: () => new Date(NOW),
   };
 }
 
+/** A TransitionTools wired straight onto the store — mirrors the
+ *  conductor's factory (loop/tools.ts) minus leases/launch, with
+ *  requestRun recorded instead of queued. */
 function tools(c = ctx()): TransitionTools {
   return {
     ...c,
     applyTicketStatus: (opts: ApplyStatusOptions) =>
-      applyTicketStatus({
-        ctx: c,
-        opts,
-        actor: { name: c.actor, email: `${c.actor}@sprint-runner.local` },
-      }),
+      applyTicketStatus({ ctx: c, opts }),
     surfaceGateItem: async (item) => {
       const ts = c.now().toISOString();
       await store.upsertGateItem({
@@ -456,19 +441,119 @@ function tools(c = ctx()): TransitionTools {
         run: e.run ?? null,
         refs: e.refs ?? [],
         data: e.data ?? {},
-        cost_usd: null,
-        tokens_in: null,
-        tokens_out: null,
-        tokens_cached: null,
-        usage_source: null,
-        duration_s: null,
-        human_minutes: null,
+        cost_usd: e.costUsd ?? null,
+        tokens_in: e.tokensIn ?? null,
+        tokens_out: e.tokensOut ?? null,
+        tokens_cached: e.tokensCached ?? null,
+        usage_source: e.usageSource ?? null,
+        duration_s: e.durationS ?? null,
+        human_minutes: e.humanMinutes ?? null,
       }),
     requestRun: async (req) => {
       requestedRuns.push(req);
       return `${WS}/${req.subject}/001-${req.stage}`;
     },
+    getDocText: async (subject, doc) =>
+      (await store.getDoc({ workspace: WS, subject, doc }))?.content ?? null,
+    putDoc: async (subject, doc, content) =>
+      (
+        await store.appendDocVersion(
+          { workspace: WS, subject, doc },
+          content,
+          c.actor,
+        )
+      ).version,
+    getArtifactText: async (runId, name) =>
+      (await store.getArtifact(runId, name))?.content ?? null,
+    putArtifact: async (runId, name, content) => {
+      await store.putArtifact({
+        run_id: runId,
+        name,
+        content,
+        created_at: c.now().toISOString(),
+      });
+    },
+    getLatestArtifactText: async (name, filter) => {
+      if (filter.runId && !filter.ticketId) {
+        const a = await store.getArtifact(filter.runId, name);
+        return a?.content ?? null;
+      }
+      const runs = (
+        await store.listRuns(
+          filter.ticketId
+            ? { workspace: WS, ticket_id: filter.ticketId }
+            : { workspace: WS },
+        )
+      ).sort((a, b) => b.id.localeCompare(a.id));
+      for (const r of runs) {
+        const a = await store.getArtifact(r.id, name);
+        if (a) return a.content;
+      }
+      return null;
+    },
+    allocTicketId: () => store.allocTicketId(WS),
   };
+}
+
+/** Seed one ticket: a `tickets` truth row + the `ticket.md` doc_version
+ *  (D29). `extraFm` keys land in the frontmatter as `key: value` lines. */
+async function seedTicket(
+  id: string,
+  status: TicketRow['status'],
+  extraFm: Record<string, string> = {},
+): Promise<TicketRow> {
+  const { priority = 'medium', ...rest } = extraFm;
+  const raw = [
+    '---',
+    'schema: 1',
+    `id: ${id}`,
+    `title: ${id} title`,
+    `status: ${status}`,
+    `priority: ${priority}`,
+    'repos: [code-repo]',
+    ...Object.entries(rest).map(([k, v]) => `${k}: ${v}`),
+    '---',
+    '',
+    '## Description',
+    'A sufficiently long description for spec lint purposes, detailing the work.',
+    '',
+    '## Acceptance criteria',
+    '- [ ] Something verifiable happens',
+    '',
+  ].join('\n');
+  const parsed = parseTicketMd(raw, `${id}/ticket.md`);
+  if (!parsed.ok) throw new Error(`seed ${id}: ${parsed.error.error}`);
+  const fm = parsed.value.frontmatter;
+  const ts = new Date().toISOString();
+  const row: TicketRow = {
+    workspace: WS,
+    ticket_id: id,
+    feature: fm.feature ?? null,
+    title: fm.title,
+    status: fm.status,
+    priority: fm.priority,
+    depth: fm.depth ?? null,
+    backend: fm.backend ?? null,
+    model: fm.model ?? null,
+    repos: fm.repos,
+    parent: fm.parent ?? null,
+    depends_on: fm.depends_on,
+    serves: null,
+    source: fm.source ?? null,
+    forced: fm.forced ?? false,
+    spec_score: null,
+    spec_hash: null,
+    blocked_reason: fm.blocked_reason ?? null,
+    created_at: ts,
+    updated_at: ts,
+  };
+  await store.upsertTicket(row);
+  await store.appendDocVersion(
+    { workspace: WS, subject: id, doc: 'ticket.md' },
+    raw,
+    'test-seed',
+  );
+  return row;
 }
 
 let runSeq = 0;
@@ -491,6 +576,8 @@ async function makeRun(
     depth: null,
     pid: null,
     worktree: null,
+    container_id: null,
+    request: null,
     status: 'done',
     started_at: '2026-10-05T00:00:00Z',
     heartbeat_at: null,
@@ -521,16 +608,13 @@ function outcome(
     usage: null,
     exit_code: 0,
   };
-  return { run, result, usagePath: null };
+  return { run, result };
 }
 
 describe('handler: fix dismissal cap breach', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), 'sr-wp050-'));
-    ticketsRepo = join(dir, 'tickets-repo');
-    cpSync(TICKETS_FIXTURE, ticketsRepo, { recursive: true });
-    gitInit(ticketsRepo);
-    store = new SqliteStore(':memory:');
+    store = await PostgresStore.connect('pglite:');
     requestedRuns = [];
     handler = new RealTransitionHandler(
       resolveConfig(null, {
@@ -548,14 +632,13 @@ describe('handler: fix dismissal cap breach', () => {
     );
   });
 
-  afterEach(() => {
-    store.close();
+  afterEach(async () => {
+    await store.close();
     rmSync(dir, { recursive: true, force: true });
   });
 
   it('FIXES-COMPLETE over cap → escalation gate item + honored dismissals land', async () => {
-    const ticketDir = join(ticketsRepo, 'tickets', 'SR-0001');
-    mkdirSync(ticketDir, { recursive: true });
+    await seedTicket('SR-0001', 'review');
     const seed = mergePasses(
       {
         correctness: [
@@ -570,15 +653,24 @@ describe('handler: fix dismissal cap breach', () => {
       { ticket: 'SR-0001', round: 1 },
     );
     const ids = seed.findings.map((f) => f.thread_id);
-    writeFileSync(
-      join(ticketDir, 'review.json'),
-      `${JSON.stringify(seed, null, 2)}\n`,
-    );
-    // DEVIATIONS.md with 3 self-dismissals (cap default = 2).
-    const deviations = join(dir, 'DEVIATIONS.md');
-    writeFileSync(
-      deviations,
-      [
+
+    // review.json lives on the review run's run_artifacts row (D29 —
+    // was tickets/<id>/review.json on disk).
+    const rRun = await makeRun('SR-0001', 'review', 'PASS-COMPLETE', 'SR-0001');
+    await store.putArtifact({
+      run_id: rRun.id,
+      name: 'review.json',
+      content: `${JSON.stringify(seed, null, 2)}\n`,
+      created_at: NOW,
+    });
+
+    // DEVIATIONS.md with 3 self-dismissals (cap default = 2) — a
+    // run_artifact the fix run reports in its artifacts list.
+    const fRun = await makeRun('SR-0001', 'fix', 'FIXES-COMPLETE', 'SR-0001');
+    await store.putArtifact({
+      run_id: fRun.id,
+      name: 'DEVIATIONS.md',
+      content: [
         '# Deviations — SR-0001',
         '| planned | did | reason | file |',
         `| finding ${ids[0]} | not fixed | not a real issue: a |`,
@@ -586,11 +678,10 @@ describe('handler: fix dismissal cap breach', () => {
         `| finding ${ids[2]} | not fixed | not a real issue: c |`,
         '',
       ].join('\n'),
-    );
-
-    const run = await makeRun('SR-0001', 'fix', 'FIXES-COMPLETE', 'SR-0001');
+      created_at: NOW,
+    });
     await handler.onRunComplete(
-      outcome(run, 'FIXES-COMPLETE: 0/3', [deviations]),
+      outcome(fRun, 'FIXES-COMPLETE: 0/3', ['DEVIATIONS.md']),
       tools(),
     );
 
@@ -599,9 +690,10 @@ describe('handler: fix dismissal cap breach', () => {
       (g) => g.gate === 'fix-dismissal-breach',
     );
     expect(gate?.kind).toBe('escalation');
-    // First two dismissals honored; the third stays open.
+    // First two dismissals honored; the third stays open. The updated
+    // review.json was written back as a run_artifacts row on the fix run.
     const stored = JSON.parse(
-      readFileSync(join(ticketDir, 'review.json'), 'utf8'),
+      (await store.getArtifact(fRun.id, 'review.json'))?.content ?? '',
     ) as ReviewDocument;
     expect(
       stored.findings.filter((f) => f.status === 'dismissed'),

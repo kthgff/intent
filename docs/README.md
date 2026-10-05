@@ -6,7 +6,8 @@ repo, on its own branch, ending with a PR.
 
 > **Note:** `run-tickets.sh` + `sprints/2026-10/` are the v0 prototype and use
 > the v0 ticket format documented below (`repo:`, `status: todo|done`). The v1
-> product design and its ticket schema live in `PRD.md` and `SCHEMAS.md`.
+> product design and its ticket schema live in `PRD.md` and `SCHEMAS.md`;
+> `INTELLIGENCE.md` defines the D37 evidence/retrieval/continuous-learning TDD.
 
 ## Prerequisites
 

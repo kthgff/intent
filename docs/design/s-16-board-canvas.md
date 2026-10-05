@@ -11,6 +11,13 @@ Purpose: the idea space — capture (WF-18), synthesize (WF-19), and
 the kanban delivery view tracking spawned work (WF-20). THE front
 door of idea→production.
 
+**Two boards, one component (D21 + D26):** the delivery view IS the
+S-01 pipeline board (`s-01-board.md`) — same kanban component, same
+5 phase columns (Backlog·Spec·Build·Review·Done), same attention
+badges and validated drop targets — scoped by this board's saved
+filter instead of project-wide. S-01 Home = every project's work;
+S-16 delivery = the work this idea board spawned.
+
 ## Layout — idea mode
 
 ```
@@ -52,7 +59,8 @@ door of idea→production.
 ## Annotations
 
 1. **Header** — board name · project · mode toggle (Idea | Delivery) ·
-   **Synthesize** (primary CTA, shows open-item count) · filter gear
+   **Synthesize** split-button (primary CTA; default = "new since last
+   run", menu: entire board / zone / selection / tray) · filter gear
    (saved filter config: project / initiative / feature / status /
    priority / orphans).
 2. **Tool rail** — sticky, text, image, file, link, voice, zone,
@@ -64,10 +72,11 @@ door of idea→production.
 4. **Canvas surface** — pan/zoom, marquee select, dbl-click creates a
    sticky at cursor, drag-connect items, zones are resizeable labeled
    frames; comments thread on any item.
-5. **Delivery view** — kanban columns by status group; cards = live
-   ticket/feature objects with **full actions** (open gate → wizard/
-   doc-review, approve, retry, claim — same idempotent actions as
-   inbox). Card click → S-05/S-17.
+5. **Delivery view** — the shared pipeline-board kanban (5 phase
+   columns, per `s-01-board.md`), scoped by the board's saved filter.
+   Cards = live ticket/feature objects with **full actions** (open
+   gate → wizard/doc-review, approve, retry, claim — same idempotent
+   actions + `drop_targets` as inbox/board). Card click → S-05/S-17.
 
 ## Item types (all LLM-context — FEATURES.md §2.1)
 
@@ -86,11 +95,22 @@ door of idea→production.
 
 ## Synthesize flow
 
-`Synthesize` → confirm ("extract 14 open items across 2 zones —
-icebox excluded") → `board-synthesize` run → S-04 wizard for
-ambiguities → initiative `prd.md` draft + `provenance.json` → S-06
-review → initiative exists; consumed items freeze+dim; delivery view
-fills with the spawned tree.
+`Synthesize ▾` → scope pick (board/zone/selection/new-since-last-run/
+tray) → confirm with **cost preview** ("extract 14 open items across 2
+zones — icebox excluded — ~$2–4 on sonnet") → `board-synthesize` run
+→ S-04 wizard (≤15 questions; overflow → PRD `Open questions`) →
+initiative `prd.md` draft + `provenance.json` → S-06 review →
+initiative exists; consumed items freeze+dim; delivery view fills with
+the spawned tree; card navigates to S-18 initiative detail.
+
+## Capture tray dock
+
+A collapsible bottom strip on the canvas (D27): untriaged captures
+(`board: null` items from `veto add`, `⌘⇧C`, `POST /capture`,
+mobile) — drag up onto the canvas, right-click to type/park, or leave
+for a `tray`-scoped synthesis run. Sidebar tray icon + count mirrors
+mail-inbox behavior; `feedback` items land here tagged to their
+shipped entity.
 
 ## Fields
 

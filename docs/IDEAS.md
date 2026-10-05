@@ -10,13 +10,17 @@ touches, open questions. Keep it cheap; detail comes at graduation.
 
 Status legend: `parked` · `exploring` · `graduated` · `cut`
 
-## I-001 — Observability / log ingestion — `parked`
+## I-001 — Observability / incident intelligence — `graduated`
 
-**Idea:** feed application logs (sprint-runner's own logs, and later
-logs from apps it manages) into the system as a first-class input
-source. The conductor can then mine them: detect recurring errors,
-cluster stack traces, spot regressions — and auto-draft tickets (bug
-reports or user stories) for human triage.
+Graduated into PRD D37 / `INTELLIGENCE.md` Phase C on 2026-10-04. It
+remains post-v1 in delivery order; `graduated` means the product and technical
+contracts are accepted, not that implementation is scheduled before the
+foundation.
+
+**Idea:** connect application logs, traces, metrics, deployments, and resolved
+incidents to the shared evidence plane. Detect recurring errors, correlate them
+with code/change history, retrieve similar validated resolutions, and propose
+evidence-backed bug tickets for human triage.
 
 **Why it fits:** the pipeline already turns unstructured input
 (tickets, interviews) into specs. Logs are just another input channel —
@@ -25,28 +29,35 @@ enter the normal triage → spec → implement flow, so human judgment
 stays the gate.
 
 **Rough shape:**
-- **Log source adapter** — new importer type: tail a file / journald /
-  docker logs / OTLP endpoint → normalized `log_events` table
-- **Clustering** — group by signature (exception type + top frames);
-  entity-linking + embeddings already exist for prior-art recall
-- **Drafting** — a sentinel/transition that proposes tickets from
-  clusters (title, repro context, first-seen/last-seen, frequency);
-  human approves → becomes a real ticket
-- **Feedback loop** — merged fix → watch for the signature to stop;
-  re-open or escalate if it recurs
-- **Dashboard** — log health widget on the metrics screen; per-signature
-  timelines
+- **Telemetry source adapter** — OTLP first; Loki/OpenSearch/file/journald/
+  docker later. Raw high-volume data and count queries remain in the source
+  backend; Veto stores opaque locators, not a duplicate log warehouse.
+- **Safety boundary** — authorize + redact secrets/PII/request bodies before
+  persistence, embedding, artifacts, or model access.
+- **Clustering** — normalize carefully, fingerprint, deduplicate, and embed
+  sanitized unique patterns/summaries rather than every event.
+- **Investigation** — correlate error → trace → service/symbol → commit/PR →
+  ticket/requirement → deployment → similar incident; return ranked hypotheses,
+  disconfirming evidence, and next checks.
+- **Drafting** — propose tickets with time window, frequency, evidence, affected
+  code, and test plan; human approval creates real work.
+- **Learning loop** — a resolution becomes reusable only after a human or
+  authoritative system verifies the outcome; recurrence suggests follow-up but
+  does not silently reopen or deploy anything.
 
-**Touches:** importer contract (`ADAPTERS.md`), DB schema (new tables),
-conductor (new trigger type), UI (new source + dashboard), prompts
-(log→ticket drafting template).
+**Touches:** `INTELLIGENCE.md`, evidence-source contract (`ADAPTERS.md`),
+`DB-SCHEMA.md` telemetry/signature/incident rows, `SCHEMAS.md` §19,
+conductor workers, API, source administration, incident UI, metrics, and
+investigation/ticket-draft prompts.
 
 **Open questions:**
-- Self-observability only, or generic log source for arbitrary apps?
-- Live tailing vs. batch ingest (batch is simpler; live enables
-  alerting-style triggers)
-- Does this stay local-only (files/journald) or do we want an OTLP
-  receiver for real observability stacks?
+- Which observability backend is the first supported read/query integration?
+- Pull/query connector or local OTLP receiver first? Batch/query is simpler;
+  live ingest enables earlier regression detection.
+- What default redaction rules and retention bounds are defensible across
+  languages and frameworks?
+- Which authoritative deployment/resolution sources can verify correlations
+  without asking a human to relabel everything?
 
 ## I-002 — Board templates — `parked`
 
@@ -63,7 +74,7 @@ presets that teach the medium.
 **Idea:** periodic cheap run proposing "these 6 notes look like one
 initiative" with a lasso preview before synthesis.
 
-**Why it fits:** embeddings exist (sqlite-vec); board items are
+**Why it fits:** embeddings exist (pgvector); board items are
 embeddable objects. Off by default; earns trust.
 
 **Touches:** embeddings, board API, prompt template.

@@ -69,7 +69,7 @@ export default function DocReview() {
                     className="small"
                     onClick={() => setShowDiff(showDiff === i ? null : i)}
                   >
-                    {dd.from.slice(0, 7)} → {dd.to.slice(0, 7)}
+                    {dd.from} → {dd.to}
                   </button>
                 </div>
               ))}

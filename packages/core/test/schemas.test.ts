@@ -398,7 +398,8 @@ describe('dossier + semantic layer (SCHEMAS §11-§12)', () => {
       predicate: 'part-of',
       object: 'Pipeline',
       evidence: 'x',
-      source: 'inferred',
+      source: 'model',
+      confidence: 0.7,
     });
     expect(r.predicate).toBe('part-of');
     const em = EmbeddingSchema.parse({

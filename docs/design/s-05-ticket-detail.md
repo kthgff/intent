@@ -1,8 +1,12 @@
 # S-05 — Ticket detail
 
+**SUPERSEDED 2026-10-03 (D24)** — replaced by
+[`s-05-ticket-focus.md`](s-05-ticket-focus.md). Kept for history; the
+tabs/rail vocabulary here informed the focus page.
+
 Design doc companion to `UI-INVENTORY.md` §2. Status: draft 2026-10-03.
 Stack: React+Vite · Tailwind · shadcn/ui (Radix). Style: Linear-inspired —
-dark-first, dense (13px base), minimal chrome.
+dual-theme (dark + light, D34), dense (13px base), minimal chrome.
 
 Purpose: everything about one ticket — the hub every inbox item,
 monitor, and queue row links back to. Hosts the status stepper, doc/QA
@@ -13,7 +17,7 @@ whatever action the current gate needs.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│ ◆ sprint-runner   ⌘K      [team-a ▾]                    🔔3  ⚙           │
+│ ◆ veto            ⌘K      [team-a ▾]                    🔔3  ⚙           │
 ├────────────┬──────────────────────────────────────────────┬──────────────┤
 │            │ ← SR-0142  Session cache layer      ◐62  [1] │              │
 │  SIDEBAR   │ P1 · standard · aider · [backend][web]       │   GATE       │
@@ -74,7 +78,7 @@ whatever action the current gate needs.
 | --- | --- |
 | Overview | ticket.md rendered, frontmatter card, triage panel, handoff summary (if `handoff` event — who took it, when, resume button) |
 | Documents | list: prd / tdd / test — each row: name, version, status badge (draft/review/approved), last edited, **view → S-06**, version-diff dropdown (v1↔v2 …) |
-| Activity | events.jsonl timeline — ts, stage, actor chip (agent/human/runner), event, +cost/tokens on run events; filter by stage/actor; entry → artifact ref → S-11 |
+| Activity | `events` table timeline — ts, stage, actor chip (agent/human/runner), event, +cost/tokens on run events; filter by stage/actor; entry → artifact ref → S-11 |
 | Runs | table per run: name (`003-implement`), stage, status, backend/model, duration, tokens in/out/cached, cost (or `~` estimated flag), worktree → open S-07 live or S-11 artifacts |
 
 ## Interactions

@@ -1,250 +1,180 @@
-import { execFileSync } from 'node:child_process';
 /**
- * wp-013 ticket projection tests — scan fixtures/tickets-repo copied into
- * a tmp git repo, project into an in-memory SqliteStore.
+ * ticket.md parser tests (was wp-013 projection tests; wp-093 D29).
+ *
+ * The projection pass is gone — `tickets`/`doc_versions` rows are
+ * truth, nothing is rebuilt from disk. What survives is the standalone
+ * frontmatter parser at `src/import/parse.ts` (`parseTicketFile` reads
+ * a path, `parseTicketMd` takes content), used wherever a ticket.md
+ * *document* needs validating — import tooling, fixtures, doc render
+ * checks. It is fail-closed but NEVER throws: malformed input is a
+ * structured `{ok:false}` error the caller can surface as a gate item.
+ *
+ * Fixtures are read straight out of `fixtures/tickets-repo/` — they are
+ * canned markdown now, not a repo to project.
  */
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SqliteStore } from '@sprint-runner/store';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import {
-  PARSE_FAILURE_GATE,
-  parseTicketFile,
-  projectTickets,
-} from '../src/index.js';
+import { describe, expect, it } from 'vitest';
+import { parseTicketFile, parseTicketMd } from '../src/import/parse.js';
 
-const WORKSPACE = 'fixture-ws';
 const FIXTURE = join(
   dirname(fileURLToPath(import.meta.url)),
   '../../../fixtures/tickets-repo',
 );
 
-let dir: string;
-let repo: string;
-let store: SqliteStore;
-
-function seedTicketsRepo(): string {
-  const dest = join(dir, 'tickets-repo');
-  cpSync(FIXTURE, dest, { recursive: true });
-  execFileSync('git', ['init', '-q'], { cwd: dest });
-  execFileSync('git', ['add', '-A'], { cwd: dest });
-  execFileSync(
-    'git',
-    [
-      '-c',
-      'user.email=test@example.com',
-      '-c',
-      'user.name=test',
-      'commit',
-      '-qm',
-      'seed',
-    ],
-    { cwd: dest },
-  );
-  return dest;
-}
-
-function writeTicket(id: string, contents: string): string {
-  const p = join(repo, 'tickets', id, 'ticket.md');
-  mkdirSync(dirname(p), { recursive: true });
-  writeFileSync(p, contents);
-  return p;
-}
-
-beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'sr-projection-'));
-  store = new SqliteStore('sqlite:///:memory:');
-  repo = seedTicketsRepo();
-});
-
-afterEach(() => {
-  store.close();
-  rmSync(dir, { recursive: true, force: true });
-});
+const VALID_MINIMAL = [
+  '---',
+  'schema: 1',
+  'id: SR-0100',
+  'title: Minimal ticket',
+  'status: imported',
+  'priority: medium',
+  'repos: [code-repo]',
+  '---',
+  '',
+  '## Description',
+  'minimal fixture',
+  '',
+].join('\n');
 
 describe('parseTicketFile', () => {
-  it('parses fixture frontmatter with documented §1 defaults', async () => {
-    const r = await parseTicketFile(
-      join(repo, 'tickets', 'SR-0001', 'ticket.md'),
-    );
+  it('parses fixture frontmatter + body, applying documented §1 defaults', async () => {
+    const path = join(FIXTURE, 'tickets', 'SR-0001', 'ticket.md');
+    const r = await parseTicketFile(path);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.value.frontmatter.id).toBe('SR-0001');
+    expect(r.value.frontmatter.status).toBe('imported');
+    expect(r.value.frontmatter.priority).toBe('high');
+    expect(r.value.frontmatter.repos).toEqual(['code-repo']);
+    // SCHEMAS §1 documented defaults — omitted keys fill in.
     expect(r.value.frontmatter.depth).toBe('standard');
     expect(r.value.frontmatter.depends_on).toEqual([]);
+    expect(r.value.frontmatter.forced).toBe(false);
     expect(r.value.body).toContain('## Description');
+    expect(r.value.body).toContain('## Acceptance criteria');
+    expect(r.value.raw).toBe(readFileSync(path, 'utf8'));
   });
 
-  it('returns a structured error on malformed yaml, never throws', async () => {
-    const p = writeTicket('SR-9999', '---\n: : not yaml\n---\nbody\n');
-    const r = await parseTicketFile(p);
+  it('honors non-default field values (depth: light)', async () => {
+    const r = await parseTicketFile(
+      join(FIXTURE, 'tickets', 'SR-0003', 'ticket.md'),
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.frontmatter.depth).toBe('light');
+    expect(r.value.frontmatter.status).toBe('ready');
+  });
+
+  it('returns a structured error for an unreadable path, never throws', async () => {
+    const path = join(FIXTURE, 'tickets', 'NO-SUCH', 'ticket.md');
+    const r = await parseTicketFile(path);
     expect(r.ok).toBe(false);
     if (r.ok) return;
-    expect(r.error.path).toBe(p);
-    expect(r.error.error.length).toBeGreaterThan(0);
+    expect(r.error.path).toBe(path);
+    expect(r.error.error).toContain('unreadable');
   });
 
-  it('errors when the frontmatter block is missing', async () => {
-    const p = writeTicket('SR-9998', '# no frontmatter\n');
-    const r = await parseTicketFile(p);
-    expect(r.ok).toBe(false);
+  it('parses every fixture ticket.md', async () => {
+    const dir = join(FIXTURE, 'tickets');
+    const ids = readdirSync(dir).sort();
+    expect(ids.length).toBeGreaterThanOrEqual(3);
+    for (const id of ids) {
+      const r = await parseTicketFile(join(dir, id, 'ticket.md'));
+      expect(r.ok, `${id}: ${r.ok ? '' : r.error.error}`).toBe(true);
+      if (r.ok) expect(r.value.frontmatter.id).toBe(id);
+    }
   });
 });
 
-describe('projectTickets', () => {
-  it('projects all 3 fixture tickets with ticket_repos rows', async () => {
-    const s = await projectTickets(repo, store, WORKSPACE);
-    expect(s.projected.sort()).toEqual(['SR-0001', 'SR-0002', 'SR-0003']);
-    expect(s.failed).toEqual([]);
-    expect(s.removed).toEqual([]);
-
-    const t = await store.getTicket({
-      workspace: WORKSPACE,
-      ticket_id: 'SR-0003',
-    });
-    expect(t).not.toBeNull();
-    expect(t?.title).toBe('Add /healthz endpoint');
-    expect(t?.status).toBe('ready');
-    expect(t?.depth).toBe('light');
-    expect(t?.spec_hash).toMatch(/^[0-9a-f]{64}$/);
-
-    for (const id of ['SR-0001', 'SR-0002', 'SR-0003']) {
-      const repos = await store.listTicketRepos({
-        workspace: WORKSPACE,
-        ticket_id: id,
-      });
-      expect(repos.map((r) => r.repo)).toEqual(['code-repo']);
-      expect(repos[0]?.pr_url).toBeNull();
-    }
+describe('parseTicketMd', () => {
+  it('parses a minimal valid doc, applying §1 defaults', () => {
+    const r = parseTicketMd(VALID_MINIMAL, 'SR-0100/ticket.md');
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.frontmatter.id).toBe('SR-0100');
+    expect(r.value.frontmatter.depth).toBe('standard');
+    expect(r.value.frontmatter.depends_on).toEqual([]);
+    expect(r.value.frontmatter.forced).toBe(false);
+    expect(r.value.body).toContain('minimal fixture');
   });
 
-  it('malformed ticket → failure gate item; the rest still project', async () => {
-    writeTicket('SR-9999', '---\nschema: 1\nid: SR-9999\nstatus: bogus\n---\n');
-    const s = await projectTickets(repo, store, WORKSPACE);
-    expect(s.projected.sort()).toEqual(['SR-0001', 'SR-0002', 'SR-0003']);
-    expect(s.failed).toHaveLength(1);
-    expect(s.failed[0]?.subject).toBe('SR-9999');
-    expect(s.failed[0]?.error).toContain('schema:');
-
-    const item = await store.getGateItem({
-      workspace: WORKSPACE,
-      subject: 'SR-9999',
-      gate: PARSE_FAILURE_GATE,
-    });
-    expect(item).not.toBeNull();
-    expect(item?.kind).toBe('failure');
-    expect(item?.blocked_agent).toBe(true);
-    expect(
-      await store.getTicket({ workspace: WORKSPACE, ticket_id: 'SR-9999' }),
-    ).toBeNull();
+  it('returns a structured error on malformed yaml, never throws', () => {
+    const r = parseTicketMd('---\n: : not yaml\n---\nbody\n', 'bad/ticket.md');
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error.path).toBe('bad/ticket.md');
+    expect(r.error.error.length).toBeGreaterThan(0);
   });
 
-  it('re-run is idempotent and preserves pr/ci run state', async () => {
-    await projectTickets(repo, store, WORKSPACE);
-    // Simulate a later stage writing pr/ci state onto the row.
-    await store.upsertTicketRepo({
-      workspace: WORKSPACE,
-      ticket_id: 'SR-0003',
-      repo: 'code-repo',
-      branch: 'sr/sr-0003',
-      worktree: '/tmp/wt',
-      pr_url: 'https://github.com/x/y/pull/1',
-      pr_state: 'open',
-      ci_state: 'green',
-      merged_sha: null,
-    });
-
-    const s = await projectTickets(repo, store, WORKSPACE);
-    expect(s.projected).toHaveLength(3);
-
-    const row = await store.getTicketRepo({
-      workspace: WORKSPACE,
-      ticket_id: 'SR-0003',
-      repo: 'code-repo',
-    });
-    expect(row?.pr_url).toBe('https://github.com/x/y/pull/1');
-    expect(row?.pr_state).toBe('open');
-    expect(row?.ci_state).toBe('green');
-    expect(row?.branch).toBe('sr/sr-0003');
-    expect(row?.worktree).toBe('/tmp/wt');
-
-    // tickets row still refreshed, still one row per repo.
-    expect(
-      await store.listTicketRepos({
-        workspace: WORKSPACE,
-        ticket_id: 'SR-0003',
-      }),
-    ).toHaveLength(1);
+  it('errors when the frontmatter block is missing', () => {
+    const r = parseTicketMd('# no frontmatter\n');
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error.error).toContain('frontmatter');
   });
 
-  it('deletes projection rows when a ticket dir vanishes', async () => {
-    await projectTickets(repo, store, WORKSPACE);
-    rmSync(join(repo, 'tickets', 'SR-0002'), {
-      recursive: true,
-      force: true,
-    });
-    const s = await projectTickets(repo, store, WORKSPACE);
-    expect(s.removed).toEqual(['SR-0002']);
-    expect(
-      await store.getTicket({ workspace: WORKSPACE, ticket_id: 'SR-0002' }),
-    ).toBeNull();
-    expect(
-      await store.listTicketRepos({
-        workspace: WORKSPACE,
-        ticket_id: 'SR-0002',
-      }),
-    ).toEqual([]);
+  it('errors when the frontmatter is not a yaml mapping', () => {
+    const r = parseTicketMd('---\n- a\n- b\n---\nbody\n');
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error.error).toContain('not a yaml mapping');
   });
 
-  it('syncs ticket_repos to repos[] (shrinking repos drops stale rows)', async () => {
-    writeTicket(
-      'SR-0007',
+  it('schema-invalid values → structured error (bad status)', () => {
+    const r = parseTicketMd(
       [
         '---',
         'schema: 1',
-        'id: SR-0007',
-        'title: multi',
-        'status: imported',
+        'id: SR-9999',
+        'title: bogus status',
+        'status: bogus',
         'priority: low',
-        'repos: [a, b]',
+        'repos: [code-repo]',
         '---',
-        'x',
+        '',
       ].join('\n'),
     );
-    await projectTickets(repo, store, WORKSPACE);
-    expect(
-      (
-        await store.listTicketRepos({
-          workspace: WORKSPACE,
-          ticket_id: 'SR-0007',
-        })
-      ).map((r) => r.repo),
-    ).toEqual(['a', 'b']);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error.error).toContain('schema:');
+  });
 
-    writeTicket(
-      'SR-0007',
+  it('schema-invalid values → structured error (wrong types)', () => {
+    const r = parseTicketMd(
       [
         '---',
         'schema: 1',
-        'id: SR-0007',
-        'title: multi',
+        'id: SR-9998',
+        'title: wrong types',
         'status: imported',
         'priority: low',
-        'repos: [b]',
+        'repos: not-a-list',
+        'depends_on: 42',
         '---',
-        'x',
+        '',
       ].join('\n'),
     );
-    await projectTickets(repo, store, WORKSPACE);
-    expect(
-      (
-        await store.listTicketRepos({
-          workspace: WORKSPACE,
-          ticket_id: 'SR-0007',
-        })
-      ).map((r) => r.repo),
-    ).toEqual(['b']);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error.error).toContain('schema:');
+  });
+
+  it('schema version other than 1 is rejected', () => {
+    const r = parseTicketMd(
+      [
+        '---',
+        'schema: 2',
+        'id: SR-9997',
+        'title: future schema',
+        'status: imported',
+        'priority: low',
+        'repos: [code-repo]',
+        '---',
+        '',
+      ].join('\n'),
+    );
+    expect(r.ok).toBe(false);
   });
 });
