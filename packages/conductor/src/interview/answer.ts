@@ -28,12 +28,6 @@ import {
   sourceFromInterviewMessage,
 } from '../semantics/index.js';
 import {
-  type InterviewCtx,
-  type ReadinessReport,
-  invalid,
-} from './types.js';
-import { bindStatementsToSlots, requireSlotSpec } from './slots.js';
-import {
   askQuestion,
   getQuestion,
   planNextQuestion,
@@ -45,6 +39,8 @@ import {
   requireSession,
   sessionWizard,
 } from './session.js';
+import { bindStatementsToSlots, requireSlotSpec } from './slots.js';
+import { type InterviewCtx, type ReadinessReport, invalid } from './types.js';
 
 export interface SubmitAnswerArgs {
   sessionId: string;
@@ -69,7 +65,10 @@ export interface SubmitAnswerResult {
   statements: StatementRow[];
   slots: KnowledgeSlotRow[];
   /** The next asked question, or null when nothing else is needed. */
-  next: { candidate: QuestionCandidateRow; message: InterviewMessageRow } | null;
+  next: {
+    candidate: QuestionCandidateRow;
+    message: InterviewMessageRow;
+  } | null;
   readiness: ReadinessReport;
 }
 

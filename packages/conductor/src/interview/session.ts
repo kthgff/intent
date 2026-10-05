@@ -20,6 +20,7 @@ import type {
   KnowledgeSlotRow,
   SessionSnapshotRow,
 } from '@sprint-runner/core';
+import { listSlots, openDecisionsForSlots } from './slots.js';
 import {
   type InterviewCtx,
   type ReadinessBlocker,
@@ -33,12 +34,7 @@ import {
   notFound,
   sessionIdFor,
 } from './types.js';
-import { listSlots, openDecisionsForSlots } from './slots.js';
-import {
-  initialSlots,
-  loadWizardConfig,
-  thresholdsOf,
-} from './wizard.js';
+import { initialSlots, loadWizardConfig, thresholdsOf } from './wizard.js';
 
 const ALL_STATES: SlotState[] = [
   'known',
@@ -281,9 +277,10 @@ export function computeReadiness(
   );
   const requiredRows = rows.filter((r) => required.has(r.slot));
 
-  const states = Object.fromEntries(
-    ALL_STATES.map((s) => [s, 0]),
-  ) as Record<SlotState, number>;
+  const states = Object.fromEntries(ALL_STATES.map((s) => [s, 0])) as Record<
+    SlotState,
+    number
+  >;
   for (const r of requiredRows) states[asSlotState(r.state)] += 1;
 
   const draft_blockers: ReadinessBlocker[] = [];
@@ -321,7 +318,9 @@ export function computeReadiness(
     ALL_STATES.filter((s) => states[s] > 0)
       .map((s) => `${states[s]} ${s}`)
       .join(', ') +
-    (openDecisions.length > 0 ? `; ${openDecisions.length} open decision(s)` : '');
+    (openDecisions.length > 0
+      ? `; ${openDecisions.length} open decision(s)`
+      : '');
   return {
     draft_ready,
     approval_ready,
@@ -395,7 +394,8 @@ export async function snapshot(
   });
   const version = (latest?.version ?? 0) + 1;
   const body: SnapshotBody = {
-    last_seq: messages.length > 0 ? (messages[messages.length - 1]?.seq ?? 0) : 0,
+    last_seq:
+      messages.length > 0 ? (messages[messages.length - 1]?.seq ?? 0) : 0,
     readiness,
     slots: rows.map((r) => ({
       slot: r.slot,
@@ -470,10 +470,7 @@ export async function resume(
     if (newMessages.length > 0) {
       parts.push(`${newMessages.length} new message(s)`);
     }
-    if (
-      after &&
-      after.readiness.draft_ready !== readinessAfter.draft_ready
-    ) {
+    if (after && after.readiness.draft_ready !== readinessAfter.draft_ready) {
       parts.push(
         `draft_ready ${after.readiness.draft_ready} → ${readinessAfter.draft_ready}`,
       );

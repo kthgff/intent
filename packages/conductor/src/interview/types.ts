@@ -236,7 +236,10 @@ export function slug(input: string): string {
 }
 
 /** Deterministic session id — one session per (wizard, subject). */
-export function sessionIdFor(wizardId: string, subject?: string | null): string {
+export function sessionIdFor(
+  wizardId: string,
+  subject?: string | null,
+): string {
   const w = slug(wizardId);
   return subject
     ? `iv-${w}-${slug(subject)}`

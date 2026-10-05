@@ -19,24 +19,24 @@ import type {
   QuestionCandidateRow,
 } from '@sprint-runner/core';
 import {
+  type EligibleSlotForPrompt,
+  buildQuestionPrompt,
+  parseQuestionOutput,
+} from './prompt.js';
+import { appendMessage, requireSession, sessionWizard } from './session.js';
+import { getSlot, listSlots, markSlot, requireSlotSpec } from './slots.js';
+import {
   type InterviewCtx,
+  InterviewError,
   type QuestionPurpose,
   type QuestionScores,
   type SlotState,
-  InterviewError,
   asSlotState,
   conflict,
   invalid,
   notFound,
   questionIdFor,
 } from './types.js';
-import { getSlot, listSlots, markSlot, requireSlotSpec } from './slots.js';
-import {
-  type EligibleSlotForPrompt,
-  buildQuestionPrompt,
-  parseQuestionOutput,
-} from './prompt.js';
-import { appendMessage, requireSession, sessionWizard } from './session.js';
 
 /**
  * Deterministic composite of the component scores (§15.9). Materiality
@@ -45,9 +45,7 @@ import { appendMessage, requireSession, sessionWizard } from './session.js';
  * (that is the `unanswerable` signal), high effort makes it less
  * attractive.
  */
-export function scoreCandidate(
-  s: Omit<QuestionScores, 'score'>,
-): number {
+export function scoreCandidate(s: Omit<QuestionScores, 'score'>): number {
   const materiality = s.impact * s.uncertainty * s.relevance;
   const score = materiality * s.answerability * (1 - s.effort);
   return Math.round(score * 1e6) / 1e6;
@@ -239,9 +237,7 @@ export async function planNextQuestion(
   const persisted: QuestionCandidateRow[] = [];
   for (const p of proposals) {
     const qid = questionIdFor(args.sessionId, p.slot, p.purpose);
-    const existing = bySlot
-      .get(p.slot)
-      ?.find((c) => c.question_id === qid);
+    const existing = bySlot.get(p.slot)?.find((c) => c.question_id === qid);
     if (existing && existing.status !== 'proposed') continue;
     const score = scoreCandidate(p.scores);
     const row: QuestionCandidateRow = {
@@ -260,9 +256,7 @@ export async function planNextQuestion(
     persisted.push(row);
   }
   if (persisted.length === 0) return null;
-  persisted.sort(
-    (a, b) => (scoresOf(b).score ?? 0) - (scoresOf(a).score ?? 0),
-  );
+  persisted.sort((a, b) => (scoresOf(b).score ?? 0) - (scoresOf(a).score ?? 0));
   return persisted[0] ?? null;
 }
 
@@ -284,7 +278,9 @@ export async function assertAnswerOrder(
     workspace: ctx.workspace,
     session_id: sessionId,
   });
-  const scoped = messages.filter((m) => (m.branch ?? null) === (branch ?? null));
+  const scoped = messages.filter(
+    (m) => (m.branch ?? null) === (branch ?? null),
+  );
   const last = scoped[scoped.length - 1];
   if (last && last.role === 'assistant') {
     throw new InterviewError(
@@ -352,9 +348,7 @@ export async function resolveQuestion(
   await requireSession(ctx, args.sessionId);
   const candidate = await getQuestion(ctx, args.sessionId, args.questionId);
   if (!candidate) {
-    throw notFound(
-      `no question ${args.questionId} on ${args.sessionId}`,
-    );
+    throw notFound(`no question ${args.questionId} on ${args.sessionId}`);
   }
   const ts = ctx.now().toISOString();
   const next: QuestionCandidateRow = {
@@ -411,7 +405,9 @@ export async function pendingQuestion(
     session_id: sessionId,
   });
   const branchSeqs = new Set(
-    messages.filter((m) => (m.branch ?? null) === (branch ?? null)).map((m) => m.content),
+    messages
+      .filter((m) => (m.branch ?? null) === (branch ?? null))
+      .map((m) => m.content),
   );
   return asked.find((c) => branchSeqs.has(c.question)) ?? asked[0] ?? null;
 }

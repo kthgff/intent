@@ -16,6 +16,8 @@ import type {
   StatementPolarity,
   StatementRow,
 } from '@sprint-runner/core';
+import { appendMessage, requireSession, transcript } from './session.js';
+import { listSlots, polarityConflicts, refreshSlot } from './slots.js';
 import {
   type BranchAttribution,
   type InterviewCtx,
@@ -25,12 +27,6 @@ import {
   notFound,
   slug,
 } from './types.js';
-import {
-  listSlots,
-  polarityConflicts,
-  refreshSlot,
-} from './slots.js';
-import { appendMessage, requireSession, transcript } from './session.js';
 
 export async function listBranches(
   ctx: InterviewCtx,
@@ -113,7 +109,11 @@ export async function branchStatements(
   const all = await ctx.store.listStatements({ workspace: ctx.workspace });
   return all.filter((s) => {
     const ref = sourceRefOf(s);
-    return ref.kind === 'interview-message' && ref.id !== undefined && refs.has(ref.id);
+    return (
+      ref.kind === 'interview-message' &&
+      ref.id !== undefined &&
+      refs.has(ref.id)
+    );
   });
 }
 

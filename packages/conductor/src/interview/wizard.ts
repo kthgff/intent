@@ -171,7 +171,11 @@ export async function registerWizard(
         `wizard '${cfg.wizard_id}' v${cfg.version} already exists with a different definition — versions are append-only`,
       );
     }
-    const def = await requireDefinition(ctx.store, ctx.workspace, cfg.wizard_id);
+    const def = await requireDefinition(
+      ctx.store,
+      ctx.workspace,
+      cfg.wizard_id,
+    );
     return { definition: def, version: existing, created: false };
   }
 
@@ -364,8 +368,7 @@ export const REQUIREMENTS_DISCOVERY: WizardConfig = {
       label: 'Non-functional requirements',
       required: true,
       scope: 'feature',
-      question:
-        'What performance, reliability or scale expectations apply?',
+      question: 'What performance, reliability or scale expectations apply?',
       accepts: ['requires', 'constraint'],
       impact: 0.8,
     },
@@ -422,7 +425,8 @@ export const TDD_DISCOVERY: WizardConfig = {
       label: 'Interfaces',
       required: true,
       scope: 'repo',
-      question: 'What are the public interfaces (functions, endpoints, events)?',
+      question:
+        'What are the public interfaces (functions, endpoints, events)?',
       accepts: ['requires', 'decision'],
       impact: 1,
     },

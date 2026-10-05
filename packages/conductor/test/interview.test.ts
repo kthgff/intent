@@ -90,9 +90,7 @@ afterEach(async () => {
  * wp-143 prompt and returns the caller's statements for it. Keeps
  * `source_text` verbatim (the ingest pipeline span-checks it).
  */
-function makeExtractor(
-  build: (answer: string) => Record<string, unknown>[],
-) {
+function makeExtractor(build: (answer: string) => Record<string, unknown>[]) {
   return async (prompt: string): Promise<string> => {
     const m = /```\n([\s\S]*?)\n```/.exec(prompt);
     const answer = m?.[1] ?? '';
@@ -162,15 +160,19 @@ describe('wizard definitions', () => {
     await registerWizard(c, {
       wizard_id: 'w',
       version: 2,
-      slots: [{ slot: 'a', required: true }, { slot: 'b', required: true }],
+      slots: [
+        { slot: 'a', required: true },
+        { slot: 'b', required: true },
+      ],
     });
     const def = await store.getWizardDefinition({
       workspace: WS,
       wizard_id: 'w',
     });
     expect(def?.current_version).toBe(2);
-    expect(await store.listWizardVersions({ workspace: WS, wizard_id: 'w' }))
-      .toHaveLength(2);
+    expect(
+      await store.listWizardVersions({ workspace: WS, wizard_id: 'w' }),
+    ).toHaveLength(2);
   });
 
   it('fails closed on a malformed config', () => {
@@ -261,7 +263,10 @@ describe('slot state machine', () => {
       },
     ]);
     const q = await planNextQuestion(c, { sessionId: s.session_id });
-    await askQuestion(c, { sessionId: s.session_id, questionId: q?.question_id });
+    await askQuestion(c, {
+      sessionId: s.session_id,
+      questionId: q?.question_id,
+    });
     await submitAnswer(c, {
       sessionId: s.session_id,
       questionId: q?.question_id,
@@ -293,7 +298,10 @@ describe('slot state machine', () => {
     const s = await startSession(c, { wizardId: 'solution-discovery' });
     const q = await planNextQuestion(c, { sessionId: s.session_id });
     expect(q?.slot).toBe('problem');
-    await askQuestion(c, { sessionId: s.session_id, questionId: q?.question_id });
+    await askQuestion(c, {
+      sessionId: s.session_id,
+      questionId: q?.question_id,
+    });
     await resolveQuestion(c, {
       sessionId: s.session_id,
       questionId: q?.question_id as string,
@@ -483,9 +491,9 @@ describe('readiness thresholds', () => {
     const report = await evaluateReadiness(c, s.session_id);
     expect(report.draft_ready).toBe(true);
     expect(report.approval_ready).toBe(false);
-    expect(
-      report.approval_blockers.some((b) => b.state === 'inferred'),
-    ).toBe(true);
+    expect(report.approval_blockers.some((b) => b.state === 'inferred')).toBe(
+      true,
+    );
 
     // Human confirmation of every required slot flips approval on.
     for (const slot of trace) {
@@ -518,7 +526,10 @@ describe('snapshots + resume briefing', () => {
 
     // Answer a couple of slots after the snapshot.
     const q1 = await planNextQuestion(c, { sessionId: s.session_id });
-    await askQuestion(c, { sessionId: s.session_id, questionId: q1?.question_id });
+    await askQuestion(c, {
+      sessionId: s.session_id,
+      questionId: q1?.question_id,
+    });
     await submitAnswer(c, {
       sessionId: s.session_id,
       questionId: q1?.question_id,
@@ -528,9 +539,9 @@ describe('snapshots + resume briefing', () => {
     const briefing = await resume(c, { sessionId: s.session_id });
     expect(briefing.from_version).toBe(1);
     expect(briefing.changed_slots.length).toBeGreaterThan(0);
-    expect(
-      briefing.changed_slots.find((x) => x.slot === q1?.slot)?.to,
-    ).toBe('inferred');
+    expect(briefing.changed_slots.find((x) => x.slot === q1?.slot)?.to).toBe(
+      'inferred',
+    );
     expect(briefing.new_messages.length).toBeGreaterThan(0);
     expect(briefing.summary).toMatch(/slot\(s\) changed/);
     // The briefing is durable on the transcript.
@@ -707,7 +718,10 @@ describe('wizard golden set', () => {
       },
     ]);
     const q = await planNextQuestion(c, { sessionId: s.session_id });
-    await askQuestion(c, { sessionId: s.session_id, questionId: q?.question_id });
+    await askQuestion(c, {
+      sessionId: s.session_id,
+      questionId: q?.question_id,
+    });
     const res = await submitAnswer(c, {
       sessionId: s.session_id,
       questionId: q?.question_id,

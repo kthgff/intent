@@ -73,7 +73,8 @@ export function deriveSlotState(
   if (live.length === 0) return 'missing';
   if (
     live.some(
-      (s) => s.status === 'disputed' || openDecisionStatementIds.has(s.statement_id),
+      (s) =>
+        s.status === 'disputed' || openDecisionStatementIds.has(s.statement_id),
     )
   ) {
     return 'conflicted';
@@ -160,11 +161,7 @@ export async function refreshSlot(
   if (row.state === 'not-applicable' || row.state === 'deferred') return row;
 
   const refs = row.statement_refs ?? [];
-  const statements = await boundStatements(
-    ctx.store,
-    ctx.workspace,
-    refs,
-  );
+  const statements = await boundStatements(ctx.store, ctx.workspace, refs);
   const open = await openDecisionStatementIds(ctx.store, ctx.workspace, refs);
   const state = deriveSlotState(statements, open);
   const confidence =
@@ -207,7 +204,10 @@ export async function bindStatementsToSlots(
     if (!row) {
       throw invalid(`answer targets unknown slot '${slot}' on ${sessionId}`);
     }
-    const merged = new Set([...(row.statement_refs ?? []), ...statements.map((s) => s.statement_id)]);
+    const merged = new Set([
+      ...(row.statement_refs ?? []),
+      ...statements.map((s) => s.statement_id),
+    ]);
     await ctx.store.upsertKnowledgeSlot({
       ...row,
       statement_refs: [...merged],
@@ -279,7 +279,9 @@ export function missingSlotRows(
 export function requireSlotSpec(cfg: WizardConfig, slot: string) {
   const spec = slotSpec(cfg, slot);
   if (!spec) {
-    throw invalid(`slot '${slot}' is not declared by wizard '${cfg.wizard_id}'`);
+    throw invalid(
+      `slot '${slot}' is not declared by wizard '${cfg.wizard_id}'`,
+    );
   }
   return spec;
 }

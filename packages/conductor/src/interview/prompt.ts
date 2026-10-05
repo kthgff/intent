@@ -83,7 +83,9 @@ export interface BuildQuestionPromptArgs {
   override?: string | undefined;
   eligible: EligibleSlotForPrompt[];
   /** Already-asked questions (never re-ask). */
-  asked?: { slot: string | null; question: string; status: string }[] | undefined;
+  asked?:
+    | { slot: string | null; question: string; status: string }[]
+    | undefined;
   /** Live statements the model may reference for context. */
   knownStatements?: { id: string; text: string }[] | undefined;
 }
@@ -110,7 +112,9 @@ export function buildQuestionPrompt(args: BuildQuestionPromptArgs): string {
     asked.length === 0
       ? ''
       : `\n## Already asked (NEVER re-ask)\n${asked
-          .map((a) => `- [${a.status}] ${a.slot ?? '(unscoped)'}: ${a.question}`)
+          .map(
+            (a) => `- [${a.status}] ${a.slot ?? '(unscoped)'}: ${a.question}`,
+          )
           .join('\n')}`;
   const known = args.knownStatements ?? [];
   const knownBlock =
