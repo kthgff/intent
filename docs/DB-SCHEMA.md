@@ -591,6 +591,13 @@ eval_results(                             -- append-only; re-run = new eval_run
   index becomes current atomically after all changed paths are complete;
   `building`/`failed` rows are never served as current. Historical code units
   remain addressable for citations and audit.
+- **Retrieval evaluations** (wp-110, `evaluateGoldenSet` in
+  `packages/kb/src/eval.ts`): `metrics` json carries `queries`, `k`,
+  `recall_at_k`, `relevant_file_recall_at_k`, `relevant_symbol_recall_at_k`,
+  `exact_recall`, `citation_valid`, `citation_fresh`,
+  `unauthorized_count` (ACL violations — **must be 0**),
+  `unsupported_claim_proxy`, `zero_result`, and `latency_ms` {avg,max}.
+  `index_heads` records the authorized commits the suite ran against.
 - **Explicit and inferred links differ**: workflow/tool-written links use
   `verification = verified`; model links begin `suggested` with confidence and
   evidence. Confidence ≥0.90 may produce visibly labeled `auto-verified`;

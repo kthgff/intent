@@ -29,7 +29,12 @@ import {
   type TokenValues,
 } from '@sprint-runner/core';
 import { createWorktree } from '@sprint-runner/gitops';
-import { assertRouteProvider, resolveRunRoute } from '@sprint-runner/prompts';
+import { createEmbedder, queryEvidence } from '@sprint-runner/kb';
+import {
+  assertRouteProvider,
+  renderEvidenceBundle,
+  resolveRunRoute,
+} from '@sprint-runner/prompts';
 import type { RunRequest } from '../contracts.js';
 import { ensureSubjectContainer } from '../envops/index.js';
 import { materializeTestEnvForRun } from '../envops/testenv.js';
@@ -216,6 +221,54 @@ async function buildTokens(
       ticket.repos.map((r) => [r, ctx.deps.config.repos[r]?.card ?? null]),
     );
     tokens.REPO_CARDS = JSON.stringify(cards);
+
+    // wp-110: {{EVIDENCE_BUNDLE}} — the authorized, cited retrieval
+    // bundle for code-aware stages (prd/design/testplan/implement/
+    // review). ACL = the ticket's own repos ∩ configured repos — a
+    // ticket can never pull code evidence outside its declared scope.
+    // Failure degrades to the explicit no-evidence block; it never
+    // fabricates and never aborts the launch over advisory context.
+    const EVIDENCE_TASK = {
+      prd: 'prd',
+      design: 'impact',
+      testplan: 'testplan',
+      implement: 'implement',
+      review: 'review',
+    } as const;
+    const task = EVIDENCE_TASK[req.stage as keyof typeof EVIDENCE_TASK];
+    if (task && ticket.repos.length > 0) {
+      try {
+        const authorized = ticket.repos.filter(
+          (r) => ctx.deps.config.repos[r] !== undefined,
+        );
+        const bundle = await queryEvidence(
+          ctx.deps.store,
+          {
+            workspace: ws.name,
+            subject: ticket.ticket_id,
+            task,
+            query: ticket.title,
+            repos: authorized,
+            source_types: ['code'],
+            commit_policy: 'current',
+            limit: 10,
+            token_limit: 4000,
+          },
+          {
+            authorizedRepos: authorized,
+            embedder: createEmbedder(
+              ctx.deps.config.semantic,
+              ctx.deps.config.secrets.OPENROUTER_API_KEY
+                ? { apiKey: ctx.deps.config.secrets.OPENROUTER_API_KEY }
+                : {},
+            ),
+          },
+        );
+        tokens.EVIDENCE_BUNDLE = renderEvidenceBundle(bundle);
+      } catch {
+        // Leave '' — the renderer emits the explicit no-evidence text.
+      }
+    }
   } else {
     tokens.TICKET_ID = req.subject;
   }

@@ -15,6 +15,7 @@
     "@sprint-runner/config": "workspace:*",
     "@sprint-runner/core": "workspace:*",
     "@sprint-runner/gitops": "workspace:*",
+    "@sprint-runner/kb": "workspace:*",
     "@sprint-runner/store": "workspace:*",
     "fastify": "^4.28.0",
     "yaml": "^2.5.0",

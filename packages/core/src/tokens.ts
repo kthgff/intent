@@ -71,6 +71,12 @@ export const PROMPT_TOKENS = [
    *  discovery wps — wp-144/145). */
   'RELEASE_MD',
   'BRIEF_INPUTS',
+  /** Authorized, cited `retrieval-evidence.json` slice (D37, wp-110) —
+   *  the bounded evidence bundle injected into code-aware stages
+   *  (prd, design, testplan, implement, review, alignment, incident).
+   *  Empty → an explicit "no relevant evidence" block, never a silent
+   *  empty string (ADAPTERS token table). */
+  'EVIDENCE_BUNDLE',
   /** Design-artifact stage inputs (wp-149): `MOCKUP_JSON` is the
    *  current component tree handed to the `mockup` stage for editing
    *  (empty on first draft); `MOCKUP_MODE` selects the generator mode

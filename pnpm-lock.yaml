@@ -54,6 +54,9 @@ importers:
       '@sprint-runner/gitops':
         specifier: workspace:*
         version: link:../gitops
+      '@sprint-runner/kb':
+        specifier: workspace:*
+        version: link:../kb
       '@sprint-runner/store':
         specifier: workspace:*
         version: link:../store
@@ -125,6 +128,9 @@ importers:
       '@sprint-runner/gitops':
         specifier: workspace:*
         version: link:../gitops
+      '@sprint-runner/kb':
+        specifier: workspace:*
+        version: link:../kb
       '@sprint-runner/lints':
         specifier: workspace:*
         version: link:../lints

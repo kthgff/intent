@@ -18,6 +18,9 @@ import {
   CHANGESET_ITEM_STATUSES,
   CHANGESET_STATUSES,
   CI_STATES,
+  CODE_EDGE_PREDICATES,
+  CODE_PARSE_STATUSES,
+  COMMIT_POLICIES,
   CONTAINER_STATES,
   COVERAGE_KINDS,
   DELIVERY_COMMITMENT_STATUSES,
@@ -35,6 +38,8 @@ import {
   ENTITY_SOURCES,
   EVAL_RUN_STATUSES,
   EVENT_NAMES,
+  EVIDENCE_FRESHNESS,
+  EVIDENCE_SOURCE_TYPES,
   EXECUTION_READINESSES,
   FEATURE_EXPOSURE_STATES,
   FEATURE_STATUSES,
@@ -76,6 +81,8 @@ import {
   RELEASE_ITEM_KINDS,
   RELEASE_NOTE_AUDIENCES,
   RELEASE_STATUSES,
+  REPO_INDEX_STATUSES,
+  RETRIEVAL_TASKS,
   REVIEW_ACTIONS,
   REVIEW_COMMENT_DISPOSITIONS,
   REVIEW_COMMENT_TYPES,
@@ -2072,3 +2079,216 @@ export const RouteDecisionSchema = z.object({
   source: enumOf(ROUTE_DECISION_SOURCES),
 });
 export type RouteDecision = z.infer<typeof RouteDecisionSchema>;
+
+// ---------- code intelligence / evidence plane (INTELLIGENCE §4, D37, wp-110) ----------
+
+/** A resolved retrieval head — repo + the commit SHA actually served.
+ *  Only a `repo_indexes.status = current` row (or, under
+ *  `commit_policy: allow-stale`, a `superseded` head) ever appears here. */
+export const IndexHeadSchema = z.object({
+  repo: z.string().min(1),
+  commit_sha: z.string().min(1),
+});
+export type IndexHead = z.infer<typeof IndexHeadSchema>;
+
+/** `repo_indexes` row — a commit-pinned index head (DB-SCHEMA). */
+export const RepoIndexRowSchema = z.object({
+  workspace: z.string().min(1),
+  repo: z.string().min(1),
+  commit_sha: z.string().min(1),
+  status: enumOf(REPO_INDEX_STATUSES),
+  parser_version: z.string().nullish(),
+  indexed_at: z.string().nullish(),
+  /** json rollup: {files, units, fallbacks, reused_files, reused_units,
+   *  edges, path_hashes} — diagnostics carry refs + counts, never source
+   *  secrets (wp-110 DoD). */
+  stats: z.record(z.unknown()).nullish(),
+});
+export type RepoIndexRow = z.infer<typeof RepoIndexRowSchema>;
+
+/** `code_units` row — a symbol/logical-unit (or bounded fallback chunk)
+ *  pinned to a commit SHA (DB-SCHEMA). `id` is a stable locator derived
+ *  from (workspace, repo, commit, path, line range). */
+export const CodeUnitRowSchema = z.object({
+  id: z.string().min(1),
+  workspace: z.string().min(1),
+  repo: z.string().min(1),
+  commit_sha: z.string().min(1),
+  path: z.string().min(1),
+  language: z.string().nullish(),
+  symbol: z.string().nullish(),
+  symbol_kind: z.string().nullish(),
+  start_line: z.number().int().nonnegative(),
+  end_line: z.number().int().nonnegative(),
+  /** sha256 of the unit's normalized content — the reuse key. */
+  content_hash: z.string().min(1),
+  content: z.string(),
+  parse_status: enumOf(CODE_PARSE_STATUSES),
+});
+export type CodeUnitRow = z.infer<typeof CodeUnitRowSchema>;
+
+/** `code_edges` row — a structural or explicit relation between code
+ *  refs, pinned to a commit SHA (DB-SCHEMA). Inferred edges carry
+ *  `confidence`; explicit workflow links do not need one. */
+export const CodeEdgeRowSchema = z.object({
+  workspace: z.string().min(1),
+  repo: z.string().min(1),
+  commit_sha: z.string().min(1),
+  subject_ref: z.string().min(1),
+  predicate: enumOf(CODE_EDGE_PREDICATES),
+  object_ref: z.string().min(1),
+  evidence: z.string().nullish(),
+  /** explicit | human | model | tool (mirrors relations.source). */
+  source: z.string().nullish(),
+  confidence: z.number().min(0).max(1).nullish(),
+});
+export type CodeEdgeRow = z.infer<typeof CodeEdgeRowSchema>;
+
+/** `retrieval_evaluations` row — one golden-set run's metrics
+ *  (DB-SCHEMA; INTELLIGENCE §7 measures). `metrics.unauthorized_count`
+ *  MUST be 0. */
+export const RetrievalEvaluationRowSchema = z.object({
+  id: z.string().min(1),
+  suite_version: z.string().nullish(),
+  task: z.string().nullish(),
+  index_heads: z.array(IndexHeadSchema).nullish(),
+  metrics: z.record(z.unknown()).nullish(),
+  created_at: z.string().nullish(),
+});
+export type RetrievalEvaluationRow = z.infer<
+  typeof RetrievalEvaluationRowSchema
+>;
+
+/** Retrieval request — the smallest useful bundle's ask (SCHEMAS §17). */
+export const RetrievalRequestSchema = z.object({
+  workspace: z.string().min(1),
+  subject: z.string().nullish(),
+  task: enumOf(RETRIEVAL_TASKS),
+  query: z.string(),
+  /** Repos the caller *wants*; intersected with the ACL before any
+   *  strategy runs (INTELLIGENCE §2.4). */
+  repos: z.array(z.string()).default([]),
+  source_types: z.array(enumOf(EVIDENCE_SOURCE_TYPES)).default(['code']),
+  commit_policy: enumOf(COMMIT_POLICIES).default('current'),
+  limit: z.number().int().positive().default(20),
+  token_limit: z.number().int().positive().default(8000),
+});
+export type RetrievalRequest = z.infer<typeof RetrievalRequestSchema>;
+
+/** Per-strategy contributions merged into `final` (SCHEMAS §17). A
+ *  strategy that did not contribute is absent, not zero. */
+export const RetrievalScoresSchema = z.object({
+  explicit: z.number().nullish(),
+  exact: z.number().nullish(),
+  fts: z.number().nullish(),
+  semantic: z.number().nullish(),
+  structural: z.number().nullish(),
+  final: z.number(),
+});
+export type RetrievalScores = z.infer<typeof RetrievalScoresSchema>;
+
+/** One cited evidence result (SCHEMAS §17). Code evidence requires
+ *  repo/commit/path/line-range/content_hash/freshness — enforced by
+ *  {@link RetrievalEvidenceSchema}. */
+export const RetrievalEvidenceResultSchema = z.object({
+  evidence_id: z.string().min(1),
+  source_type: enumOf(EVIDENCE_SOURCE_TYPES),
+  object_ref: z.string().min(1),
+  repo: z.string().nullish(),
+  commit_sha: z.string().nullish(),
+  path: z.string().nullish(),
+  start_line: z.number().int().nonnegative().nullish(),
+  end_line: z.number().int().nonnegative().nullish(),
+  symbol: z.string().nullish(),
+  content_hash: z.string().nullish(),
+  /** Bounded, sanitized excerpt — DATA, never instructions. */
+  excerpt: z.string(),
+  freshness: enumOf(EVIDENCE_FRESHNESS),
+  scores: RetrievalScoresSchema,
+  why: z.array(z.string()).default([]),
+  relation_path: z.array(z.string()).nullish(),
+});
+export type RetrievalEvidenceResult = z.infer<
+  typeof RetrievalEvidenceResultSchema
+>;
+
+/** Retrieval-evidence bundle (SCHEMAS §17) — emitted before any code/
+ *  delivery-intelligence result enters a stage prompt. Fail-closed:
+ *  malformed or uncited code results block the artifact; an empty result
+ *  set must carry an explicit `zero_result_reason`. */
+export const RetrievalEvidenceSchema = z
+  .object({
+    schema: SchemaVersionSchema,
+    request: RetrievalRequestSchema,
+    index_heads: z.array(IndexHeadSchema),
+    results: z.array(RetrievalEvidenceResultSchema),
+    zero_result_reason: z.string().nullish(),
+    generated_at: z.string(),
+  })
+  .superRefine((ev, ctx) => {
+    ev.results.forEach((r, i) => {
+      if (r.source_type !== 'code') return;
+      for (const field of [
+        'repo',
+        'commit_sha',
+        'path',
+        'content_hash',
+      ] as const) {
+        const v = r[field];
+        if (v === null || v === undefined || v === '') {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['results', i, field],
+            message: `code evidence requires ${field}`,
+          });
+        }
+      }
+      if (r.start_line === null || r.start_line === undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['results', i, 'start_line'],
+          message: 'code evidence requires a line range',
+        });
+      }
+      if (r.end_line === null || r.end_line === undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['results', i, 'end_line'],
+          message: 'code evidence requires a line range',
+        });
+      }
+    });
+    if (ev.results.length === 0 && !ev.zero_result_reason) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['zero_result_reason'],
+        message: 'an empty result set must state zero_result_reason',
+      });
+    }
+  });
+export type RetrievalEvidence = z.infer<typeof RetrievalEvidenceSchema>;
+
+/** Thrown when a retrieval-evidence bundle fails closed. */
+export class EvidenceError extends Error {
+  readonly issues: z.ZodIssue[];
+  constructor(issues: z.ZodIssue[]) {
+    super(
+      `retrieval-evidence failed validation: ${issues
+        .map((i) => `${i.path.join('.')} ${i.message}`)
+        .join('; ')}`,
+    );
+    this.name = 'EvidenceError';
+    this.issues = issues;
+  }
+}
+
+/**
+ * Validate a retrieval-evidence bundle, fail-closed (AGENTS "malformed
+ * structured output blocks the pipeline"). Returns the parsed bundle or
+ * throws {@link EvidenceError}.
+ */
+export function validateRetrievalEvidence(value: unknown): RetrievalEvidence {
+  const parsed = RetrievalEvidenceSchema.safeParse(value);
+  if (!parsed.success) throw new EvidenceError(parsed.error.issues);
+  return parsed.data;
+}

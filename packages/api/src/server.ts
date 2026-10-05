@@ -79,6 +79,7 @@ import { z } from 'zod';
 import { registerBoardRoutes } from './board.js';
 import { registerDesignRoutes } from './design.js';
 import { lineDiff } from './diff.js';
+import { registerEvidenceRoutes } from './evidence.js';
 import { deviationMetrics, gateDwell } from './metrics.js';
 import { registerReviewRoutes } from './review.js';
 import { StreamHub } from './sse.js';
@@ -2489,6 +2490,23 @@ export function createServer(opts: ServerOptions): ApiServer {
     actor,
     nowIso: now,
     workspace,
+  });
+
+  // ------------------------------------------------------------------
+  // /evidence, /repositories/<repo>/index — D37 evidence surface (wp-110)
+  // ------------------------------------------------------------------
+  registerEvidenceRoutes(app, {
+    store,
+    config,
+    workspaceRoot: (name) =>
+      conductor.deps.workspaces.find((w) => w.name === name)?.rootPath,
+    repoPath: (_wsName, repo) => config.repos[repo]?.path,
+    notify: (e) =>
+      conductor.deps.notify?.({
+        type: e.type as 'index_status',
+        payload: e.payload,
+      }),
+    now,
   });
 
   return app;

@@ -30,6 +30,13 @@ under the hood) | ✅ `pnpm add` clean (~41 packages); `pipeline('feature-extrac
   zero-vector code paths). Fully functional, no deps, no network.
 - `semantic.embedding_model` overrides the provider default in either
   live mode.
+- wp-110 retrieval: code-unit embeddings are content-addressed
+  (`object_ref = codecontent:<sha256>`), so unchanged units across
+  commits share one row and never re-embed. `queryEvidence` maps
+  `nearestEmbeddings` hits back through `findCodeUnitsByHash` scoped to
+  the authorized heads — vectors never bypass the ACL. With
+  `semantic.embeddings: off` the semantic strategy is skipped entirely;
+  exact/FTS/explicit/structural still run.
 
 ## Caveats
 
