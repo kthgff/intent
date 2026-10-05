@@ -16,6 +16,7 @@ export {
   pinnedTable,
 } from './coverage.js';
 export { structuredDocLint } from './doc-lint.js';
+export * from './eval/index.js';
 export {
   type ExtractedStatementLike,
   type PreservationViolation,
@@ -36,3 +37,4 @@ export {
   threadIdFor,
 } from './fingerprint.js';
 export { type SpecLintResult, renderSpecLint, specLint } from './spec-lint.js';
+export { securityFindingLint } from './security-findings.js';

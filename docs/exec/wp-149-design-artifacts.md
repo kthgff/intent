@@ -2,7 +2,7 @@
 schema: 1
 id: wp-149
 title: Design artifacts — structured mockups, visual ACs, design approvals + Mockups UI
-status: todo
+status: done
 priority: high
 depth: deep
 repos: []

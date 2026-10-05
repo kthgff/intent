@@ -29,6 +29,7 @@ import {
   type PrComment,
   type PrCreateOptions,
   type PrInfo,
+  type PrMergeOptions,
   type ShepherdCtx,
   pollOpenPrs,
 } from '../src/index.js';
@@ -160,7 +161,10 @@ class StubGh implements GhClient {
   comments = new Map<string, PrComment[]>();
   created: { head: string; title: string }[] = [];
   createdUrl = 'https://github.com/acme/widgets/pull/42';
-  calls = { checks: 0, view: 0, comments: 0, create: 0 };
+  calls = { checks: 0, view: 0, comments: 0, create: 0, merge: 0 };
+  /** Repos (by pr url) that report a merge queue. */
+  queues = new Set<string>();
+  merges: { url: string; opts: PrMergeOptions | undefined }[] = [];
 
   async prChecks(url: string): Promise<PrCheck[]> {
     this.calls.checks++;
@@ -181,6 +185,13 @@ class StubGh implements GhClient {
   }
   async prUrlForHead(): Promise<string | null> {
     return null;
+  }
+  async prMerge(url: string, opts?: PrMergeOptions): Promise<void> {
+    this.calls.merge++;
+    this.merges.push({ url, opts });
+  }
+  async mergeQueue(url: string): Promise<boolean> {
+    return this.queues.has(url);
   }
 }
 
