@@ -221,6 +221,11 @@ export async function materialize(
         depends_on: frontmatter.depends_on,
         source,
         source_ref: sourceRef,
+        // §15.7 taxonomy (wp-151): the import path stamps origin so no
+        // ticket is left unclassified — a tracker issue is human-filed
+        // work (`manual`); triage's classification block fills
+        // `work_type` (and may override origin, e.g. `review`).
+        origin: 'manual',
         forced: frontmatter.forced,
         spec_score: null,
         spec_hash: sha256(contents),

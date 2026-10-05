@@ -136,6 +136,7 @@ describe('auth', () => {
   const ROUTES: [string, string][] = [
     ['GET', '/api/v1/inbox'],
     ['GET', '/api/v1/tickets'],
+    ['POST', '/api/v1/tickets'],
     ['GET', '/api/v1/tickets/ws/SR-0001'],
     ['GET', '/api/v1/tickets/ws/SR-0001/events'],
     ['POST', '/api/v1/tickets/ws/SR-0001/answers'],

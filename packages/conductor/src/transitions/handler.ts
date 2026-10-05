@@ -20,17 +20,29 @@ import { basename, isAbsolute, join, resolve } from 'node:path';
 import type { EffectiveConfig } from '@sprint-runner/config';
 import {
   type EventRow,
+  type EvidenceGate,
+  type EvidenceRequirement,
   type GateMode,
+  INTAKE_QUESTION_PREFIX,
   REVIEW_PASSES,
   type RunResult,
   type RunRow,
+  type ScopeVerdict,
   type Sentinel,
+  type TicketOrigin,
   type TicketRow,
   type TicketStatus,
+  type TicketWorkType,
+  evaluateEvidence,
+  gatherEvidenceSnapshot,
+  latestClassification,
+  needsScopeApproval,
+  severityRule,
 } from '@sprint-runner/core';
 import { coverageLint, structuredDocLint } from '@sprint-runner/lints';
 import { specLint } from '@sprint-runner/lints';
 import { escalationModelFor } from '@sprint-runner/prompts';
+import { type ChangesCtx, createChangeset } from '../changes/index.js';
 import {
   type ApplyStatusOptions,
   type NextTransition,
@@ -227,6 +239,56 @@ export class RealTransitionHandler implements TransitionHandler {
           return { stage: 'triage' };
         }
         case 'triage': {
+          // Parked on the scope-proposal gate? (wp-151 bug≠scope: the
+          // ticket stays at triage while a scope proposal awaits a human
+          // decision; the clearance IS the approval.)
+          const scope = await ctx.store.getGateItem({
+            workspace: ctx.workspace,
+            subject: id,
+            gate: 'scope-proposal',
+          });
+          if (scope && !scope.cleared_at) return null;
+          if (scope?.cleared_at) {
+            const tools = this.#statusTools(ctx);
+            // A `gate_overridden` row means the human DECLINED the
+            // proposal — the work is out of scope, so escalate rather
+            // than absorb it (bug≠scope, §15.7).
+            const rejected = (
+              await ctx.store.listEvents({
+                workspace: ctx.workspace,
+                ticket_id: id,
+                event: 'gate_overridden',
+              })
+            ).some(
+              (e) =>
+                (e.data as Record<string, unknown>)?.gate === 'scope-proposal',
+            );
+            await clearedGateEvent('scope-proposal');
+            if (rejected) {
+              await this.#setStatus(ctx, id, 'escalated', {
+                data: { reason: 'scope proposal declined' },
+              });
+              await tools.surfaceGateItem({
+                subject: id,
+                gate: 'escalated',
+                kind: 'escalation',
+                payload: { reason: 'scope-proposal declined', scope: true },
+              });
+              await emitEvent(tools, {
+                ticketId: id,
+                event: 'escalated',
+                data: { reason: 'scope-proposal declined' },
+              });
+              return null;
+            }
+            // Re-evaluate the intake policy now that scope is approved —
+            // evidence still has to hold.
+            const proceed = await this.#intakeClassify(tools, id, null);
+            if (!proceed) return null;
+            await this.#setStatus(ctx, id, 'ready');
+            status = 'ready';
+            continue;
+          }
           // Parked on the split-plan gate? (status stays triage while a
           // split plan awaits approval — CONDUCTOR split materialization)
           const item = await ctx.store.getGateItem({
@@ -260,6 +322,24 @@ export class RealTransitionHandler implements TransitionHandler {
         case 'test-approved': {
           const state = await gateCleared('test-approved');
           if (state === 'open') return null;
+          // wp-151: the spec-complete boundary also carries the policy's
+          // `test-approved` evidence (per-type completion evidence). A
+          // cleared — or mode-suppressed — gate is NOT a pass while the
+          // requirements are unmet (never a silent pass).
+          const missing = await this.#missingEvidence(
+            ctx,
+            ticket,
+            'test-approved',
+          );
+          if (missing.length > 0) {
+            await this.#parkForEvidenceGate(
+              ctx,
+              ticket,
+              'test-approved',
+              missing,
+            );
+            return null;
+          }
           // Stale-spec check (CONDUCTOR special paths) runs BEFORE the
           // gate_approved event — a stale ticket must not stamp the
           // approval into the ledger every tick while it waits.
@@ -297,6 +377,14 @@ export class RealTransitionHandler implements TransitionHandler {
         }
         case 'approved': {
           if ((await gateCleared('approved')) !== 'cleared') return null;
+          // wp-151: the merge boundary carries the policy's `approved`
+          // evidence (verified-fix). Unmet ⇒ re-open the gate with the
+          // missing list — the PR never opens on unproven work.
+          const missing = await this.#missingEvidence(ctx, ticket, 'approved');
+          if (missing.length > 0) {
+            await this.#parkForEvidenceGate(ctx, ticket, 'approved', missing);
+            return null;
+          }
           await clearedGateEvent('approved');
           // "approve & open PR" — push + gh pr create is the shepherd's
           // job; pr-open is transient (→ ci-watch when checks register).
@@ -586,6 +674,10 @@ export class RealTransitionHandler implements TransitionHandler {
           parent: frontmatter.parent ?? null,
           depends_on: frontmatter.depends_on,
           source: 'interview',
+          // §15.7 (wp-151): a wizard/interview-authored ticket is
+          // human-filed work — origin `manual`; triage classification
+          // fills `work_type` at the intake gate.
+          origin: 'manual',
           forced: frontmatter.forced,
           spec_score: null,
           spec_hash: sha256(raw ?? ''),
@@ -749,6 +841,13 @@ export class RealTransitionHandler implements TransitionHandler {
           });
         }
       }
+      // §15.7 intake gate (wp-151): record the classification (work_type
+      // × origin) and enforce the per-type intake evidence + the
+      // bug≠scope rule BEFORE the ticket may become `ready`. A missing
+      // slot parks at needs-info; over-scope work parks on the
+      // scope-proposal gate — never a silent pass.
+      const proceed = await this.#intakeClassify(tools, id, outcome.run.id);
+      if (!proceed) return;
       await tools.applyTicketStatus({
         ticketId: id,
         status: 'ready',
@@ -758,7 +857,6 @@ export class RealTransitionHandler implements TransitionHandler {
       // `ready` → auto prd-draft: the next CLAIM pass runs it
       // (nextStage ready → prd). Nothing to queue here.
     },
-
     triageNeedsInfo: async ({ outcome, tools, payload }) => {
       const id = outcome.run.ticket_id ?? outcome.run.subject;
       const prior = (
@@ -1851,6 +1949,400 @@ export class RealTransitionHandler implements TransitionHandler {
       data: { kind: 'stale-spec' },
     });
     return true;
+  }
+
+  // ------------------------------------------------------------------
+  // Ticket taxonomy enforcement (PRD §15.7, wp-151)
+  //
+  // The policy table lives in @sprint-runner/core (taxonomy.ts); this
+  // is the conductor *enforcing* it at the EVIDENCE_GATES boundaries.
+  // No per-type branches: every decision reads WORK_TYPE_POLICIES.
+  // ------------------------------------------------------------------
+
+  /**
+   * The intake classification stage. Records `work_type`/`origin`/
+   * `severity` (row columns) from the newest triage.json
+   * `classification` block, then enforces the `intake`-gate evidence —
+   * returning true only when the ticket may become `ready`.
+   *
+   * Fail-closed at every turn:
+   *   - a malformed classification block → `repair` gate (never a guess);
+   *   - missing intake slots → `needs-info` + synthesized
+   *     `intake:<key>` questions (never a silent default);
+   *   - a `new-capability`/`mixed` verdict (or a story without approved
+   *     scope) → a scope proposal (board/ChangeSet), not silent scope.
+   */
+  async #intakeClassify(
+    tools: TransitionTools,
+    id: string,
+    runId: string | null,
+  ): Promise<boolean> {
+    const row = await tools.store.getTicket({
+      workspace: tools.workspace,
+      ticket_id: id,
+    });
+    if (!row) return false;
+    const cls = await latestClassification(tools.store, tools.workspace, id);
+    if (cls.kind === 'invalid') {
+      // Malformed structured output blocks the pipeline (AGENTS
+      // fail-closed) — never infer a work type from a broken block.
+      await tools.surfaceGateItem({
+        subject: id,
+        gate: 'repair',
+        kind: 'repair',
+        blockedAgent: true,
+        payload: { reason: `triage classification invalid: ${cls.error}` },
+      });
+      await emitEvent(tools, {
+        ticketId: id,
+        stage: 'triage',
+        run: runId,
+        event: 'run_failed',
+        data: { reason: `classification invalid: ${cls.error}` },
+      });
+      return false;
+    }
+    // Tickets created by the import/interview/split paths carry an
+    // origin; those MUST be classified. Legacy rows seeded straight
+    // into the store (pre-taxonomy) are exempt so the pipeline they
+    // exercised stays runnable.
+    const managed = row.origin !== null || row.work_type !== null;
+    if (cls.kind === 'absent' && !managed) return true;
+
+    let workType: TicketWorkType | null =
+      (row.work_type as TicketWorkType | null) ?? null;
+    let origin: TicketOrigin | null =
+      (row.origin as TicketOrigin | null) ?? null;
+    let severity: string | null = row.severity ?? null;
+    let verdict: ScopeVerdict | null = null;
+    let rationale: string | null = null;
+    if (cls.kind === 'ok') {
+      workType = cls.value.work_type as TicketWorkType;
+      origin = (cls.value.origin as TicketOrigin | null) ?? origin ?? 'manual';
+      severity = cls.value.severity ?? severity;
+      verdict = cls.value.scope_verdict as ScopeVerdict;
+      rationale = cls.value.rationale ?? null;
+    } else if (managed) {
+      // Taxonomy-managed but no classification block — the intake agent
+      // failed to classify. Fail closed: ask for it.
+      await this.#parkForIntake(tools, id, runId, [], 'classification');
+      return false;
+    }
+    // Priority ≠ severity (§15.7): severity is forbidden where it could
+    // only mean "importance" — drop it rather than let it drift.
+    if (
+      workType !== null &&
+      severity !== null &&
+      severityRule(workType, origin) === 'forbidden'
+    ) {
+      severity = null;
+    }
+    await tools.store.upsertTicket({
+      ...row,
+      work_type: workType,
+      origin,
+      severity: severity as TicketRow['severity'],
+      updated_at: tools.now().toISOString(),
+    });
+    await emitEvent(tools, {
+      ticketId: id,
+      stage: 'triage',
+      run: runId,
+      event: 'note_added',
+      data: {
+        kind: 'classification',
+        work_type: workType,
+        origin,
+        severity,
+        scope_verdict: verdict,
+        rationale,
+        via: cls.kind,
+      },
+    });
+
+    // Intake-gate evidence: required intake slots + severity + origin
+    // rules. Missing ⇒ a needs-info round, never a silent pass.
+    const snapshot = await gatherEvidenceSnapshot(
+      tools.store,
+      tools.workspace,
+      {
+        ticket_id: id,
+        work_type: workType,
+        origin,
+        severity,
+        parent: row.parent ?? null,
+        feature: row.feature ?? null,
+      },
+    );
+    const intake = evaluateEvidence(workType, origin, 'intake', snapshot);
+    if (intake.missing.length > 0) {
+      await this.#parkForIntake(tools, id, runId, intake.missing, 'evidence');
+      return false;
+    }
+
+    // Bug ≠ scope change (§15.7): new capability rides the board/
+    // ChangeSet path; a cleared scope proposal IS the approval.
+    const scopeApproved = await this.#scopeApproved(tools, id);
+    if (needsScopeApproval(workType, origin, verdict, scopeApproved)) {
+      await this.#proposeScope(tools, id, runId, {
+        workType,
+        origin,
+        verdict,
+        rationale,
+      });
+      return false;
+    }
+    return true;
+  }
+
+  /** Park at `needs-info` with the unmet intake requirements surfaced as
+   *  gate payload + synthesized `intake:<key>` questions (the wizard
+   *  answers them; answered `intake:*` questions satisfy the check). */
+  async #parkForIntake(
+    tools: TransitionTools,
+    id: string,
+    runId: string | null,
+    missing: EvidenceRequirement[],
+    reason: 'evidence' | 'classification',
+  ): Promise<void> {
+    const questions = missing
+      .filter((r) => r.check.kind === 'intake')
+      .map((r) => ({
+        id: `${INTAKE_QUESTION_PREFIX}${(r.check as { key: string }).key}`,
+        question: r.label,
+        why: 'required by the work-type intake policy (§15.7)',
+        format: 'text' as const,
+        options: [],
+        default: null,
+        allow_other: false,
+        status: 'open' as const,
+        answer: null,
+        auto: false,
+      }));
+    if (runId !== null && questions.length > 0) {
+      // Persist the synthesized questions onto this run's triage.json so
+      // the answers path can answer them (D29 — artifacts are rows).
+      const raw = await tools.getArtifactText(runId, 'triage.json');
+      let doc: { questions?: unknown[] } = {};
+      try {
+        doc = raw ? (JSON.parse(raw) as typeof doc) : {};
+      } catch {
+        doc = {}; // malformed artifact — park anyway, never guess
+      }
+      const existingIds = new Set(
+        (doc.questions ?? []).map((q) => (q as { id?: string }).id),
+      );
+      doc.questions = [
+        ...(doc.questions ?? []),
+        ...questions.filter((q) => !existingIds.has(q.id)),
+      ];
+      await tools.putArtifact(
+        runId,
+        'triage.json',
+        `${JSON.stringify(doc, null, 2)}\n`,
+      );
+    }
+    const payload = {
+      gate: 'intake',
+      reason,
+      missing: missing.map((r) => ({
+        id: r.id,
+        gate: r.gate,
+        label: r.label,
+        check: r.check,
+      })),
+      questions,
+    };
+    await tools.applyTicketStatus({
+      ticketId: id,
+      status: 'needs-info',
+      ...(runId ? { run: runId } : {}),
+      data: { gate: 'intake', reason, missing: missing.map((r) => r.id) },
+    });
+    await tools.surfaceGateItem({
+      subject: id,
+      gate: 'needs-info',
+      kind: 'question',
+      payload,
+    });
+    await emitEvent(tools, {
+      ticketId: id,
+      stage: 'triage',
+      run: runId,
+      event: 'question_asked',
+      data: {
+        gate: 'intake',
+        reason,
+        count: missing.length,
+        missing: missing.map((r) => r.id),
+      },
+    });
+  }
+
+  /** Has the scope-proposal gate already been cleared? The clearance IS
+   *  the approval (taxonomy.ts `needsScopeApproval`). */
+  async #scopeApproved(tools: TransitionTools, id: string): Promise<boolean> {
+    const item = await tools.store.getGateItem({
+      workspace: tools.workspace,
+      subject: id,
+      gate: 'scope-proposal',
+    });
+    return item !== null && item.cleared_at !== null;
+  }
+
+  /** Route over-scope work to the scope-proposal path: a draft ChangeSet
+   *  (the durable proposal) + a `scope-proposal` gate carrying the
+   *  verdict + rationale. The ticket stays at `triage` until the gate
+   *  clears — the work is never silently absorbed. */
+  async #proposeScope(
+    tools: TransitionTools,
+    id: string,
+    runId: string | null,
+    info: {
+      workType: TicketWorkType | null;
+      origin: TicketOrigin | null;
+      verdict: ScopeVerdict | null;
+      rationale: string | null;
+    },
+  ): Promise<void> {
+    const row = await tools.store.getTicket({
+      workspace: tools.workspace,
+      ticket_id: id,
+    });
+    const ticketMd = (await tools.getDocText(id, 'ticket.md')) ?? '';
+    const request = `${row?.title ?? id}\n\n${ticketMd}`.trim();
+    let changesetId: string | null = null;
+    try {
+      const ctx: ChangesCtx = {
+        workspace: tools.workspace,
+        store: tools.store,
+        actor: tools.actor,
+        now: tools.now,
+      };
+      const cs = await createChangeset(ctx, {
+        request,
+        title: `Scope proposal — ${row?.title ?? id}`,
+        classification: 'addition',
+        createdBy: tools.actor,
+        items: [{ subject: id, doc: 'ticket.md' }],
+      });
+      changesetId = cs.changeset_id;
+    } catch (e) {
+      // Fail-closed but non-blocking: the gate still carries the
+      // proposal so a human can act; the ChangeSet defect surfaces as a
+      // repair item rather than wedging the ticket.
+      await tools.surfaceGateItem({
+        subject: id,
+        gate: 'repair',
+        kind: 'repair',
+        payload: {
+          reason: `scope-proposal changeset failed: ${(e as Error).message}`,
+        },
+      });
+    }
+    // Surface once — a re-run of triage must not duplicate the proposal.
+    const existing = await tools.store.getGateItem({
+      workspace: tools.workspace,
+      subject: id,
+      gate: 'scope-proposal',
+    });
+    if (existing && !existing.cleared_at) return;
+    await tools.surfaceGateItem({
+      subject: id,
+      gate: 'scope-proposal',
+      kind: 'approval',
+      payload: {
+        work_type: info.workType,
+        origin: info.origin,
+        scope_verdict: info.verdict,
+        rationale: info.rationale,
+        changeset_id: changesetId,
+        request,
+      },
+    });
+    await emitEvent(tools, {
+      ticketId: id,
+      stage: 'triage',
+      run: runId,
+      event: 'note_added',
+      data: {
+        kind: 'scope-proposal',
+        scope_verdict: info.verdict,
+        work_type: info.workType,
+        origin: info.origin,
+        changeset_id: changesetId,
+      },
+    });
+  }
+
+  /** The policy requirements still unmet for an evidence gate, using
+   *  the row's recorded taxonomy (set at intake). */
+  async #missingEvidence(
+    ctx: TransitionContext,
+    ticket: TicketRow,
+    gate: EvidenceGate,
+  ): Promise<EvidenceRequirement[]> {
+    const row =
+      (await ctx.store.getTicket({
+        workspace: ctx.workspace,
+        ticket_id: ticket.ticket_id,
+      })) ?? ticket;
+    const snapshot = await gatherEvidenceSnapshot(ctx.store, ctx.workspace, {
+      ticket_id: row.ticket_id,
+      work_type: row.work_type ?? null,
+      origin: row.origin ?? null,
+      severity: row.severity ?? null,
+      parent: row.parent ?? null,
+      feature: row.feature ?? null,
+    });
+    return evaluateEvidence(
+      (row.work_type as TicketWorkType | null) ?? null,
+      (row.origin as TicketOrigin | null) ?? null,
+      gate,
+      snapshot,
+    ).missing;
+  }
+
+  /** Surface unmet completion evidence on the gate (never a silent
+   *  pass). Re-opens a cleared gate so the human must address it; an
+   *  already-open gate is left as-is (no notification/event spam). */
+  async #parkForEvidenceGate(
+    ctx: TransitionContext,
+    ticket: TicketRow,
+    gate: EvidenceGate,
+    missing: EvidenceRequirement[],
+  ): Promise<void> {
+    const existing = await ctx.store.getGateItem({
+      workspace: ctx.workspace,
+      subject: ticket.ticket_id,
+      gate,
+    });
+    if (existing && !existing.cleared_at) return;
+    const tools = this.#statusTools(ctx);
+    await tools.surfaceGateItem({
+      subject: ticket.ticket_id,
+      gate,
+      kind: gateKindFor(gate),
+      priority: ticket.priority as never,
+      payload: {
+        gate,
+        missing: missing.map((r) => ({
+          id: r.id,
+          gate: r.gate,
+          label: r.label,
+          check: r.check,
+        })),
+      },
+    });
+    await emitEvent(tools, {
+      ticketId: ticket.ticket_id,
+      event: 'note_added',
+      data: {
+        kind: 'evidence-missing',
+        gate,
+        missing: missing.map((r) => r.id),
+      },
+    });
   }
 
   /** Answers committed into triage.json/design.json on gate clear →

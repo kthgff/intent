@@ -43,17 +43,32 @@ import {
 } from '@sprint-runner/config';
 import type { EffectiveConfig } from '@sprint-runner/config';
 import {
+  APPROVED_SCOPE_ORIGINS,
   BOARD_ITEM_KINDS,
   type BoardItem,
+  DEPTH_TIERS,
   DOC_KINDS,
   type DocKind,
   type EventName,
   type GateItem,
   RECONCILIATION_DECISIONS,
   type Store,
+  TICKET_ORIGINS,
+  TICKET_PRIORITIES,
+  TICKET_WORK_TYPES,
+  type TicketOrigin,
   type TicketPriority,
   type TicketRow,
   type TicketStatus,
+  type TicketWorkType,
+  WORK_TYPE_POLICIES,
+  directCreateAllowed,
+  evaluateEvidence,
+  evidenceFor,
+  gatherEvidenceSnapshot,
+  latestClassification,
+  needsScopeApproval,
+  severityRule,
 } from '@sprint-runner/core';
 import Fastify, {
   type FastifyInstance,
@@ -62,6 +77,7 @@ import Fastify, {
 } from 'fastify';
 import YAML from 'yaml';
 import { z } from 'zod';
+import { registerDesignRoutes } from './design.js';
 import { lineDiff } from './diff.js';
 import { registerReviewRoutes } from './review.js';
 import { StreamHub } from './sse.js';
@@ -165,6 +181,29 @@ const ConvertBoardBodySchema = z
     workspace: WorkspaceNameSchema,
     board: z.string().optional(),
     to: z.enum(['enhancement', 'modernization', 'quality']).optional(),
+  })
+  .passthrough();
+
+/** §15.7 direct ticket creation (wp-151). `work_type` is required; the
+ *  route enforces the direct-create rules before any row is written. */
+const CreateTicketBodySchema = z
+  .object({
+    workspace: WorkspaceNameSchema,
+    title: z.string().min(1),
+    work_type: z.string().min(1),
+    origin: z.string().optional(),
+    severity: z.string().optional(),
+    priority: z.string().optional(),
+    depth: z.string().optional(),
+    backend: z.string().optional(),
+    model: z.string().optional(),
+    repos: z.array(z.string()).optional(),
+    body: z.string().optional(),
+    feature: z.string().optional(),
+    parent: z.string().optional(),
+    /** Approved-scope evidence for types that may not be direct-created
+     *  (`story`): the RS/board proposal that authorizes the work. */
+    scope_ref: z.string().optional(),
   })
   .passthrough();
 
@@ -458,6 +497,70 @@ export function createServer(opts: ServerOptions): ApiServer {
     const t = await store.getTicket({ workspace: ws, ticket_id: ticketId });
     if (!t) throw notFound(`unknown ticket '${ws}/${ticketId}'`);
     return t;
+  }
+
+  /**
+   * The Ticket Workbench payload (§15.7, wp-151) — the ticket's
+   * taxonomy + per-type tabs + the policy evidence checklist, computed
+   * by the SAME policy functions the conductor enforces (taxonomy.ts),
+   * so the UI can never drift from the gate behavior.
+   */
+  async function workbenchFor(wsName: string, row: TicketRow) {
+    const workType = (row.work_type as TicketWorkType | null) ?? null;
+    const origin = (row.origin as TicketOrigin | null) ?? null;
+    const snapshot = await gatherEvidenceSnapshot(store, wsName, {
+      ticket_id: row.ticket_id,
+      work_type: workType,
+      origin,
+      severity: row.severity ?? null,
+      parent: row.parent ?? null,
+      feature: row.feature ?? null,
+    });
+    const policy = workType === null ? null : WORK_TYPE_POLICIES[workType];
+    const evaluated = new Map<string, boolean>();
+    const missing: string[] = [];
+    for (const gate of ['intake', 'test-approved', 'approved'] as const) {
+      const verdict = evaluateEvidence(workType, origin, gate, snapshot);
+      for (const r of verdict.satisfied) evaluated.set(r.id, true);
+      for (const r of verdict.missing) {
+        evaluated.set(r.id, false);
+        missing.push(r.id);
+      }
+    }
+    const scopeGate = await store.getGateItem({
+      workspace: wsName,
+      subject: row.ticket_id,
+      gate: 'scope-proposal',
+    });
+    const cls = await latestClassification(store, wsName, row.ticket_id);
+    const scopeVerdict =
+      cls.kind === 'ok' ? (cls.value.scope_verdict as string) : null;
+    return {
+      work_type: workType,
+      origin,
+      severity: row.severity ?? null,
+      severity_rule:
+        workType === null ? 'forbidden' : severityRule(workType, origin),
+      direct_create: workType === null ? false : directCreateAllowed(workType),
+      scope_verdict: scopeVerdict,
+      scope_approval_needed: needsScopeApproval(
+        workType,
+        origin,
+        scopeVerdict as never,
+        scopeGate !== null && scopeGate.cleared_at !== null,
+      ),
+      summary: policy?.summary ?? null,
+      tabs: policy?.tabs ?? ['type'],
+      intake: policy?.intake ?? [],
+      evidence: evidenceFor(workType, origin).map((r) => ({
+        id: r.id,
+        gate: r.gate,
+        label: r.label,
+        satisfied: evaluated.get(r.id) ?? false,
+        check: r.check,
+      })),
+      missing,
+    };
   }
 
   /**
@@ -764,6 +867,153 @@ export function createServer(opts: ServerOptions): ApiServer {
     return { tickets };
   });
 
+  /**
+   * Direct ticket creation (§15.7, wp-151). Engineers create
+   * bugs/tech/spikes/operational work directly; a `story` (or any
+   * non-direct type) must arrive from an approved RS/board proposal —
+   * `directCreateAllowed` / `needsScopeApproval` decide, fail-closed.
+   * The created row lands at `imported`, so the pipeline's intake gate
+   * still classifies + enforces evidence.
+   */
+  app.post('/api/v1/tickets', async (req, reply) => {
+    const body = parseBody(CreateTicketBodySchema, req.body, 'create ticket');
+    const ws = workspace(body.workspace);
+    const workType = body.work_type as TicketWorkType;
+    if (!(TICKET_WORK_TYPES as readonly string[]).includes(workType)) {
+      throw badRequest(
+        `unknown work_type '${body.work_type}' (expected ${TICKET_WORK_TYPES.join('|')})`,
+      );
+    }
+    const origin = (body.origin ?? 'manual') as TicketOrigin;
+    if (!(TICKET_ORIGINS as readonly string[]).includes(origin)) {
+      throw badRequest(
+        `unknown origin '${body.origin}' (expected ${TICKET_ORIGINS.join('|')})`,
+      );
+    }
+    // Approved scope = an approved origin (rs/board) or an explicit
+    // `scope_ref` to the authorizing RS/board proposal.
+    const scopeApproved =
+      (APPROVED_SCOPE_ORIGINS as readonly string[]).includes(origin) ||
+      body.scope_ref !== undefined;
+    // §15.7 direct-create rules: a type that isn't directly creatable
+    // (story) needs approved scope; `needsScopeApproval` decides.
+    if (
+      (!directCreateAllowed(workType) && !scopeApproved) ||
+      needsScopeApproval(workType, origin, null, scopeApproved)
+    ) {
+      throw forbidden(
+        `work type '${workType}' may not be created directly — it must originate from an approved RS/board proposal (set origin ${APPROVED_SCOPE_ORIGINS.join('|')} or supply scope_ref)`,
+      );
+    }
+    // Priority ≠ severity: severity is forbidden where it can only mean
+    // "importance" (it drives triage on bugs/security/incidents only).
+    if (
+      body.severity !== undefined &&
+      severityRule(workType, origin) === 'forbidden'
+    ) {
+      throw badRequest(
+        `severity does not apply to ${workType} tickets (priority ≠ severity, §15.7)`,
+      );
+    }
+    const priority = (body.priority ?? 'medium') as TicketPriority;
+    if (!(TICKET_PRIORITIES as readonly string[]).includes(priority)) {
+      throw badRequest(
+        `unknown priority '${body.priority}' (expected ${TICKET_PRIORITIES.join('|')})`,
+      );
+    }
+    const depth = body.depth ?? 'standard';
+    if (!(DEPTH_TIERS as readonly string[]).includes(depth)) {
+      throw badRequest(
+        `unknown depth '${body.depth}' (expected ${DEPTH_TIERS.join('|')})`,
+      );
+    }
+    const repos = body.repos ?? [];
+    const source = body.scope_ref ? `scope:${body.scope_ref}` : 'manual';
+    const ts = now();
+    const ticketId = await store.allocTicketId(ws.name);
+    const contents = [
+      '---',
+      YAML.stringify({
+        schema: 1,
+        id: ticketId,
+        title: body.title,
+        status: 'imported',
+        priority,
+        ...(body.feature ? { feature: body.feature } : {}),
+        repos,
+        depth,
+        source,
+        ...(body.parent ? { parent: body.parent } : {}),
+        depends_on: [],
+        forced: false,
+      }).trimEnd(),
+      '---',
+      '',
+      '## Description',
+      '',
+      body.body?.trim() ?? '',
+      '',
+    ].join('\n');
+    await store.transaction(async (s) => {
+      await s.upsertTicket({
+        workspace: ws.name,
+        ticket_id: ticketId,
+        feature: body.feature ?? null,
+        title: body.title,
+        status: 'imported',
+        priority,
+        depth,
+        backend: body.backend ?? null,
+        model: body.model ?? null,
+        repos,
+        parent: body.parent ?? null,
+        depends_on: [],
+        source,
+        work_type: workType,
+        origin,
+        severity: (body.severity ?? null) as TicketRow['severity'],
+        forced: false,
+        spec_score: null,
+        spec_hash: null,
+        blocked_reason: null,
+        created_at: ts,
+        updated_at: ts,
+      });
+      await s.appendDocVersion(
+        { workspace: ws.name, subject: ticketId, doc: 'ticket.md' },
+        contents,
+        actor,
+      );
+      for (const repo of repos) {
+        await s.upsertTicketRepo({
+          workspace: ws.name,
+          ticket_id: ticketId,
+          repo,
+          branch: null,
+          worktree: null,
+          pr_url: null,
+          pr_state: null,
+          ci_state: null,
+          merged_sha: null,
+        });
+      }
+    });
+    await emitEvent(ws, {
+      ticketId,
+      event: 'imported',
+      data: {
+        via: 'direct-create',
+        work_type: workType,
+        origin,
+        ...(body.scope_ref ? { scope_ref: body.scope_ref } : {}),
+      },
+    });
+    return reply.status(201).send({
+      ticket_id: ticketId,
+      ticket: await getTicketOr404(ws.name, ticketId),
+    });
+  });
+
   app.get('/api/v1/tickets/:workspace/:ticket', async (req) => {
     const { workspace: wsName, ticket } = req.params as {
       workspace: string;
@@ -817,6 +1067,8 @@ export function createServer(opts: ServerOptions): ApiServer {
       docs,
       open_gates: gates.filter((g) => g.subject === ticket),
       family: [...family, ...children],
+      // §15.7 Ticket Workbench (wp-151) — per-type tabs + evidence.
+      workbench: await workbenchFor(wsName, row),
     };
   });
 
@@ -1270,6 +1522,21 @@ export function createServer(opts: ServerOptions): ApiServer {
           });
         }
         const cleared = await clear('split-plan');
+        return { action, gate_cleared: cleared.gate };
+      }
+      // §15.7 scope proposal (wp-151): approve authorizes the over-scope
+      // work; decline records a gate_overridden so the conductor
+      // escalates instead of absorbing it.
+      case 'approve_scope':
+      case 'reject_scope': {
+        if (action === 'reject_scope') {
+          await emitEvent(ws, {
+            ticketId: ticket,
+            event: 'gate_overridden',
+            data: { gate: 'scope-proposal' },
+          });
+        }
+        const cleared = await clear('scope-proposal');
         return { action, gate_cleared: cleared.gate };
       }
       case 'resume': {
@@ -2037,6 +2304,16 @@ export function createServer(opts: ServerOptions): ApiServer {
     requestRun,
     ticketOrNull: async (wsName, ticketId) =>
       store.getTicket({ workspace: wsName, ticket_id: ticketId }),
+  });
+
+  // ------------------------------------------------------------------
+  // /design — structured mockups + design approvals (PRD §15.4, wp-149)
+  // ------------------------------------------------------------------
+  registerDesignRoutes(app, {
+    store,
+    actor,
+    nowIso: now,
+    workspace,
   });
 
   return app;

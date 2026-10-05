@@ -25,6 +25,7 @@ import {
   DEPLOY_EVIDENCE_TYPES,
   DEPTH_TIERS,
   DESIGN_APPROVAL_STATUSES,
+  DESIGN_CHECKLIST_ITEMS,
   DEVIATION_REASON_KINDS,
   DOC_KINDS,
   DOSSIER_SCOPES,
@@ -50,6 +51,10 @@ import {
   INTERVIEW_SESSION_STATUSES,
   KNOWLEDGE_SLOT_STATES,
   LATENCY_CLASSES,
+  MOCKUP_BREAKPOINTS,
+  MOCKUP_FIDELITIES,
+  MOCKUP_GENERATOR_MODES,
+  MOCKUP_STATES,
   NOTE_IMPORTANCES,
   NOTE_KINDS,
   NOTE_STATUSES,
@@ -85,6 +90,7 @@ import {
   STATEMENT_POLARITIES,
   STATEMENT_RELATIONS,
   STATEMENT_SCOPES,
+  STATEMENT_SOURCE_KINDS,
   STATEMENT_STATUSES,
   STATEMENT_STRENGTHS,
   TEST_CASE_TYPES,
@@ -1295,6 +1301,72 @@ export const ExtractionRunRowSchema = z.object({
 });
 export type ExtractionRunRow = z.infer<typeof ExtractionRunRowSchema>;
 
+/** semantic_statements.source_ref — where the verbatim source_text
+ *  came from (§15.3: "recovers exactly where the words came from").
+ *  `span` is [start, end) char offsets into the source's text; absent
+ *  = the engine located `source_text` verbatim itself (whole-quote
+ *  match). */
+export const StatementSourceRefSchema = z.object({
+  kind: enumOf(STATEMENT_SOURCE_KINDS),
+  /** board item id / `<session>#<seq>` / import key / `<subject>:<doc>`. */
+  id: z.string().min(1),
+  span: z
+    .tuple([z.number().int().nonnegative(), z.number().int().nonnegative()])
+    .nullish(),
+});
+export type StatementSourceRef = z.infer<typeof StatementSourceRefSchema>;
+
+// ---------- extraction output — `statements.json` (SCHEMAS §22, wp-143) ----------
+
+/** One typed edge proposed inside an extraction batch. `target` is
+ *  either another extracted statement's `key` in the same output or an
+ *  existing `statement_id` already in the ledger (fail-closed —
+ *  unknown targets abort the batch). */
+export const ExtractionRelationSchema = z.object({
+  predicate: enumOf(STATEMENT_RELATIONS),
+  target: z.string().min(1),
+});
+export type ExtractionRelation = z.infer<typeof ExtractionRelationSchema>;
+
+/** One atomic statement in an extraction batch. `source_text` MUST be
+ *  a verbatim substring of the referenced source's text (never
+ *  paraphrased — §15.3/§15.9); `span` pins the [start,end) offsets and
+ *  is verified against the source when present. */
+export const ExtractedStatementSchema = z.object({
+  /** Batch-local key — unique within this output; combined with the
+   *  extraction_run id to form the stored `statement_id`. */
+  key: z.string().min(1),
+  /** The atomic assertion, normalized wording. */
+  text: z.string().min(1),
+  /** Index into the batch's `sources` array (0-based). */
+  source: z.number().int().nonnegative().default(0),
+  /** Verbatim quote from the source — becomes `source_text`. */
+  source_text: z.string().min(1),
+  span: z
+    .tuple([z.number().int().nonnegative(), z.number().int().nonnegative()])
+    .nullish(),
+  intent: enumOf(STATEMENT_INTENTS).nullish(),
+  polarity: enumOf(STATEMENT_POLARITIES).nullish(),
+  subject: z.string().nullish(),
+  strength: enumOf(STATEMENT_STRENGTHS).nullish(),
+  scope: enumOf(STATEMENT_SCOPES).nullish(),
+  scope_ref: z.string().nullish(),
+  confidence: z.number().min(0).max(1).nullish(),
+  relations: z.array(ExtractionRelationSchema).default([]),
+  /** Ambiguity the extractor could not self-resolve — becomes a
+   *  statement_clarifications row (a question, never a guess). */
+  clarification: z.string().nullish(),
+});
+export type ExtractedStatement = z.infer<typeof ExtractedStatementSchema>;
+
+/** `statements.json` — the `extract` stage's / LLM-assist structured
+ *  output. Malformed output aborts the whole batch (fail-closed). */
+export const ExtractionOutputSchema = z.object({
+  schema: SchemaVersionSchema,
+  statements: z.array(ExtractedStatementSchema).min(1),
+});
+export type ExtractionOutput = z.infer<typeof ExtractionOutputSchema>;
+
 // ---------- interview orchestrator (PRD §15.9, wp-145) ----------
 
 export const WizardDefinitionRowSchema = z.object({
@@ -1598,6 +1670,138 @@ export const DesignApprovalRowSchema = z.object({
   invalidated_at: z.string().nullish(),
 });
 export type DesignApprovalRow = z.infer<typeof DesignApprovalRowSchema>;
+
+// ---------- design artifacts (PRD §15.4, wp-149) ----------
+
+/** Design-approval checklist results (§15.4): one entry per item
+ *  (desktop/mobile/flows/error-empty/a11y/linked-acs), true = passed,
+ *  false = failed, null/absent = not yet reviewed. */
+export const DesignChecklistSchema = z.record(
+  enumOf(DESIGN_CHECKLIST_ITEMS),
+  z.boolean().nullish(),
+);
+export type DesignChecklist = z.infer<typeof DesignChecklistSchema>;
+
+/**
+ * The `mockup.json` structured-artifact contract. The component tree is
+ * the SOURCE OF TRUTH — rendered previews and PNG/export are output,
+ * never source (§15.4). `screens` reference components by id; the
+ * component list is flat (parent/children refs) so structural diffs are
+ * stable and per-component edits are addressable. `visual_acs` records
+ * the AC→component+state edges that back Visual Acceptance Criteria
+ * (projected into `statement_artifact_links`/`relations` by wp-143).
+ */
+export const MockupLayoutSchema = z
+  .object({
+    /** flex | grid | stack | absolute. */
+    direction: z.string().nullish(),
+    gap: z.number().nullish(),
+    align: z.string().nullish(),
+    justify: z.string().nullish(),
+    columns: z.number().int().nullish(),
+    /** Free-form layout hints (padding, max-width, …). */
+    props: z.record(z.unknown()).nullish(),
+  })
+  .nullish();
+export type MockupLayout = z.infer<typeof MockupLayoutSchema>;
+
+export const MockupComponentSchema = z.object({
+  component_id: z.string().min(1),
+  /** Design-system component name this maps to (native look, §15.4). */
+  name: z.string().min(1),
+  /** semantic | form | nav | list | card | input | button | text | … */
+  kind: z.string().nullish(),
+  parent: z.string().nullish(),
+  children: z.array(z.string()).default([]),
+  props: z.record(z.unknown()).default({}),
+  layout: MockupLayoutSchema,
+  /** The `requirement:` link — the AC this component satisfies. */
+  requirement: z.string().nullish(),
+  /** Which screen state this node is drawn for (§15.4). */
+  state: enumOf(MOCKUP_STATES).nullish(),
+  breakpoint: enumOf(MOCKUP_BREAKPOINTS).nullish(),
+  /** Per-breakpoint structural overrides (responsive variants). */
+  responsive: z.record(z.unknown()).nullish(),
+  notes: z.string().nullish(),
+});
+export type MockupComponent = z.infer<typeof MockupComponentSchema>;
+
+export const MockupScreenSchema = z.object({
+  screen_id: z.string().min(1),
+  title: z.string().min(1),
+  route: z.string().nullish(),
+  /** Screen-level requirement link (the primary AC it serves). */
+  requirement: z.string().nullish(),
+  /** Root component id of the tree for this screen. */
+  root: z.string().nullish(),
+  /** States this screen carries (§15.4 state generator). */
+  states: z.array(enumOf(MOCKUP_STATES)).default(['default']),
+  /** Breakpoint → root component id (responsive variant). */
+  responsive: z.record(z.string()).nullish(),
+  notes: z.string().nullish(),
+});
+export type MockupScreen = z.infer<typeof MockupScreenSchema>;
+
+/** A Visual Acceptance Criterion edge: AC → component (+ state). */
+export const MockupVisualAcSchema = z.object({
+  ac_id: z.string().min(1),
+  statement: z.string().nullish(),
+  screen_id: z.string().nullish(),
+  component_id: z.string().min(1),
+  state: enumOf(MOCKUP_STATES).nullish(),
+  breakpoint: enumOf(MOCKUP_BREAKPOINTS).nullish(),
+});
+export type MockupVisualAc = z.infer<typeof MockupVisualAcSchema>;
+
+export const MockupSchema = z.object({
+  schema: SchemaVersionSchema,
+  subject: z.string().min(1),
+  title: z.string().min(1),
+  fidelity: enumOf(MOCKUP_FIDELITIES),
+  /** How the tree was produced (compose | screenshot | sketch | states). */
+  generator: z
+    .object({
+      mode: enumOf(MOCKUP_GENERATOR_MODES),
+      source: z.string().nullish(),
+      model: z.string().nullish(),
+      design_system: z.string().nullish(),
+    })
+    .nullish(),
+  screens: z.array(MockupScreenSchema).default([]),
+  components: z.array(MockupComponentSchema).default([]),
+  /** Visual ACs — AC → component+state edges (§15.4). */
+  visual_acs: z.array(MockupVisualAcSchema).default([]),
+  created_at: z.string().nullish(),
+  updated_at: z.string().nullish(),
+});
+export type Mockup = z.infer<typeof MockupSchema>;
+
+/** Design-system component-token bundle the mockup generator consumes
+ *  (`design-system.json` run artifact, §15.4). Mined from the app's UI
+ *  library so generated screens look native, not generic-AI. */
+export const DesignSystemComponentSchema = z.object({
+  name: z.string().min(1),
+  /** Import path / module the component lives in. */
+  import: z.string().nullish(),
+  /** Prop names (with types where known) the component accepts. */
+  props: z.record(z.unknown()).default({}),
+  variants: z.array(z.string()).default([]),
+  notes: z.string().nullish(),
+});
+export type DesignSystemComponent = z.infer<typeof DesignSystemComponentSchema>;
+
+export const DesignSystemSchema = z.object({
+  schema: SchemaVersionSchema,
+  /** Repo the tokens were mined from. */
+  source: z.string().min(1),
+  /** Token groups — colors, spacing, typography, radius, shadow, … */
+  tokens: z.record(z.unknown()).default({}),
+  components: z.array(DesignSystemComponentSchema).default([]),
+  /** Styling system detected (tailwind | css-modules | styled-components…). */
+  styling: z.string().nullish(),
+  extracted_at: z.string().nullish(),
+});
+export type DesignSystem = z.infer<typeof DesignSystemSchema>;
 
 // ---------- process machinery (PRD §15.10, wp-153) ----------
 

@@ -24,7 +24,8 @@
 import type { GateKind, GateMode, TicketStatus } from '@sprint-runner/core';
 
 /** Every gate named in CONDUCTOR "Auto-advance rules" (+ `repair`,
- *  which can land on any status, and `merge`/`ci-watch` tail gates). */
+ *  which can land on any status, and `merge`/`ci-watch` tail gates),
+ *  plus the wp-151 governance gates (`scope-proposal`, `stale-spec`). */
 export const ALL_GATES = [
   'needs-info',
   'design-qa',
@@ -34,6 +35,7 @@ export const ALL_GATES = [
   'test-approved',
   'changes-requested',
   'split-plan',
+  'scope-proposal',
   'escalated',
   'approved',
   'ci-watch',
@@ -61,6 +63,7 @@ const MODE_GATES: Record<GateMode, ReadonlySet<string>> = {
     'design-qa',
     'plan-package',
     'split-plan',
+    'scope-proposal',
     'changes-requested',
     'approved',
     'ci-watch',
@@ -72,6 +75,7 @@ const MODE_GATES: Record<GateMode, ReadonlySet<string>> = {
     'needs-info',
     'design-qa',
     'changes-requested',
+    'scope-proposal',
     'approved',
     'escalated',
     'repair',
@@ -147,6 +151,7 @@ export function gateKindFor(gate: string): GateKind {
     case 'approved':
     case 'ci-watch':
     case 'merge':
+    case 'scope-proposal':
       return 'approval';
     case 'split-plan':
       return 'split-plan';
