@@ -1460,6 +1460,7 @@ export function createServer(opts: ServerOptions): ApiServer {
         next_ticket_seq: 1,
         next_feature_seq: 1,
         next_initiative_seq: 1,
+        next_release_seq: 1,
         // wp-099: persist the resolved root so daemon boots (and the
         // CLI's project listing) can rebuild workspaces from the DB
         // alone — `path` is the canonical field.
