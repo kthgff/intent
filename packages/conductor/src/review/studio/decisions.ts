@@ -24,8 +24,15 @@ import type {
   ReviewDecisionRow,
   ReviewSessionRow,
 } from '@sprint-runner/core';
+import { securityGate } from '../security.js';
 import { requireSession, rollupSessionStatus } from './session.js';
-import { type StudioCtx, badRequest, conflict, notFound } from './types.js';
+import {
+  type StudioCtx,
+  badRequest,
+  conflict,
+  forbidden,
+  notFound,
+} from './types.js';
 
 export interface RecordDecisionResult {
   decision: ReviewDecisionRow;
@@ -66,6 +73,21 @@ export async function recordDecision(
   }
   if (!args.decisionId || !args.reviewer) {
     throw badRequest('decision: {decision_id, reviewer} are required');
+  }
+
+  // Security is a first-class review dimension (PRD §15.8, wp-150): an
+  // approval must not clear the merge gate while unresolved critical
+  // security findings are uncovered by an owner+expiry exception.
+  if (args.action === 'approve') {
+    const gate = await securityGate(ctx, {
+      reviewId: args.reviewId,
+      phase: 'merge',
+    });
+    if (gate.blocked) {
+      throw forbidden(
+        `review ${args.reviewId}: security gate blocks approval — ${gate.reasons.join('; ')}`,
+      );
+    }
   }
 
   const ts = ctx.now().toISOString();

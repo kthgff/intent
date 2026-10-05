@@ -2,7 +2,7 @@
 schema: 1
 id: wp-143
 title: Statement Ledger — semantic_statements, extraction pipeline, typed relations
-status: todo
+status: done
 priority: high
 depth: deep
 repos: []

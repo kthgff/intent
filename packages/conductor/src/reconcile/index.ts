@@ -22,14 +22,24 @@ import { readFile, readdir, rm } from 'node:fs/promises';
 import { join, sep } from 'node:path';
 import {
   DOC_KINDS,
+  type GateMode,
+  type RunHandle,
   type RunResult,
   type RunRow,
   type Stage,
+  TERMINAL_STATUSES,
+  type TicketStatus,
 } from '@sprint-runner/core';
 import { escalationModelFor } from '@sprint-runner/prompts';
 import type { RunOutcome, RunnerTask } from '../contracts.js';
 import { applyTicketStatus } from '../contracts.js';
-import { collectArtifacts, scanArtifacts } from '../envops/index.js';
+import {
+  collectArtifacts,
+  scanArtifacts,
+  sleepSubjectContainer,
+  teardownSubjectContainer,
+} from '../envops/index.js';
+import { gateForStatus } from '../gates/index.js';
 import { blockTicketForCap } from '../launch/caps-action.js';
 import { queuePendingRun } from '../launch/index.js';
 import { RUNNER_RESULT_FILE } from '../launch/runner.js';
@@ -39,6 +49,7 @@ import {
   type ConductorWorkspace,
   actorOf,
   adapterFor,
+  containerRuntimeDeps,
   lastActivityMs,
   loadHandle,
   nowIso,
@@ -48,6 +59,9 @@ import {
 import type { LeaseManager } from '../loop/lease.js';
 import { retryDecision } from '../loop/retry.js';
 import { makeTransitionTools } from '../loop/tools.js';
+import { reconcileRunBaseline } from './baseline.js';
+
+export * from './baseline.js';
 
 export interface ReconcileReport {
   stalled: string[];
@@ -77,6 +91,16 @@ export async function reconcile(ctx: ReconcileCtx): Promise<void> {
       report.warnings.push(`run ${run.id}: ${(e as Error).message}`);
     }
   }
+
+  // Container lifecycle (D30, CONDUCTOR "Container lifecycle"):
+  // gate-park → `docker stop`; terminal status → `docker rm` + row
+  // 'removed'. Runs after the run sweep so a collect that just landed
+  // the ticket on a gate/terminal status is observed this same tick.
+  try {
+    await sweepContainerLifecycle(ctx);
+  } catch (e) {
+    report.warnings.push(`container lifecycle: ${(e as Error).message}`);
+  }
 }
 
 /** Liveness/timeout sweep for one live run. */
@@ -104,6 +128,22 @@ async function sweepRun(ctx: ReconcileCtx, run: RunRow): Promise<void> {
       break; // running | paused | stalled
   }
 
+  // wp-141: mid-run baseline reconciliation. A doc version moving past
+  // the pinned baseline (or the contract version changing) surfaces a
+  // `baseline-drift` gate + `baseline_reconciled` event — the running
+  // agent never silently adopts the newer spec. Idempotent per open
+  // gate, so a persisting drift is reported once.
+  await reconcileRunBaseline(
+    {
+      store: deps.store,
+      workspace: ctx.ws.name,
+      actor: actorOf(deps),
+      now: () => deps.now?.() ?? new Date(),
+      notify: deps.notify,
+    },
+    run,
+  );
+
   if (run.backend === 'runner') {
     await sweepRunnerRun(ctx, run);
     return;
@@ -111,11 +151,19 @@ async function sweepRun(ctx: ReconcileCtx, run: RunRow): Promise<void> {
 
   const handle = ctx.handles.get(run.id) ?? (await loadHandle(run));
   if (handle) ctx.handles.set(run.id, handle);
-  const alive = pidAlive(handle?.pid ?? run.pid);
+  // Container runs (D30): liveness is `docker inspect` state + the
+  // exec'd process (mirrored by the local `docker exec` client pid) —
+  // never the host pid alone. Process runs keep pid liveness.
+  const alive = run.container_id
+    ? await containerRunAlive(ctx, run, handle)
+    : pidAlive(handle?.pid ?? run.pid);
 
   if (!alive) {
-    // Process exited between ticks → mark and collect inline
-    // (CONDUCTOR: "fires every ~10s tick + on run-exit").
+    // Process/container exited between ticks → mark and collect inline
+    // (CONDUCTOR: "fires every ~10s tick + on run-exit"). A container
+    // that died/vanished mid-run also lands its row on 'stopped'/
+    // 'removed' so the picture matches docker reality.
+    if (run.container_id) await reconcileDeadContainer(ctx, run);
     await deps.store.updateRun(run.id, { status: 'exited', exited_at: now });
     await collectRun(ctx, { ...run, status: 'exited', exited_at: now });
     return;
@@ -189,6 +237,116 @@ async function sweepRunnerRun(ctx: ReconcileCtx, run: RunRow): Promise<void> {
   } else if (run.status === 'stalled') {
     // Heartbeat resumed (e.g. a recycled conductor re-attached).
     await deps.store.updateRun(run.id, { status: 'running' });
+  }
+}
+
+/**
+ * Liveness for a `runtime: container` run (D30). The container must
+ * exist AND be running, and the local `docker exec` client process
+ * (whose pid mirrors the exec'd run) must still be alive. A
+ * stopped/removed container mid-run is dead — same stalled/timeout/kill
+ * semantics as a dead host pid (CONDUCTOR RECONCILE). A paused
+ * container reports running=true, so a paused run stays "alive" and the
+ * pause-frozen clock semantics hold.
+ */
+async function containerRunAlive(
+  ctx: ReconcileCtx,
+  run: RunRow,
+  handle: RunHandle | null,
+): Promise<boolean> {
+  const info = await containerRuntimeDeps(ctx.deps).docker.inspect(
+    run.container_id as string,
+  );
+  if (info === null || !info.running) return false;
+  return pidAlive(handle?.pid ?? run.pid);
+}
+
+/**
+ * A container run was observed dead — reflect the container's actual
+ * state on its row (gone → 'removed', stopped → 'stopped'). A still-
+ * running container is left alone (the exec client died but the
+ * container lives; the gate/terminal sweep owns its lifecycle).
+ */
+async function reconcileDeadContainer(
+  ctx: ReconcileCtx,
+  run: RunRow,
+): Promise<void> {
+  const { deps } = ctx;
+  const key = { workspace: run.workspace, subject: run.subject };
+  const row = await deps.store.getContainer(key);
+  if (row === null || row.state === 'removed') return;
+  const info = await containerRuntimeDeps(deps).docker.inspect(
+    run.container_id as string,
+  );
+  if (info?.running) return;
+  await deps.store.upsertContainer({
+    ...row,
+    state: info === null ? 'removed' : 'stopped',
+    stopped_at: nowIso(deps),
+  });
+}
+
+/**
+ * Container lifecycle sweep (D30, CONDUCTOR "Container lifecycle").
+ * Per live (non-removed) container row for this workspace:
+ *
+ *   - a run in flight for the subject → leave it (never stop/remove a
+ *     container a run is executing in);
+ *   - ticket terminal (released/reverted/wont-do/aborted/split/
+ *     discarded) or the ticket row is gone → teardown (`docker rm` +
+ *     row 'removed');
+ *   - ticket parked on a gate status AND `containers.stop_on_gate` →
+ *     sleep (`docker stop`); the next launch's ensure() wakes it.
+ *
+ * Non-ticket subjects (`probe:`/`survey:`/…) have no ticket status —
+ * they're left to the startup orphan sweep.
+ */
+async function sweepContainerLifecycle(ctx: ReconcileCtx): Promise<void> {
+  const { deps, ws } = ctx;
+  const rows = await deps.store.listContainers({ workspace: ws.name });
+  if (rows.length === 0) return;
+  // Only EXECUTING runs fence a container — a pending/leased row has not
+  // ensured/started it yet (the launch's ensure() wakes it), so a gate
+  // park may still stop the container underneath a queued run.
+  const activeSubjects = new Set(
+    (await deps.store.listLiveRuns())
+      .filter(
+        (r) =>
+          r.workspace === ws.name &&
+          ['running', 'paused', 'stalled'].includes(r.status),
+      )
+      .map((r) => r.subject),
+  );
+  const ctr = containerRuntimeDeps(deps);
+  const mode = deps.config.gates as GateMode;
+
+  for (const row of rows) {
+    if (row.state === 'removed') continue;
+    if (activeSubjects.has(row.subject)) continue; // run in flight
+    if (row.subject.includes(':')) continue; // non-ticket subject
+    const key = { workspace: ws.name, subject: row.subject };
+    const ticket = await deps.store.getTicket({
+      workspace: ws.name,
+      ticket_id: row.subject,
+    });
+    if (ticket === null) {
+      // Deleted ticket → the container is an orphan.
+      await teardownSubjectContainer(ctr, key);
+      continue;
+    }
+    const status = ticket.status as TicketStatus;
+    if ((TERMINAL_STATUSES as readonly string[]).includes(status)) {
+      await teardownSubjectContainer(ctr, key);
+      continue;
+    }
+    const gate = gateForStatus(status, mode);
+    if (
+      gate &&
+      deps.config.containers.stop_on_gate &&
+      row.state === 'running'
+    ) {
+      await sleepSubjectContainer(ctr, key);
+    }
   }
 }
 

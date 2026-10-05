@@ -72,6 +72,7 @@ import Fastify, {
 } from 'fastify';
 import YAML from 'yaml';
 import { z } from 'zod';
+import { registerDesignRoutes } from './design.js';
 import { lineDiff } from './diff.js';
 import { registerReviewRoutes } from './review.js';
 import { StreamHub } from './sse.js';
@@ -2177,6 +2178,16 @@ export function createServer(opts: ServerOptions): ApiServer {
     requestRun,
     ticketOrNull: async (wsName, ticketId) =>
       store.getTicket({ workspace: wsName, ticket_id: ticketId }),
+  });
+
+  // ------------------------------------------------------------------
+  // /design — structured mockups + design approvals (PRD §15.4, wp-149)
+  // ------------------------------------------------------------------
+  registerDesignRoutes(app, {
+    store,
+    actor,
+    nowIso: now,
+    workspace,
   });
 
   return app;
