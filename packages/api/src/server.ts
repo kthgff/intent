@@ -58,6 +58,7 @@ import Fastify, {
 import YAML from 'yaml';
 import { z } from 'zod';
 import { lineDiff } from './diff.js';
+import { registerBoardRoutes } from './board.js';
 import { registerReviewRoutes } from './review.js';
 import { StreamHub } from './sse.js';
 
@@ -1909,6 +1910,16 @@ export function createServer(opts: ServerOptions): ApiServer {
     requestRun,
     ticketOrNull: async (wsName, ticketId) =>
       store.getTicket({ workspace: wsName, ticket_id: ticketId }),
+  });
+
+  // ------------------------------------------------------------------
+  // /board, /boards — pipeline board + idea boards (PRD §15.3, wp-144)
+  // ------------------------------------------------------------------
+  registerBoardRoutes(app, {
+    store,
+    actor,
+    nowIso: now,
+    workspace,
   });
 
   return app;

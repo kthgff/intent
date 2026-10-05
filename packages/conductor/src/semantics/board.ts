@@ -734,6 +734,49 @@ export interface ExtractBoardResult extends IngestExtractionResult {
 }
 
 /**
+ * The evidence set for a board extraction: the open (non-discarded)
+ * cards in deterministic store order plus their {@link ExtractionSource}
+ * views. `itemIds` restricts the set when given. Fail-closed when the
+ * set is empty.
+ */
+export async function boardSources(
+  store: Store,
+  args: { workspace: string; board: string; itemIds?: string[] },
+): Promise<{ items: BoardItem[]; sources: ReturnType<typeof sourceFromBoardItem>[] }> {
+  const all = await store.listBoardItems({
+    workspace: args.workspace,
+    board: args.board,
+  });
+  const wanted = args.itemIds ? new Set(args.itemIds) : null;
+  const items = all.filter(
+    (i) => i.status !== 'discarded' && (wanted === null || wanted.has(i.id)),
+  );
+  if (items.length === 0) {
+    throw new BoardError(
+      `board ${args.workspace}/${args.board} has no extractable items`,
+    );
+  }
+  return { items, sources: items.map(sourceFromBoardItem) };
+}
+
+/** Map an ingest result's statements back to the board items they came
+ *  from (`source_ref.kind === 'board-item'`). */
+export function statementsByItem(
+  result: IngestExtractionResult,
+  itemIds: string[],
+): Record<string, string[]> {
+  const byItem: Record<string, string[]> = {};
+  for (const id of itemIds) byItem[id] = [];
+  for (const st of result.statements) {
+    const ref = st.source_ref as { kind?: string; id?: string } | null;
+    if (ref?.kind === 'board-item' && ref.id && byItem[ref.id]) {
+      byItem[ref.id]?.push(st.statement_id);
+    }
+  }
+  return byItem;
+}
+
+/**
  * Run the extraction handoff for a board: every open card is evidence
  * (§15.3), the LLM produces `statements.json`, and the ingest links
  * each statement back to its card via `source_ref` (`board-item`).
@@ -743,37 +786,22 @@ export async function extractBoard(
   store: Store,
   args: ExtractBoardArgs,
 ): Promise<ExtractBoardResult> {
-  const all = await store.listBoardItems({
+  const { items, sources } = await boardSources(store, {
     workspace: args.workspace,
     board: args.board,
+    ...(args.itemIds ? { itemIds: args.itemIds } : {}),
   });
-  const wanted = args.itemIds ? new Set(args.itemIds) : null;
-  const open = all.filter(
-    (i) =>
-      i.status !== 'discarded' && (wanted === null || wanted.has(i.id)),
-  );
-  if (open.length === 0) {
-    throw new BoardError(
-      `extractBoard: board ${args.workspace}/${args.board} has no extractable items`,
-    );
-  }
-  const sources = open.map(sourceFromBoardItem);
   const result = await runExtraction(store, {
     ...args,
     subject: `board:${args.board}`,
     sources,
     actor: args.actor,
   });
-
-  const byItem: Record<string, string[]> = {};
-  for (const id of open.map((i) => i.id)) byItem[id] = [];
-  for (const st of result.statements) {
-    const ref = st.source_ref as { kind?: string; id?: string } | null;
-    if (ref?.kind === 'board-item' && ref.id && byItem[ref.id]) {
-      byItem[ref.id]?.push(st.statement_id);
-    }
-  }
-  return { ...result, itemIds: open.map((i) => i.id), byItem };
+  return {
+    ...result,
+    itemIds: items.map((i) => i.id),
+    byItem: statementsByItem(result, items.map((i) => i.id)),
+  };
 }
 
 // ---------------------------------------------------------------------------
