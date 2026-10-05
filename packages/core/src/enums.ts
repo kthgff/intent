@@ -1212,3 +1212,99 @@ export const ROUTE_DECISION_SOURCES = [
   'backend',
 ] as const;
 export type RouteDecisionSource = (typeof ROUTE_DECISION_SOURCES)[number];
+
+// ---------- code intelligence / evidence plane (INTELLIGENCE §4, D37, wp-110) ----------
+
+/**
+ * `repo_indexes.status` — a commit-pinned index head. Only `current` is
+ * the default retrieval head; `building` and `failed` rows are NEVER
+ * served as current (DB-SCHEMA "Evidence indexes are derived,
+ * commit-pinned state"). A new head becomes `current` atomically after
+ * every changed path completes; the previous head flips to `superseded`
+ * and stays addressable for historical citations (INTELLIGENCE §2.2).
+ */
+export const REPO_INDEX_STATUSES = [
+  'building',
+  'current',
+  'superseded',
+  'failed',
+] as const;
+export type RepoIndexStatus = (typeof REPO_INDEX_STATUSES)[number];
+
+/**
+ * `code_units.parse_status` — a supported, well-formed file parses at
+ * symbol/logical-unit boundaries (`parsed`); an unsupported language or a
+ * syntactically broken file falls back to bounded line chunks
+ * (`fallback`), never silently dropped (INTELLIGENCE §4.1).
+ */
+export const CODE_PARSE_STATUSES = ['parsed', 'fallback'] as const;
+export type CodeParseStatus = (typeof CODE_PARSE_STATUSES)[number];
+
+/**
+ * `code_edges.predicate` — the first release supports symbol
+ * definitions/imports and explicit workflow links; dependable call-graph
+ * analysis is a later enrichment (INTELLIGENCE §4.1). `implements` and
+ * `tests` are explicit workflow links written by the pipeline, not
+ * inferred from embedding similarity.
+ */
+export const CODE_EDGE_PREDICATES = [
+  'defines',
+  'imports',
+  'references',
+  'tests',
+  'depends-on',
+  'implements',
+] as const;
+export type CodeEdgePredicate = (typeof CODE_EDGE_PREDICATES)[number];
+
+/** Source types an evidence result may carry (SCHEMAS §17 `source_types`). */
+export const EVIDENCE_SOURCE_TYPES = [
+  'code',
+  'docs',
+  'requirements',
+  'tests',
+] as const;
+export type EvidenceSourceType = (typeof EVIDENCE_SOURCE_TYPES)[number];
+
+/** Consumer task kinds a retrieval request may declare (SCHEMAS §17). */
+export const RETRIEVAL_TASKS = [
+  'prd',
+  'impact',
+  'testplan',
+  'implement',
+  'review',
+  'alignment',
+  'incident',
+] as const;
+export type RetrievalTask = (typeof RETRIEVAL_TASKS)[number];
+
+/**
+ * Commit policy (SCHEMAS §17) — `current` pins the retrieval head to the
+ * `status = current` commit only; `allow-stale` permits the most recent
+ * `superseded` head when no current head exists (historical units remain
+ * addressable, but the result is labeled `stale`).
+ */
+export const COMMIT_POLICIES = ['current', 'allow-stale'] as const;
+export type CommitPolicy = (typeof COMMIT_POLICIES)[number];
+
+/**
+ * Evidence freshness (SCHEMAS §17) — a newer default-branch SHA marks an
+ * older citation `stale`; it never mutates history in place
+ * (INTELLIGENCE §2.2).
+ */
+export const EVIDENCE_FRESHNESS = ['current', 'stale'] as const;
+export type EvidenceFreshness = (typeof EVIDENCE_FRESHNESS)[number];
+
+/**
+ * Retrieval strategies that contribute candidates (INTELLIGENCE §4.2) —
+ * the contribution is recorded per result so a reranker can explain its
+ * pick. Vectors are never the only signal.
+ */
+export const RETRIEVAL_STRATEGIES = [
+  'explicit',
+  'exact',
+  'fts',
+  'semantic',
+  'structural',
+] as const;
+export type RetrievalStrategy = (typeof RETRIEVAL_STRATEGIES)[number];

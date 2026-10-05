@@ -16,6 +16,8 @@ import type {
   ChangesetItemRow,
   ChangesetRow,
   Claim,
+  CodeEdgeRow,
+  CodeUnitRow,
   ContainerRow,
   DeliveryCommitmentRow,
   DeploymentRow,
@@ -53,6 +55,8 @@ import type {
   ReleaseNoteRow,
   ReleaseOutcomeRow,
   ReleaseRow,
+  RepoIndexRow,
+  RetrievalEvaluationRow,
   ReviewCommentRow,
   ReviewDecisionRow,
   ReviewEvidenceLinkRow,
@@ -134,6 +138,20 @@ export interface NearestQuery {
 export interface NearestResult {
   object_ref: string;
   distance: number;
+}
+
+/** A resolved commit head used to scope code retrieval — only a
+ *  `current` (or, under `allow-stale`, `superseded`) head is ever one
+ *  of these (INTELLIGENCE §4.1). */
+export interface CodeHead {
+  repo: string;
+  commit_sha: string;
+}
+
+/** Full-text hit — the unit plus its `ts_rank` score. */
+export interface CodeUnitFtsHit {
+  unit: CodeUnitRow;
+  rank: number;
 }
 
 /**
@@ -937,4 +955,105 @@ export interface Store {
     workspace: string;
     eval_run_id: string;
   }): Promise<EvalResultRow[]>;
+
+  // =====================================================================
+  // Code intelligence / evidence plane (INTELLIGENCE §4, D37, wp-110).
+  // Commit-pinned, derived state: only `repo_indexes.status = current`
+  // is the default retrieval head; `building`/`failed` rows are never
+  // served. Historical units stay addressable for citations/audit.
+  // =====================================================================
+
+  /** Upsert a commit-pinned index head (status building → current|failed). */
+  upsertRepoIndex(row: RepoIndexRow): Promise<void>;
+  getRepoIndex(key: {
+    workspace: string;
+    repo: string;
+    commit_sha: string;
+  }): Promise<RepoIndexRow | null>;
+  /** The `status = current` head — the ONLY default retrieval head. */
+  getCurrentRepoIndex(
+    workspace: string,
+    repo: string,
+  ): Promise<RepoIndexRow | null>;
+  /** Most recent head per (repo) for the given status; used for
+   *  `allow-stale` fallback and the repository-index status surface. */
+  listRepoIndexes(filter?: {
+    workspace?: string;
+    repo?: string;
+    status?: string;
+  }): Promise<RepoIndexRow[]>;
+  /**
+   * Atomically promote a fully-built head: sets the target row `current`
+   * and flips every other head for (workspace, repo) to `superseded` in
+   * ONE transaction. Throws when the target is missing or `failed` — a
+   * partial or failed index is never promoted (DB-SCHEMA D37).
+   */
+  promoteRepoIndexHead(
+    key: { workspace: string; repo: string; commit_sha: string },
+    at?: string,
+  ): Promise<void>;
+  /** Update a head's status/indexed_at/stats (building→failed on error). */
+  setRepoIndexStatus(
+    key: { workspace: string; repo: string; commit_sha: string },
+    status: RepoIndexRow['status'],
+    patch?: { indexed_at?: string; stats?: Record<string, unknown> | null },
+  ): Promise<void>;
+
+  /** Idempotent bulk write of code units for a commit (upsert on `id`). */
+  upsertCodeUnits(rows: CodeUnitRow[]): Promise<void>;
+  getCodeUnit(id: string): Promise<CodeUnitRow | null>;
+  listCodeUnits(filter: {
+    workspace: string;
+    repo: string;
+    commit_sha: string;
+    path?: string;
+  }): Promise<CodeUnitRow[]>;
+  /** Delete a path's units at a commit (deleted/renamed path handling). */
+  deleteCodeUnitsForPath(key: {
+    workspace: string;
+    repo: string;
+    commit_sha: string;
+    path: string;
+  }): Promise<void>;
+  /** Full-text search, scoped to explicit authorized heads only. */
+  searchCodeUnitsFts(q: {
+    workspace: string;
+    heads: CodeHead[];
+    query: string;
+    limit: number;
+  }): Promise<CodeUnitFtsHit[]>;
+  /** Exact symbol/path match, scoped to authorized heads. */
+  findCodeUnitsExact(q: {
+    workspace: string;
+    heads: CodeHead[];
+    symbols?: string[];
+    paths?: string[];
+    limit: number;
+  }): Promise<CodeUnitRow[]>;
+  /** Units whose content hash matches — maps semantic recall (content-
+   *  addressed embeddings) back to authorized commit-pinned rows. */
+  findCodeUnitsByHash(q: {
+    workspace: string;
+    heads: CodeHead[];
+    hashes: string[];
+    limit: number;
+  }): Promise<CodeUnitRow[]>;
+
+  /** Upsert a structural/explicit code edge (idempotent on PK). */
+  upsertCodeEdge(row: CodeEdgeRow): Promise<void>;
+  listCodeEdges(filter: {
+    workspace: string;
+    repo: string;
+    commit_sha: string;
+    subject_ref?: string;
+    predicate?: string;
+  }): Promise<CodeEdgeRow[]>;
+
+  /** Persist one golden-set run's metrics (INTELLIGENCE §7). */
+  insertRetrievalEvaluation(row: RetrievalEvaluationRow): Promise<void>;
+  getRetrievalEvaluation(id: string): Promise<RetrievalEvaluationRow | null>;
+  listRetrievalEvaluations(filter?: {
+    task?: string;
+    suite_version?: string;
+  }): Promise<RetrievalEvaluationRow[]>;
 }
