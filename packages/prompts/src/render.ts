@@ -23,8 +23,9 @@ import {
  * `review-base` template (CONDUCTOR: "4 review passes"). `verify` runs
  * are detached runner tasks with no agent and no prompt → null.
  * Addendum stages without a shipped template map to null until their
- * owning wp lands one (wp-132 wired `retro`; `release-notes` → wp-134,
- * `extract` → wp-143, `mockup`/`design-ingest` → wp-149). The
+ * owning wp lands one (wp-132 wired `retro`; wp-135 wired
+ * `release-notes`; `extract` → wp-143, `mockup`/`design-ingest` →
+ * wp-149). The
  * `solution-brief` template is also shipped (unbound — its producing
  * stage arrives with the discovery wps; DOC_KINDS accepts the doc).
  *
@@ -62,7 +63,7 @@ export const STAGE_TEMPLATES = {
    *  through conductor/semantics `runExtraction` (prompt builder +
    *  EXTRACT_PROMPT_VERSION), not a core template, so it maps null
    *  here; renderPrompt throws for the rest until their wps land. */
-  'release-notes': null,
+  'release-notes': 'release-notes',
   retro: 'retro',
   extract: null,
   mockup: 'mockup',

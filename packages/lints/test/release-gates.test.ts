@@ -4,12 +4,12 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  type ReleaseGateFacts,
   canonicalManifestItems,
   evaluateReleaseGates,
   isMaterialCorrection,
   releaseGatesGreen,
   releaseManifestDigest,
-  type ReleaseGateFacts,
 } from '../src/release-gates.js';
 
 const ITEM_A = {
@@ -232,10 +232,7 @@ describe('evaluateReleaseGates', () => {
 
 describe('canonicalManifestItems', () => {
   it('sorts items + repos and drops empty partial_ac', () => {
-    const out = canonicalManifestItems([
-      { ...ITEM_B, partial_ac: [] },
-      ITEM_A,
-    ]);
+    const out = canonicalManifestItems([{ ...ITEM_B, partial_ac: [] }, ITEM_A]);
     // 'feature' < 'ticket' — the feature item sorts first.
     expect(out.map((i) => i.item_id)).toEqual(['F-0001', 'SR-0001']);
     expect(out[0]?.repos.map((r) => r.repo)).toEqual(['api', 'web']);

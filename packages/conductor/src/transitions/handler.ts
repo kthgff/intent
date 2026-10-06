@@ -60,6 +60,7 @@ import { gateForStatus, gateKindFor } from '../gates/index.js';
 import { parseTicketMd } from '../import/parse.js';
 import { IMPORT_RECONCILE_GATE } from '../import/reconcile.js';
 import { retryDecision } from '../loop/retry.js';
+import { completeRetro, registerNotesDraft } from '../release/index.js';
 import {
   type ReviewDocument,
   applyFixResults,
@@ -1759,6 +1760,80 @@ export class RealTransitionHandler implements TransitionHandler {
         run: outcome.run.id,
         data: { reason: payload },
       });
+    },
+
+    // -- release-notes (wp-135, DELIVERY §5) --
+    // DONE ⇒ all three notes-<audience>.md docs were ingested;
+    // registerNotesDraft materializes the release_notes metadata rows.
+    // Missing docs = malformed output → repair gate, nothing written.
+    notesDrafted: async ({ outcome, tools }) => {
+      const subject = outcome.run.subject;
+      try {
+        const res = await registerNotesDraft(tools, subject);
+        if (res.missing.length > 0) {
+          await tools.surfaceGateItem({
+            subject,
+            gate: 'release-notes',
+            kind: 'repair',
+            payload: {
+              reason: `release-notes DONE but missing audience docs: ${res.missing.join(', ')}`,
+            },
+          });
+          await emitEvent(tools, {
+            ticketId: subject,
+            stage: 'release-notes',
+            event: 'run_failed',
+            run: outcome.run.id,
+            data: { reason: `missing notes docs: ${res.missing.join(', ')}` },
+          });
+          return;
+        }
+        await emitEvent(tools, {
+          ticketId: subject,
+          stage: 'release-notes',
+          event: 'doc_drafted',
+          run: outcome.run.id,
+          data: { audiences: res.drafted },
+        });
+      } catch (e) {
+        await tools.surfaceGateItem({
+          subject,
+          gate: 'release-notes',
+          kind: 'failure',
+          payload: { reason: String(e instanceof Error ? e.message : e) },
+        });
+        await emitEvent(tools, {
+          ticketId: subject,
+          stage: 'release-notes',
+          event: 'run_failed',
+          run: outcome.run.id,
+          data: { reason: String(e instanceof Error ? e.message : e) },
+        });
+      }
+    },
+
+    // -- retro (wp-135, DELIVERY §7) --
+    // DONE ⇒ retro.md ingested + retro-proposals.json → draft board
+    // items (never committed scope, invariant 6) + retro_completed.
+    retroDone: async ({ outcome, tools }) => {
+      const subject = outcome.run.subject;
+      try {
+        await completeRetro(tools, subject, { runId: outcome.run.id });
+      } catch (e) {
+        await tools.surfaceGateItem({
+          subject,
+          gate: 'retro',
+          kind: 'failure',
+          payload: { reason: String(e instanceof Error ? e.message : e) },
+        });
+        await emitEvent(tools, {
+          ticketId: subject,
+          stage: 'retro',
+          event: 'run_failed',
+          run: outcome.run.id,
+          data: { reason: String(e instanceof Error ? e.message : e) },
+        });
+      }
     },
 
     // -- catch-all --

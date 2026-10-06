@@ -87,9 +87,7 @@ export function canonicalManifestItems(
 /** `sha256:<hex>` over the canonical manifest scope. `partial_ac` is
  *  part of the digested scope — changing a partial release's approved
  *  ac_ids changes the digest (invariant 3 applies to it too). */
-export function releaseManifestDigest(
-  items: ReleaseManifestItem[],
-): string {
+export function releaseManifestDigest(items: ReleaseManifestItem[]): string {
   const canonical = canonicalManifestItems(items);
   const hex = createHash('sha256')
     .update(JSON.stringify(canonical), 'utf8')
@@ -214,8 +212,7 @@ export function evaluateReleaseGates(
     const rejectedBy = facts.approvals
       .filter((a) => a.decision === 'rejected')
       .map((a) => a.approver);
-    const ok =
-      m != null && approvedBy.length > 0 && rejectedBy.length === 0;
+    const ok = m != null && approvedBy.length > 0 && rejectedBy.length === 0;
     checks.push(
       verdict(
         'approved',
@@ -256,9 +253,7 @@ export function evaluateReleaseGates(
       verdict(
         'merged',
         m != null && blockers.length === 0,
-        blockers.length > 0
-          ? `unmerged: ${blockers.join(', ')}`
-          : undefined,
+        blockers.length > 0 ? `unmerged: ${blockers.join(', ')}` : undefined,
         facts,
       ),
     );

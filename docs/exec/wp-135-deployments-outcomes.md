@@ -30,11 +30,11 @@ New `release-notes` agent stage (doc-only, no repo exec). Events:
 `packages/prompts` token table additions
 
 ## Acceptance criteria
-- [ ] Manual deployment evidence is required and validated
-- [ ] Exposure `available` without a deployment fails closed
-- [ ] Release notes draft → human approve → publish, per audience
-- [ ] Retro run produces proposals + `retro.md`, no silent scope writes
-- [ ] `pnpm test` green
+- [x] Manual deployment evidence is required and validated
+- [x] Exposure `available` without a deployment fails closed
+- [x] Release notes draft → human approve → publish, per audience
+- [x] Retro run produces proposals + `retro.md`, no silent scope writes
+- [x] `pnpm test` green
 
 ## Contract change
 New `release-notes` stage + doc kinds land in wp-131/132 — reuse.

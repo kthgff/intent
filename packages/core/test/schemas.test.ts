@@ -461,11 +461,13 @@ describe('config.yaml (SETTINGS)', () => {
 });
 
 describe('prompt templates', () => {
-  it('ships all 25 templates at PROMPT_VERSION 2', () => {
+  it('ships all 26 templates at PROMPT_VERSION 3', () => {
     // v2: wp-081 added interview-edit (chat-to-edit, s-01 D25).
-    expect(PROMPT_VERSION).toBe(2);
-    expect(Object.keys(PROMPT_TEMPLATES).length).toBe(25);
+    // v3: wp-135 added release-notes (three-audience notes draft).
+    expect(PROMPT_VERSION).toBe(3);
+    expect(Object.keys(PROMPT_TEMPLATES).length).toBe(26);
     expect(PROMPT_TEMPLATES.retro.length).toBeGreaterThan(0);
+    expect(PROMPT_TEMPLATES['release-notes'].length).toBeGreaterThan(0);
     expect(PROMPT_TEMPLATES['solution-brief'].length).toBeGreaterThan(0);
     expect(PROMPT_TEMPLATES.triage.length).toBeGreaterThan(0);
     expect(PROMPT_TEMPLATES['review-passes'].length).toBeGreaterThan(0);

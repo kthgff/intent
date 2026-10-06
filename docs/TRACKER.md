@@ -99,7 +99,7 @@ Program plan for W16+ (PRD §14+§15): `docs/DEV-PLAN.md` + `docs/DELIVERY.md`.
 | W16 | wp-132 | Vocabulary rename: project→Solution, prd→rs, +Solution Brief, +Verification Spec | wp-131 | done |
 | W17 | wp-133 | Merge Center: readiness checklist + Veto-executed `gh pr merge` + post-merge bookkeeping | wp-131 | done |
 | W17 | wp-134 | Release Center core: entities, lifecycle, manifest freeze, approvals | wp-131, wp-133 | done |
-| W17 | wp-135 | Deployments, feature exposure, release notes (3 audiences), outcomes, retrospectives | wp-134 | todo |
+| W17 | wp-135 | Deployments, feature exposure, release notes (3 audiences), outcomes, retrospectives | wp-134 | done |
 | W17 | wp-136 | Delivery API: release/merge-center/exposure/notes routes + SSE + API.md backport | wp-134, wp-135 | todo |
 | W17 | wp-137 | Merge Center + Release Center UI | wp-131, wp-136 | todo |
 | W17 | wp-138 | Delivery E2E: merge→release→deploy→retro vertical (mock adapter) | wp-133–136 | todo |

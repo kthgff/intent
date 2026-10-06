@@ -192,6 +192,8 @@ conductor does. Missing/unparseable sentinel → `run_failed`.
 | escalate | `ESCALATION-WRITTEN` | → `escalated` |
 | survey | `SURVEY-COMPLETE: <n>` | dossier + semantic rows → DB (`dossier_updated`) |
 | | `SURVEY-FAILED: <r>` | `failure` inbox item |
+| release-notes | `DONE` | `notes-<audience>.md` drafts registered as release_notes rows; human approves per audience before `published_at` (wp-135, DELIVERY §5); missing docs → repair gate |
+| retro | `DONE` | `retro.md` doc_version + draft board proposals → `retro_completed` (wp-135, DELIVERY §7 — proposals never commit scope) |
 | any | `BLOCKED: <r>` | → `blocked` + `blocked_reason` |
 
 ## Scheduling policy
