@@ -787,6 +787,14 @@ export async function sweepOrphanedContainers(
     let row: ContainerRow | null = null;
     const slash = who === undefined ? -1 : who.indexOf('/');
     if (who === undefined || slash <= 0 || slash === who.length - 1) {
+      if (deps.workspaces !== undefined && deps.workspaces.length > 0) {
+        // Scoped sweep: a label we can't resolve to one of OUR
+        // workspaces is left alone — it may belong to a conductor
+        // outside the set (a malformed label must never bypass the
+        // workspace fence into a `docker rm`).
+        kept.push(c.name === '' ? c.id : c.name);
+        continue;
+      }
       // Managed but unresolvable — ours, still an orphan.
       orphan = true;
     } else {

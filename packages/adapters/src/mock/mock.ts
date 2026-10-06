@@ -168,7 +168,11 @@ export function parseUsageLine(line: string): UsagePartial | null {
   return null;
 }
 
-function pidAlive(pid: number): boolean {
+/** Bound on the collect() pid-poll fallback (untracked handle). */
+const COLLECT_PID_WAIT_MS = 60_000;
+
+function pidAlive(pid: number | undefined): boolean {
+  if (typeof pid !== 'number' || pid <= 0) return false;
   try {
     process.kill(pid, 0);
     return true;
@@ -293,7 +297,12 @@ export class MockAdapter implements Adapter {
     closeSync(logFd);
     child.unref();
 
-    const pid = child.pid as number;
+    if (child.pid === undefined) {
+      throw new Error(
+        `mock agent spawn failed — no pid (${this.#agentScript})`,
+      );
+    }
+    const pid = child.pid;
     let resolveExit!: () => void;
     const exitPromise = new Promise<void>((r) => {
       resolveExit = r;
@@ -318,12 +327,28 @@ export class MockAdapter implements Adapter {
       if (record.usageTimer) clearInterval(record.usageTimer);
       resolveExit();
     });
+    // A failed spawn emits 'error' and NEVER 'exit' — without this the
+    // error is unhandled and collect() would hang on exitPromise.
+    child.once('error', () => {
+      record.exited = true;
+      record.exitCode = record.exitCode ?? 1;
+      if (record.usageTimer) clearInterval(record.usageTimer);
+      resolveExit();
+    });
     this.#records.set(pid, record);
     return { pid, log_path: logPath };
   }
 
   async control(handle: RunHandle, op: ControlOp): Promise<void> {
     const pid = handle.pid;
+    // Never signal pid 0/undefined — kill(0) targets this conductor's
+    // own process group. A pid-less handle carries no signalable child.
+    if (typeof pid !== 'number' || pid <= 0) {
+      if (op === 'kill') return; // nothing alive to kill
+      throw new Error(
+        `mock control '${op}': handle has no pid — nothing to signal`,
+      );
+    }
     if (op === 'pause') {
       process.kill(pid, 'SIGSTOP');
       return;
@@ -386,7 +411,12 @@ export class MockAdapter implements Adapter {
     if (record) {
       await record.exitPromise;
     } else {
-      while (pidAlive(handle.pid)) await sleep(50);
+      // No tracked child (conductor restart) — poll pid liveness, but
+      // bounded: a pid that never dies can't hang collect forever.
+      const deadline = Date.now() + COLLECT_PID_WAIT_MS;
+      while (pidAlive(handle.pid) && Date.now() < deadline) {
+        await sleep(50);
+      }
     }
 
     const raw = lastNonEmptyLine(handle.log_path);

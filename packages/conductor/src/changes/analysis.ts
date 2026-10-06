@@ -259,7 +259,11 @@ export async function analyzeImpact(
 
   const conflicts = await detectConflicts(store, cs, items);
 
+  // extras FIRST — caller-supplied annotations never overwrite the
+  // computed evidence fields (an `affected_tickets` in extras would
+  // silently falsify the analysis).
   return {
+    ...extras,
     computed_at: computedAt,
     affected_subjects: [...affected.values()],
     affected_releases: affectedReleases,
@@ -267,6 +271,5 @@ export async function analyzeImpact(
     owners: [...owners].sort(),
     statements: [...statements].sort(),
     conflicts,
-    ...extras,
   };
 }

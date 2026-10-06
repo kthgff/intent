@@ -37,7 +37,12 @@
  * decisions and apply — clearing it IS the higher approval
  * (fail-closed: a breached set can never sail through unattended).
  */
-import type { ChangesetRow, ScopeBudgets, Store } from '@veto/core';
+import type {
+  ChangesetRow,
+  RunRow,
+  ScopeBudgets,
+  Store,
+} from '@veto/core';
 import type { StreamEvent } from '../loop/deps.js';
 import { OPEN_CHANGESET_STATUSES } from './analysis.js';
 import type { ChangesetAnalysis } from './analysis.js';
@@ -147,20 +152,21 @@ async function subjectRadar(
 
   // Drift + post-approval: compare each pin to the doc head, and each
   // set's created_at to the subject's doc_approved event timestamps.
-  const approvals = new Set<string>();
+  // doc → approval timestamps (a Map, not a `ts:doc` string — an ISO
+  // timestamp contains ':' and truncating at indexOf(':') corrupts it).
+  const approvals = new Map<string, string[]>();
   for (const e of await store.listEvents({
     workspace,
     ticket_id: subject,
     event: 'doc_approved',
   })) {
-    const doc = (e.data as { doc?: string } | null)?.doc;
-    approvals.add(`${e.ts}:${doc ?? ''}`);
+    const doc = (e.data as { doc?: string } | null)?.doc ?? '';
+    const list = approvals.get(doc) ?? [];
+    list.push(e.ts);
+    approvals.set(doc, list);
   }
   const approvedAt = (doc: string | null | undefined): string[] =>
-    [...approvals]
-      .filter((k) => k.endsWith(`:${doc ?? ''}`))
-      .map((k) => k.slice(0, k.indexOf(':')))
-      .sort();
+    [...(approvals.get(doc ?? '') ?? [])].sort();
 
   // Drift is per (subject, doc) — the baseline's own movement, not the
   // sum over sets pinning it (ten sets on one pin ≠ ten drift). The
@@ -267,8 +273,14 @@ async function subjectRadar(
     const a = cs.analysis as ChangesetAnalysis | null;
     for (const t of a?.affected_tickets ?? []) blast.add(t);
   }
-  const affectedExecutions = (await store.listLiveRuns())
-    .filter((r) => blast.has(r.subject))
+  // Workspace-scoped live-run read — `listLiveRuns(filter?:
+  // {workspace})` is the store contract; the local `r.workspace`
+  // filter stays as a belt for stores that predate the param.
+  const listLiveRuns = store.listLiveRuns.bind(store) as (filter?: {
+    workspace?: string;
+  }) => Promise<RunRow[]>;
+  const affectedExecutions = (await listLiveRuns({ workspace }))
+    .filter((r) => r.workspace === workspace && blast.has(r.subject))
     .map((r) => r.id)
     .sort();
 
@@ -447,16 +459,20 @@ function changesetObserved(
     ),
   );
   const releases = report.releases.filter((r) => ids.has(r.release_id));
+  // Release-derived scope ratio — a legit 0 is a real observation, not
+  // "missing" (`??`, not `||`). Fallback when no release carries a
+  // baseline: the subject's own added+removed as a RATIO of its item
+  // total (a count compared against a percent threshold is
+  // meaningless).
+  const releaseScope = releases
+    .map((r) => r.scope_change_pct)
+    .filter((p): p is number => p != null);
   const scopePct =
-    releases
-      .map((r) => r.scope_change_pct)
-      .filter((p): p is number => p != null)
-      .reduce((a, b) => Math.max(a, b), 0) ||
-    // No release scope? Fall back to the subject's own added+removed
-    // over the affected-artifact count (blast radius vs touched scope).
-    (sub && sub.changesets.total + sub.items.total > 0
-      ? sub.items.added + sub.items.removed
-      : null);
+    releaseScope.length > 0
+      ? Math.max(...releaseScope)
+      : sub && sub.items.total > 0
+        ? (sub.items.added + sub.items.removed) / sub.items.total
+        : null;
   return {
     cost_usd: sub?.cost_usd ?? null,
     schedule_days: sub?.baseline_age_days ?? null,

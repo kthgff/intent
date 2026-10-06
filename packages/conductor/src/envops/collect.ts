@@ -13,8 +13,16 @@
  */
 import { execFile } from 'node:child_process';
 import { constants } from 'node:fs';
-import { access, cp, mkdir, readdir, rename, rm } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import {
+  access,
+  cp,
+  mkdir,
+  readdir,
+  rename,
+  rm,
+  rmdir,
+} from 'node:fs/promises';
+import { dirname, join, resolve, sep } from 'node:path';
 
 export const SCRATCH_DIR = '.veto';
 
@@ -107,6 +115,16 @@ export async function collectArtifacts(
   await mkdir(runDir, { recursive: true });
 
   const scratch = scratchPath(worktree, runId);
+  // Defense-in-depth (run-id path traversal): the scratch MUST resolve
+  // strictly inside `<worktree>/.veto/` — a crafted run id
+  // (`../../x`) must never reach the rm/copy calls below.
+  const scratchRoot = resolve(join(worktree, SCRATCH_DIR));
+  const resolvedScratch = resolve(scratch);
+  if (!resolvedScratch.startsWith(scratchRoot + sep)) {
+    throw new Error(
+      `collect: run id '${runId}' resolves outside ${SCRATCH_DIR}/ — refused (fail-closed)`,
+    );
+  }
   const moved: string[] = [];
 
   // Even for outside-tree backends we purge a stray scratch dir if one
@@ -118,21 +136,27 @@ export async function collectArtifacts(
   // Run ids are multi-segment (`<ws>/<subject>/<attempt>-<stage>`), so
   // removing the leaf leaves `.veto/<ws>/<subject>/` shells —
   // prune every emptied ancestor up to (and incl.) `.veto/`.
+  // `parent + sep` — a `.veto-evil` sibling must not match; `rmdir`
+  // (not rm -rf) fails on a non-empty dir instead of racing a sibling
+  // run that just wrote into it (TOCTOU).
   const parent = join(worktree, SCRATCH_DIR);
   for (
     let dir = dirname(scratch);
-    dir.startsWith(parent) && dir !== worktree;
+    (dir === parent || dir.startsWith(parent + sep)) && dir !== worktree;
     dir = dirname(dir)
   ) {
-    if (!(await exists(dir)) || (await readdir(dir)).length > 0) break;
-    await rm(dir, { recursive: true, force: true });
+    try {
+      await rmdir(dir); // fails non-empty — that's the stop condition
+    } catch {
+      break;
+    }
+    if (dir === parent) break;
   }
 
+  // Residue is scoped to THIS run — a sibling live run's own
+  // `.veto/<other-run>/` scratch leaf is not this run's failure.
   const residue: string[] = [];
   if (await exists(scratch)) residue.push(scratch);
-  if ((await exists(parent)) && (await readdir(parent)).length > 0) {
-    residue.push(...(await readdir(parent)).map((e) => join(parent, e)));
-  }
   // `.veto/` is gitignored, so a clean check is belt-and-
   // suspenders: any porcelain line under it means untracked residue
   // (e.g. an ignore rule was lost) that WILL land in the diff.

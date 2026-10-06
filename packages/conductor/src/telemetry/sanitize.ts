@@ -164,16 +164,26 @@ export function sanitizeAttributes(
     } else if (typeof v === 'number' || typeof v === 'boolean' || v == null) {
       out[k] = v;
     } else if (Array.isArray(v)) {
-      out[k] = v
-        .slice(0, 50)
-        .map((x) =>
-          typeof x === 'string' ? normalizeValue(x.slice(0, 1024)) : x,
-        );
+      out[k] = v.slice(0, 50).map((x) => sanitizeElement(x, depth + 1));
     } else if (typeof v === 'object') {
       out[k] = sanitizeAttributes(v as Record<string, unknown>, depth + 1);
     }
   }
   return out;
+}
+
+/** Sanitize one ARRAY element — strings normalize; objects and nested
+ *  arrays recurse (bounded by the same depth guard) so secrets inside
+ *  `attributes.items[].password` can't pass through verbatim. */
+function sanitizeElement(x: unknown, depth: number): unknown {
+  if (typeof x === 'string') return normalizeValue(x.slice(0, 1024));
+  if (Array.isArray(x)) {
+    return x.slice(0, 50).map((e) => sanitizeElement(e, depth + 1));
+  }
+  if (x !== null && typeof x === 'object') {
+    return sanitizeAttributes(x as Record<string, unknown>, depth + 1);
+  }
+  return x;
 }
 
 /**
@@ -310,19 +320,34 @@ const SECRETISH_KEY =
   /token|secret|password|passwd|credential|api[_-]?key|private[_-]?key/i;
 const REF_VALUE = /^(env:|ref:|\$\{?[A-Z][A-Z0-9_]*\}?$)/;
 
+/** Credential-shaped literals — scanned against every string VALUE,
+ *  not just secret-named keys (a `notes:` field carrying a JWT is
+ *  still a secret in the DB). */
+const CREDENTIAL_VALUE =
+  /eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s/@]+@|\b(?:sk|ghp|gho|ghu|ghs|ghr|glpat|xox[baprs])-[A-Za-z0-9_-]{8,}/i;
+
 /**
  * Fail-closed source-config check: any key that LOOKS like a secret
  * must carry a name/ref (`env:FOO`, `ref:…`, `$FOO`), never a literal
- * value (DB-SCHEMA: `config` stores secret refs only). Returns issues;
- * callers throw on a non-empty list.
+ * value (DB-SCHEMA: `config` stores secret refs only). Any STRING
+ * value — under any key — that itself looks like a credential
+ * (JWT, userinfo URL, well-known token prefix, PEM) is refused.
+ * Returns issues; callers throw on a non-empty list.
  */
 export function secretConfigIssues(config: Record<string, unknown>): string[] {
   const issues: string[] = [];
   for (const [k, v] of Object.entries(config)) {
-    if (!SECRETISH_KEY.test(k)) continue;
-    if (typeof v !== 'string' || !REF_VALUE.test(v.trim())) {
+    if (SECRETISH_KEY.test(k)) {
+      if (typeof v !== 'string' || !REF_VALUE.test(v.trim())) {
+        issues.push(
+          `config key '${k}' must hold a secret REF (env:NAME / ref:… / $NAME), not a value`,
+        );
+        continue;
+      }
+    }
+    if (typeof v === 'string' && CREDENTIAL_VALUE.test(v)) {
       issues.push(
-        `config key '${k}' must hold a secret REF (env:NAME / ref:… / $NAME), not a value`,
+        `config key '${k}' carries a credential-shaped value — store a secret REF (env:NAME / ref:… / $NAME) instead`,
       );
     }
   }

@@ -83,6 +83,20 @@ function requireStatus(
   }
 }
 
+/** OCC fence — the caller's observed status must still hold. */
+function requireExpected(
+  release: ReleaseRow,
+  expected: string | undefined,
+  what: string,
+): void {
+  if (expected !== undefined && release.status !== expected) {
+    throw new ReleaseError(
+      'bad-state',
+      `stale write: expected status '${expected}', release ${release.release_id} is '${release.status}' (${what})`,
+    );
+  }
+}
+
 /** Release-scoped event — `ticket_id` carries the REL-NNNN subject so
  *  `listEvents({subject})` and SSE pick it up (events table has no
  *  generic subject column). */
@@ -246,6 +260,10 @@ export async function addReleaseItem(
     approvedBy?: string | null;
     addedBy?: string;
     actorType?: ActorType;
+    /** OCC fence — when the route saw a status, enforce it inside the
+     *  write transaction (the pre-flight check is a hint; this is the
+     *  authoritative re-read). */
+    expectedStatus?: string;
   },
 ): Promise<ReleaseItemRow> {
   const release = await requireRelease(ctx, releaseId);
@@ -300,36 +318,52 @@ export async function addReleaseItem(
     }
   }
 
-  const existing = (
-    await ctx.store.listReleaseItems({
+  // Write side in ONE transaction — item add + event + manifest recut
+  // land together; the release status + expected_status are re-read
+  // inside the tx (the pre-flight requireStatus above is only a hint).
+  return ctx.store.transaction(async (store) => {
+    const tx: ReleaseCtx = { ...ctx, store };
+    const current = await store.getRelease({
       workspace: ctx.workspace,
       release_id: releaseId,
-    })
-  ).find((i) => i.item_kind === args.itemKind && i.item_id === args.itemId);
-  const ts = ctx.now().toISOString();
-  const row: ReleaseItemRow = {
-    workspace: ctx.workspace,
-    release_id: releaseId,
-    item_kind: args.itemKind,
-    item_id: args.itemId,
-    partial_ac: partialAc,
-    delivery_state: existing?.delivery_state ?? 'planned',
-    approved_by: args.approvedBy ?? null,
-    added_by: args.addedBy ?? ctx.actor,
-    added_at: ts,
-    removed_at: null,
-  };
-  await ctx.store.upsertReleaseItem(row);
-  await releaseEvent(ctx, releaseId, 'release_items_changed', {
-    added: {
+    });
+    if (!current) {
+      throw new ReleaseError('not-found', `no release ${releaseId}`);
+    }
+    requireStatus(current, SCOPE_MUTABLE, 'add item');
+    requireExpected(current, args.expectedStatus, 'add item');
+
+    const existing = (
+      await store.listReleaseItems({
+        workspace: ctx.workspace,
+        release_id: releaseId,
+      })
+    ).find((i) => i.item_kind === args.itemKind && i.item_id === args.itemId);
+    const ts = ctx.now().toISOString();
+    const row: ReleaseItemRow = {
+      workspace: ctx.workspace,
+      release_id: releaseId,
       item_kind: args.itemKind,
       item_id: args.itemId,
       partial_ac: partialAc,
+      delivery_state: existing?.delivery_state ?? 'planned',
       approved_by: args.approvedBy ?? null,
-    },
+      added_by: args.addedBy ?? ctx.actor,
+      added_at: ts,
+      removed_at: null,
+    };
+    await store.upsertReleaseItem(row);
+    await releaseEvent(tx, releaseId, 'release_items_changed', {
+      added: {
+        item_kind: args.itemKind,
+        item_id: args.itemId,
+        partial_ac: partialAc,
+        approved_by: args.approvedBy ?? null,
+      },
+    });
+    await recutAfterScopeChange(tx, current);
+    return row;
   });
-  await recutAfterScopeChange(ctx, release);
-  return row;
 }
 
 /** Soft-remove a scope item (`removed_at` — the row stays for audit).
@@ -337,37 +371,57 @@ export async function addReleaseItem(
 export async function removeReleaseItem(
   ctx: ReleaseCtx,
   releaseId: string,
-  args: { itemKind: ReleaseItemKind; itemId: string },
+  args: {
+    itemKind: ReleaseItemKind;
+    itemId: string;
+    /** OCC fence — enforced inside the write transaction. */
+    expectedStatus?: string;
+  },
 ): Promise<void> {
   const release = await requireRelease(ctx, releaseId);
   requireStatus(release, SCOPE_MUTABLE, 'remove item');
-  const live = await ctx.store.listReleaseItems({
-    workspace: ctx.workspace,
-    release_id: releaseId,
-  });
-  const item = live.find(
-    (i) => i.item_kind === args.itemKind && i.item_id === args.itemId,
-  );
-  if (!item) {
-    throw new ReleaseError(
-      'not-found',
-      `release ${releaseId} has no live ${args.itemKind} item ${args.itemId}`,
-    );
-  }
-  const ts = ctx.now().toISOString();
-  await ctx.store.removeReleaseItem(
-    {
+
+  // Soft-remove + event + manifest recut in ONE transaction — a
+  // mid-op crash must not leave item-removed-but-manifest-stale.
+  await ctx.store.transaction(async (store) => {
+    const tx: ReleaseCtx = { ...ctx, store };
+    const current = await store.getRelease({
       workspace: ctx.workspace,
       release_id: releaseId,
-      item_kind: args.itemKind,
-      item_id: args.itemId,
-    },
-    ts,
-  );
-  await releaseEvent(ctx, releaseId, 'release_items_changed', {
-    removed: { item_kind: args.itemKind, item_id: args.itemId },
+    });
+    if (!current) {
+      throw new ReleaseError('not-found', `no release ${releaseId}`);
+    }
+    requireStatus(current, SCOPE_MUTABLE, 'remove item');
+    requireExpected(current, args.expectedStatus, 'remove item');
+    const live = await store.listReleaseItems({
+      workspace: ctx.workspace,
+      release_id: releaseId,
+    });
+    const item = live.find(
+      (i) => i.item_kind === args.itemKind && i.item_id === args.itemId,
+    );
+    if (!item) {
+      throw new ReleaseError(
+        'not-found',
+        `release ${releaseId} has no live ${args.itemKind} item ${args.itemId}`,
+      );
+    }
+    const ts = ctx.now().toISOString();
+    await store.removeReleaseItem(
+      {
+        workspace: ctx.workspace,
+        release_id: releaseId,
+        item_kind: args.itemKind,
+        item_id: args.itemId,
+      },
+      ts,
+    );
+    await releaseEvent(tx, releaseId, 'release_items_changed', {
+      removed: { item_kind: args.itemKind, item_id: args.itemId },
+    });
+    await recutAfterScopeChange(tx, current);
   });
-  await recutAfterScopeChange(ctx, release);
 }
 
 /**
@@ -422,6 +476,8 @@ export async function approveRelease(
     actorType: ActorType;
     decision: 'approved' | 'rejected';
     rationale?: string | null;
+    /** OCC fence — enforced inside the write transaction. */
+    expectedStatus?: string;
   },
 ): Promise<ReleaseApprovalRow> {
   const release = await requireRelease(ctx, releaseId);
@@ -445,29 +501,54 @@ export async function approveRelease(
       `release ${releaseId} has no manifest — freeze before approve`,
     );
   }
-  const ts = ctx.now().toISOString();
-  const row: ReleaseApprovalRow = {
-    workspace: ctx.workspace,
-    release_id: releaseId,
-    manifest_version: manifest.version,
-    approver: args.approver,
-    decision: args.decision,
-    rationale: args.rationale ?? null,
-    created_at: ts,
-  };
-  await ctx.store.appendReleaseApproval(row);
-  await setStatus(
-    ctx,
-    release,
-    args.decision === 'approved' ? 'approved' : 'draft',
-  );
-  await releaseEvent(ctx, releaseId, 'release_approved', {
-    manifest_version: manifest.version,
-    digest: manifest.digest,
-    approver: args.approver,
-    decision: args.decision,
+  // Approval row + status flip + event in ONE transaction — a crash
+  // must not leave an approval recorded against a status that never
+  // moved (or vice versa). Status + expected_status are re-read in-tx.
+  return ctx.store.transaction(async (store) => {
+    const tx: ReleaseCtx = { ...ctx, store };
+    const current = await store.getRelease({
+      workspace: ctx.workspace,
+      release_id: releaseId,
+    });
+    if (!current) {
+      throw new ReleaseError('not-found', `no release ${releaseId}`);
+    }
+    requireStatus(current, APPROVABLE, 'approve');
+    requireExpected(current, args.expectedStatus, 'approve');
+    const head = await store.getReleaseManifest({
+      workspace: ctx.workspace,
+      release_id: releaseId,
+    });
+    if (!head || head.digest !== manifest.digest) {
+      throw new ReleaseError(
+        'bad-state',
+        `release ${releaseId}: manifest changed between read and approve — aborting`,
+      );
+    }
+    const ts = ctx.now().toISOString();
+    const row: ReleaseApprovalRow = {
+      workspace: ctx.workspace,
+      release_id: releaseId,
+      manifest_version: head.version,
+      approver: args.approver,
+      decision: args.decision,
+      rationale: args.rationale ?? null,
+      created_at: ts,
+    };
+    await store.appendReleaseApproval(row);
+    await store.upsertRelease({
+      ...current,
+      status: args.decision === 'approved' ? 'approved' : 'draft',
+      updated_at: ts,
+    });
+    await releaseEvent(tx, releaseId, 'release_approved', {
+      manifest_version: head.version,
+      digest: head.digest,
+      approver: args.approver,
+      decision: args.decision,
+    });
+    return row;
   });
-  return row;
 }
 
 /**

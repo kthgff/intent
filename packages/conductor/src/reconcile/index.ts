@@ -181,15 +181,18 @@ async function sweepRun(ctx: ReconcileCtx, run: RunRow): Promise<void> {
     now,
   );
 
-  if (run.status === 'paused') return; // pause freezes work, not the clock
-
   // Stage timeout → kill + run_killed; ticket status stays for retry.
+  // Paused runs are NOT exempt: "pause freezes work, not the clock" —
+  // a paused run still dies at its deadline; only the stall check is
+  // skipped below (a paused pid can't make mtime progress).
   const timeoutS = stageTimeout(deps, run.stage);
   const startedMs = Date.parse(run.started_at ?? '');
   if (Number.isFinite(startedMs) && Date.now() - startedMs > timeoutS * 1000) {
     await killRun(ctx, run, `timeout (${timeoutS}s)`);
     return;
   }
+
+  if (run.status === 'paused') return; // pause freezes work, not the clock
 
   // Heartbeat staleness: pid alive but no log/artifact progress for
   // ~2 ticks → stalled warn (CONDUCTOR/DB-SCHEMA).

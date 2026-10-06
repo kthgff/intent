@@ -196,87 +196,97 @@ export async function ingestTelemetry(
       .filter((t): t is string => !!t)
       .sort();
     const id = signatureId(ctx.workspace, args.source_id, fp);
-    const res = await ctx.store.upsertErrorSignature(
-      {
-        id,
-        workspace: ctx.workspace,
-        source_id: args.source_id,
-        fingerprint_version: FINGERPRINT_VERSION,
-        fingerprint: fp,
-        normalized_pattern: first.message || first.exception_class || fp,
-        representative: representativeSample(first),
-        attributes: first.attributes,
-        first_seen: timestamps[0] ?? nowIso,
-        last_seen: timestamps[timestamps.length - 1] ?? nowIso,
-        count: g.n,
-        raw_locator: `query:${args.source_id}:${fp}`,
-      },
-      g.n,
-    );
-    signatures.push(res.row);
-    counts.push({ fingerprint: fp, events: g.n, state: res.state });
-
-    // Incident policy: a NEW signature opens one incident; an existing
-    // signature whose incidents all settled (resolved/closed) opens a
-    // RECURRENCE incident — a live open/investigating incident absorbs
-    // the count silently (no duplicate investigations, wp-120 AC).
-    const existing = await ctx.store.listIncidents({
-      workspace: ctx.workspace,
-      signature_id: res.row.id,
-    });
-    const live = existing.some(
-      (i) => i.status === 'open' || i.status === 'investigating',
-    );
-    if (!live && (res.state === 'created' || existing.length > 0)) {
-      const incidentId = await ctx.store.allocIncidentId(ctx.workspace);
-      const recurrence = existing.length > 0;
-      const incident: IncidentRow = {
-        id: incidentId,
-        workspace: ctx.workspace,
-        signature_id: res.row.id,
-        status: 'open',
-        summary:
-          `${recurrence ? 'recurrence: ' : ''}${res.row.normalized_pattern}`.slice(
-            0,
-            300,
-          ),
-        investigation_ref: null,
-        root_cause: null,
-        resolution: null,
-        resolution_verified: 0,
-        deployment_refs: [],
-        ticket_refs: [],
-        pr_refs: [],
-        opened_at: nowIso,
-        resolved_at: null,
-      };
-      await ctx.store.insertIncident(incident);
-      incidentsOpened.push(incident);
-      await ctx.store.appendEvent({
-        workspace: ctx.workspace,
-        ticket_id: null,
-        ts: nowIso,
-        stage: null,
-        actor_type: 'system',
-        actor_id: ctx.actor,
-        event: 'incident_opened',
-        run: null,
-        refs: [`incident:${incidentId}`, `signature:${res.row.id}`],
-        data: {
-          incident: incidentId,
-          signature: res.row.id,
+    // Atomic per fingerprint (upsert + incident check + alloc + insert
+    // + event in ONE transaction) — concurrent batches must not race
+    // the incident-existence read into duplicate recurrence incidents.
+    const res = await ctx.store.transaction(async (tx) => {
+      const sig = await tx.upsertErrorSignature(
+        {
+          id,
+          workspace: ctx.workspace,
+          source_id: args.source_id,
+          fingerprint_version: FINGERPRINT_VERSION,
           fingerprint: fp,
-          recurrence,
+          normalized_pattern:
+            first.message || first.exception_class || fp,
+          representative: representativeSample(first),
+          attributes: first.attributes,
+          first_seen: timestamps[0] ?? nowIso,
+          last_seen: timestamps[timestamps.length - 1] ?? nowIso,
+          count: g.n,
+          raw_locator: `query:${args.source_id}:${fp}`,
         },
-        cost_usd: null,
-        tokens_in: null,
-        tokens_out: null,
-        tokens_cached: null,
-        usage_source: null,
-        duration_s: null,
-        human_minutes: null,
+        g.n,
+      );
+
+      // Incident policy: a NEW signature opens one incident; an
+      // existing signature whose incidents all settled
+      // (resolved/closed) opens a RECURRENCE incident — a live
+      // open/investigating incident absorbs the count silently (no
+      // duplicate investigations, wp-120 AC). The check rides inside
+      // this tx so a concurrent batch sees the row we just wrote.
+      const existing = await tx.listIncidents({
+        workspace: ctx.workspace,
+        signature_id: sig.row.id,
       });
-    }
+      const live = existing.some(
+        (i) => i.status === 'open' || i.status === 'investigating',
+      );
+      let incident: IncidentRow | null = null;
+      if (!live && (sig.state === 'created' || existing.length > 0)) {
+        const incidentId = await tx.allocIncidentId(ctx.workspace);
+        const recurrence = existing.length > 0;
+        incident = {
+          id: incidentId,
+          workspace: ctx.workspace,
+          signature_id: sig.row.id,
+          status: 'open',
+          summary:
+            `${recurrence ? 'recurrence: ' : ''}${sig.row.normalized_pattern}`.slice(
+              0,
+              300,
+            ),
+          investigation_ref: null,
+          root_cause: null,
+          resolution: null,
+          resolution_verified: 0,
+          deployment_refs: [],
+          ticket_refs: [],
+          pr_refs: [],
+          opened_at: nowIso,
+          resolved_at: null,
+        };
+        await tx.insertIncident(incident);
+        await tx.appendEvent({
+          workspace: ctx.workspace,
+          ticket_id: null,
+          ts: nowIso,
+          stage: null,
+          actor_type: 'system',
+          actor_id: ctx.actor,
+          event: 'incident_opened',
+          run: null,
+          refs: [`incident:${incidentId}`, `signature:${sig.row.id}`],
+          data: {
+            incident: incidentId,
+            signature: sig.row.id,
+            fingerprint: fp,
+            recurrence,
+          },
+          cost_usd: null,
+          tokens_in: null,
+          tokens_out: null,
+          tokens_cached: null,
+          usage_source: null,
+          duration_s: null,
+          human_minutes: null,
+        });
+      }
+      return { sig, incident };
+    });
+    signatures.push(res.sig.row);
+    counts.push({ fingerprint: fp, events: g.n, state: res.sig.state });
+    if (res.incident) incidentsOpened.push(res.incident);
   }
 
   await ctx.store.appendEvent({

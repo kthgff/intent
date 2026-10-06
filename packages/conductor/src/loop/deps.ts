@@ -283,21 +283,34 @@ export async function loadHandle(run: RunRow): Promise<RunHandle | null> {
   if (run.run_dir && existsSync(file)) {
     try {
       const parsed = JSON.parse(await readFile(file, 'utf8')) as RunHandle;
-      if (typeof parsed.pid === 'number') {
-        return containerId !== null && parsed.container_id === undefined
-          ? { ...parsed, container_id: containerId }
-          : parsed;
+      if (typeof parsed.pid === 'number' || parsed.container_id) {
+        // pid:0/absent is valid ONLY on container runs — control must
+        // go through the docker seam; a zero pid would signal this
+        // conductor's own process group (kill(0)).
+        const clean =
+          typeof parsed.pid === 'number' && parsed.pid > 0
+            ? parsed
+            : ({ ...parsed, pid: undefined } as unknown as RunHandle);
+        return containerId !== null && clean.container_id === undefined
+          ? { ...clean, container_id: containerId }
+          : clean;
       }
     } catch {
       /* fall through to pid-only */
     }
   }
-  if (typeof run.pid === 'number' || containerId !== null) {
+  if (
+    (typeof run.pid === 'number' && run.pid > 0) ||
+    containerId !== null
+  ) {
     return {
-      pid: run.pid ?? 0,
+      // Never emit pid:0 — pid stays unset when the row has none.
+      ...(typeof run.pid === 'number' && run.pid > 0
+        ? { pid: run.pid }
+        : {}),
       log_path: join(run.run_dir ?? '', 'run.log'),
       ...(containerId !== null ? { container_id: containerId } : {}),
-    };
+    } as RunHandle;
   }
   return null;
 }
