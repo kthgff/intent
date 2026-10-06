@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import { type IdeaBoardRow, client } from './api';
 import DemoApp, { isDemoMode } from './demo/DemoApp';
+import { useEscapeKey } from './hooks';
 import Boards from './screens/Boards';
 import Capture, { CaptureForm } from './screens/Capture';
 import CodeReview from './screens/CodeReview';
@@ -47,6 +48,7 @@ function ProductionApp() {
     noteKinds: string[];
   } | null>(null);
   const toastSeq = useRef(0);
+  useEscapeKey(captureOpen, () => setCaptureOpen(false));
   const location = useLocation();
 
   // ⌘⇧C — the compact Quick Capture modal (S-19; same component as

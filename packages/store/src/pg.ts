@@ -1605,6 +1605,51 @@ export class PostgresStore implements Store {
     );
   }
 
+  async updateBoardItemExpected(
+    item: BoardItem,
+    expectedUpdatedAt: string,
+  ): Promise<BoardItem | null> {
+    const p = [
+      item.id,
+      item.workspace,
+      item.org ?? null,
+      item.board ?? null,
+      item.kind,
+      item.ref ?? null,
+      item.title ?? null,
+      item.body ?? null,
+      item.x ?? null,
+      item.y ?? null,
+      item.w ?? null,
+      item.h ?? null,
+      item.zone ?? null,
+      j(item.serves ?? null),
+      item.status,
+      item.consumed_by ?? null,
+      item.note_kind ?? null,
+      item.topic ?? null,
+      item.importance ?? null,
+      item.applies_to ? j(item.applies_to) : null,
+      item.note_status ?? null,
+      item.rationale ?? null,
+      item.provenance ?? null,
+      item.updated_at ?? null,
+      expectedUpdatedAt,
+    ];
+    const rows = await this.db.query(
+      `UPDATE board_items SET
+         org=$3, board=$4, kind=$5, ref=$6, title=$7, body=$8, x=$9,
+         y=$10, w=$11, h=$12, zone=$13, serves=$14, status=$15,
+         consumed_by=$16, note_kind=$17, topic=$18, importance=$19,
+         applies_to=$20, note_status=$21, rationale=$22, provenance=$23,
+         updated_at=$24
+       WHERE id=$1 AND workspace=$2 AND updated_at=$25
+       RETURNING *`,
+      p,
+    );
+    return rows[0] ? rowToBoardItem(rows[0]) : null;
+  }
+
   async getBoardItem(id: string): Promise<BoardItem | null> {
     const rows = await this.db.query('SELECT * FROM board_items WHERE id=$1', [
       id,
@@ -2138,11 +2183,13 @@ export class PostgresStore implements Store {
     return rows.map(rowToReleaseGateResult);
   }
 
-  async insertDeployment(row: DeploymentRow): Promise<void> {
-    await this.db.query(
+  async insertDeployment(row: DeploymentRow): Promise<boolean> {
+    const rows = await this.db.query(
       `INSERT INTO deployments (workspace, org, deployment_id, release_id,
          environment, sha, evidence, confirmed_by, confirmed_at, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+       ON CONFLICT (workspace, deployment_id) DO NOTHING
+       RETURNING deployment_id`,
       [
         row.workspace,
         row.org ?? null,
@@ -2156,6 +2203,7 @@ export class PostgresStore implements Store {
         row.created_at ?? null,
       ],
     );
+    return rows.length > 0;
   }
 
   async confirmDeployment(

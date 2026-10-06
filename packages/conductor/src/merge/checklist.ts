@@ -170,19 +170,7 @@ export async function evaluateReadiness(
   const at = (deps.now?.() ?? new Date()).toISOString();
   const items: ChecklistItem[] = [];
   const openRows = rows.filter((r) => r.pr_url);
-  // Every declared repo row must have an open PR — a row without one
-  // is unpushed/un-PR'd work, and a silent exclusion would let a merge
-  // run while part of the ticket was never proposed for review.
   const noPr = rows.filter((r) => !r.pr_url).map((r) => r.repo);
-  items.push({
-    id: 'prs-open',
-    label: 'Every repo has an open PR',
-    ok: noPr.length === 0,
-    detail:
-      noPr.length === 0
-        ? `${openRows.length} PR(s) open`
-        : `no PR for ${noPr.join(', ')} — work unpushed or PR not created`,
-  });
 
   // ---- fetch `gh pr view` once per open row ----
   const prInfos = new Map(opts.prInfos ?? []);
@@ -201,6 +189,32 @@ export async function evaluateReadiness(
     }
     heads[row.repo] = info?.headRefOid ?? null;
   }
+
+  // Every declared repo row must have an open PR — a row without one
+  // is unpushed/un-PR'd work, and a closed-unmerged PR is just as much
+  // "not proposed for review" as no PR at all.
+  const closed = openRows
+    .filter((r) => {
+      const s = prInfos.get(r.repo)?.state;
+      return s !== undefined && s !== 'OPEN';
+    })
+    .map((r) => r.repo);
+  items.push({
+    id: 'prs-open',
+    label: 'Every repo has an open PR',
+    ok: noPr.length === 0 && closed.length === 0,
+    detail:
+      noPr.length === 0 && closed.length === 0
+        ? `${openRows.length} PR(s) open`
+        : [
+            ...(noPr.length > 0
+              ? [`no PR for ${noPr.join(', ')} — work unpushed`]
+              : []),
+            ...(closed.length > 0
+              ? [`PR closed/merged for ${closed.join(', ')}`]
+              : []),
+          ].join('; '),
+  });
 
   // ---- approval (commit-bound freshness) ----
   const reviewId = `rv-${id}`;

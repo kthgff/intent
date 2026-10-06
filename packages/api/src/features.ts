@@ -374,6 +374,9 @@ export function registerFeatureRoutes(
       try {
         next = await acceptFeature(ctxFor(ws), featureId, {
           exclusions: body.exclusions ?? [],
+          ...(body.expected_status !== undefined
+            ? { expectedStatus: body.expected_status }
+            : {}),
         });
       } catch (err) {
         mapFeatureError(err);

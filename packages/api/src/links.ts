@@ -50,7 +50,7 @@ const ListQuery = z.object({
   object: z.string().optional(),
 });
 
-const ProposeBody = RelationSchema.extend({
+const ProposeBody = RelationSchema.omit({ verification: true }).extend({
   workspace: z.string().min(1),
   source: z.enum(RELATION_SOURCES),
 });

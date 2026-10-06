@@ -856,6 +856,8 @@ export function registerDiscoveryRoutes(
     // Tray → board moves route through the engine's promotion rule
     // (fail-closed when the item isn't actually in the tray); other
     // board↔board / board→tray moves update the row directly.
+    let base = item;
+    let fence = item.updated_at ?? '';
     if (
       item.board === null &&
       body.board !== undefined &&
@@ -864,9 +866,18 @@ export function registerDiscoveryRoutes(
       await call(() =>
         promoteTrayItem(store, { id, board: body.board as string, actor }),
       );
+      // Promotion wrote the row — build the follow-up write from the
+      // promoted row (never the stale pre-promotion snapshot) and fence
+      // the conditional update on the version promotion stamped.
+      const promoted = await store.getBoardItem(id);
+      if (!promoted) {
+        throw new ApiError(404, 'not_found', `no board item ${id}`);
+      }
+      base = promoted;
+      fence = promoted.updated_at ?? fence;
     }
     const next: BoardItem = {
-      ...item,
+      ...base,
       ...(body.board !== undefined ? { board: body.board } : {}),
       ...(body.kind !== undefined
         ? { kind: body.kind as BoardItem['kind'] }
@@ -897,10 +908,17 @@ export function registerDiscoveryRoutes(
         : {}),
       updated_at: ts,
     };
-    await store.upsertBoardItem(next);
+    const updated = await store.updateBoardItemExpected(next, fence);
+    if (!updated) {
+      throw new ApiError(
+        409,
+        'conflict',
+        `board item ${id} changed concurrently — reload and retry`,
+      );
+    }
     touched(body.workspace);
-    boardItemTouched(body.workspace, next);
-    return { item: next };
+    boardItemTouched(body.workspace, updated);
+    return { item: updated };
   });
 
   /** Tray mistake cleanup — consumed/frozen items refuse deletion

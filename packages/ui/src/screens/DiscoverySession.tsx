@@ -26,7 +26,7 @@ import {
   slotStateLabel,
   splitBulkAnswers,
 } from '../discovery';
-import { useLoad, useStreamRefresh } from '../hooks';
+import { useEscapeKey, useLoad, useStreamRefresh } from '../hooks';
 import UnderstandingPanel from './UnderstandingPanel';
 
 export default function DiscoverySession() {
@@ -44,6 +44,7 @@ export default function DiscoverySession() {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [briefing, setBriefing] = useState<ResumeBriefing | null>(null);
+  useEscapeKey(briefing !== null, () => setBriefing(null));
 
   const loadUnderstanding = useCallback(() => {
     client

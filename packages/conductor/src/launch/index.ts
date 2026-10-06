@@ -534,6 +534,11 @@ export async function launch(
     req.pendingRow?.attempt ?? (await nextAttempt(ctx, req.subject, req.stage));
   const runId =
     req.pendingRow?.id ?? formatRunId(ws.name, req.subject, attempt, req.stage);
+  // A pendingRow id minted outside formatRunId could still carry `..` —
+  // re-validate every segment before it interpolates into run-dir paths.
+  if (req.pendingRow) {
+    for (const seg of runId.split('/')) assertRunIdSegment(seg, 'pending id');
+  }
 
   // --- lease (CONDUCTOR CLAIM: contested → skip this tick) ---
   const leaseKey = {

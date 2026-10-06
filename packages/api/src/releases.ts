@@ -125,6 +125,9 @@ const ApproveBody = Occ.extend({
 
 const DeploymentBody = z
   .object({
+    /** Client idempotency key — a retried POST with the same id returns
+     *  the stored deployment, never a duplicate row/event. */
+    deployment_id: z.string().min(1).optional(),
     env: z.string().min(1),
     sha: z.string().min(1),
     /** Manual attestation {type:'manual', by, note, url} — required
@@ -274,24 +277,33 @@ export function registerReleaseRoutes(
           return async <T>(fn: (s: Store) => Promise<T>): Promise<T> => {
             // Events appended by the tx-scoped store bypass the outer
             // proxy — buffer them and mirror only after the commit
-            // succeeds (a rolled-back event must never stream).
+            // succeeds (a rolled-back event must never stream). Nested
+            // transactions share the same buffer: a savepoint commit
+            // still isn't durable until the outermost tx commits.
             const buffered: EventRow[] = [];
-            const result = await base.transaction((txStore) => {
-              const wrapped = new Proxy(txStore, {
+            const wrapTx = (s: Store): Store =>
+              new Proxy(s, {
                 get(t, p) {
                   if (p === 'appendEvent') {
                     return async (e: EventRow) => {
-                      const id = await txStore.appendEvent(e);
+                      const id = await s.appendEvent(e);
                       if (STREAMED_EVENTS.has(e.event)) buffered.push(e);
                       return id;
                     };
+                  }
+                  if (p === 'transaction') {
+                    return async <T2>(
+                      fn2: (s2: Store) => Promise<T2>,
+                    ): Promise<T2> =>
+                      s.transaction((inner) => fn2(wrapTx(inner)));
                   }
                   const v = Reflect.get(t, p);
                   return typeof v === 'function' ? v.bind(t) : v;
                 },
               }) as Store;
-              return fn(wrapped);
-            });
+            const result = await base.transaction((txStore) =>
+              fn(wrapTx(txStore)),
+            );
             for (const e of buffered) {
               deps.notify?.({
                 type: e.event as StreamEvent['type'],
@@ -390,6 +402,9 @@ export function registerReleaseRoutes(
         itemId: body.item_id,
         partialAc: body.partial_ac ?? null,
         approvedBy: body.approved_by ?? null,
+        ...(body.expected_status !== undefined
+          ? { expectedStatus: body.expected_status }
+          : {}),
         ...(body.actor_kind ? { actorType: body.actor_kind } : {}),
       }),
     );
@@ -409,6 +424,9 @@ export function registerReleaseRoutes(
       removeReleaseItem(ctx, rel, {
         itemKind: body.item_kind,
         itemId: body.item_id,
+        ...(body.expected_status !== undefined
+          ? { expectedStatus: body.expected_status }
+          : {}),
       }),
     );
     return { removed: `${body.item_kind}:${body.item_id}` };
@@ -442,6 +460,9 @@ export function registerReleaseRoutes(
         actorType: body.actor_kind ?? 'human',
         decision: body.decision,
         rationale: body.rationale ?? null,
+        ...(body.expected_status !== undefined
+          ? { expectedStatus: body.expected_status }
+          : {}),
       }),
     );
     return { approval };
@@ -474,6 +495,9 @@ export function registerReleaseRoutes(
           environment: body.env,
           sha: body.sha,
           evidence: body.evidence,
+          ...(body.deployment_id !== undefined
+            ? { deploymentId: body.deployment_id }
+            : {}),
         }),
       );
       return reply.status(201).send({ deployment });

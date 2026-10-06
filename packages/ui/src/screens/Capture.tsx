@@ -51,6 +51,9 @@ export function CaptureForm({
 
   useEffect(() => {
     if (!workspace) return;
+    // Clear immediately — the previous workspace's boards are not valid
+    // destinations while the new list is in flight.
+    setLocalBoards([]);
     let live = true;
     client
       .ideaBoards(workspace)

@@ -117,9 +117,8 @@ export function ReadinessCard({
 }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<unknown>(null);
-  const [confirmRevert, setConfirmRevert] = useState(false);
 
-  const act = async (action: 'merge' | 'revert') => {
+  const act = async (action: 'merge') => {
     setBusy(true);
     setErr(null);
     try {
@@ -127,7 +126,6 @@ export function ReadinessCard({
         action,
         expected_status: 'ci-watch',
       });
-      setConfirmRevert(false);
       onDone();
     } catch (e) {
       setErr(e);
@@ -217,40 +215,9 @@ export function ReadinessCard({
             Merge now
           </button>
         )}
-        {/* Revert is a merged-work action — on a not-yet-merged ticket
-            it would queue a revert run for a merge that never landed. */}
-        {['merged', 'verifying', 'released'].includes(r.status ?? '') ? (
-          !confirmRevert ? (
-            <button
-              type="button"
-              className="small"
-              disabled={busy}
-              onClick={() => setConfirmRevert(true)}
-            >
-              Revert…
-            </button>
-          ) : (
-            <>
-              <span className="muted">Revert this merge?</span>
-              <button
-                type="button"
-                className="danger"
-                disabled={busy}
-                onClick={() => void act('revert')}
-              >
-                Confirm revert
-              </button>
-              <button
-                type="button"
-                className="small"
-                disabled={busy}
-                onClick={() => setConfirmRevert(false)}
-              >
-                cancel
-              </button>
-            </>
-          )
-        ) : null}
+        {/* Revert lives on the PR panel — this payload only carries
+            ci-watch tickets, so a merged-work action can never belong
+            here. */}
         <Link
           className="btn small"
           to={`/tickets/${encodeURIComponent(ws)}/${encodeURIComponent(r.ticket_id)}/pr`}

@@ -119,11 +119,16 @@ export async function proposeLink(
   const existing = await store.listRelations(key);
   const head = existing[0];
   if (head) return { edge: head, created: false };
+  // Verification is always DERIVED — a caller can never self-declare
+  // `verified`; verified arrives only via explicit/human source or the
+  // guarded decideLink path.
   const edge: Relation = {
     ...parsed.data,
-    verification:
-      parsed.data.verification ??
-      proposalVerification(parsed.data.source, parsed.data.confidence, cfg),
+    verification: proposalVerification(
+      parsed.data.source,
+      parsed.data.confidence,
+      cfg,
+    ),
   };
   await store.upsertRelation(edge);
   return { edge, created: true };
@@ -258,9 +263,14 @@ export async function decideLink(
   const result = await store.transaction(async (tx) => {
     const r = await tx.decideRelation(key, args.expected, next);
     if (r.state !== 'updated') return r;
+    // ticket_id on the event is the ticket-shaped first subject segment
+    // (SR-12, SR-12:ac:* → SR-12); workspace-level subjects (board:x,
+    // feature:y) carry none — null, never a garbage segment.
+    const seg = edge.subject.split(':')[0] ?? '';
+    const ticketId = /^[A-Z]+-[A-Z0-9]+$/.test(seg) ? seg : null;
     await tx.appendEvent({
       workspace: args.workspace,
-      ticket_id: edge.subject.split(':')[0],
+      ticket_id: ticketId,
       ts: new Date().toISOString(),
       stage: null,
       actor_type: 'human',

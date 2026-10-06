@@ -15,7 +15,7 @@
  */
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, extname, isAbsolute, join, resolve, sep } from 'node:path';
 import type { ConductorDeps, StreamEvent } from '@veto/conductor';
@@ -1348,8 +1348,8 @@ export function createServer(opts: ServerOptions): ApiServer {
     //   - a feature/initiative carrying a durable `doc_approved` event
     //     (the RS/acceptance approval the ticket traces back to);
     //   - any other subject with a `doc_approved` event on its rs doc.
-    // Anything else is a fabricated proof — 404 unknown ref, 409 when
-    // the ref exists but isn't approved.
+    // Anything else is a fabricated proof — 409 whether the ref is
+    // unknown or exists-but-unapproved (don't leak which).
     let scopeApproved = (APPROVED_SCOPE_ORIGINS as readonly string[]).includes(
       origin,
     );
@@ -1934,7 +1934,10 @@ export function createServer(opts: ServerOptions): ApiServer {
       await emitEvent(ws, {
         ticketId: ticket,
         event: 'doc_approved',
-        data: { doc: name, gate },
+        // Canonical doc name — approval via the `prd`/`test` aliases must
+        // record `rs.md`/`vs.md` so doc-name consumers (scope_ref checks,
+        // radar) recognize the approval.
+        data: { doc: docNameFor(name), gate },
       });
       return { approved: true, gate_cleared: cleared.gate };
     },
@@ -2338,6 +2341,18 @@ export function createServer(opts: ServerOptions): ApiServer {
       if (!isAbsolute(body.path)) {
         throw badRequest(`workspace path '${body.path}' must be absolute`);
       }
+      // Symlink/case-normalized check: a case-insensitive filesystem
+      // turns `/ETC/x` into `/etc`, and a symlinked dir escapes the
+      // string check — compare the real canonical path (case-folded)
+      // when the target already exists on disk.
+      let canonical = resolved;
+      try {
+        canonical = await realpath(resolved);
+      } catch {
+        // Doesn't exist yet — the to-be-created path still can't be
+        // inside a system tree on the literal spelling.
+      }
+      const fold = canonical.toLowerCase();
       const SYSTEM_ROOTS = [
         '/etc',
         '/usr',
@@ -2359,10 +2374,10 @@ export function createServer(opts: ServerOptions): ApiServer {
         '/Program Files',
         '/Program Files (x86)',
       ];
-      if (
-        resolved === '/' ||
-        SYSTEM_ROOTS.some((r) => resolved === r || resolved.startsWith(`${r}/`))
-      ) {
+      const denied = (p: string, roots: readonly string[]) =>
+        p === '/' || roots.some((r) => p === r || p.startsWith(`${r}/`));
+      const SYSTEM_ROOTS_LC = SYSTEM_ROOTS.map((r) => r.toLowerCase());
+      if (denied(resolved, SYSTEM_ROOTS) || denied(fold, SYSTEM_ROOTS_LC)) {
         throw badRequest(
           `workspace path '${resolved}' is inside an OS-managed tree — pick a user-writable directory`,
         );
@@ -3147,8 +3162,15 @@ export function createServer(opts: ServerOptions): ApiServer {
         ? parseEnv(await readFile(envPath, 'utf8'))
         : {};
       Object.assign(current, body.secrets);
+      const envValue = (v: string) =>
+        // Quote anything an unquoted line would mangle — a ` #` tail is
+        // a comment, and quotes/backslashes need escaping to round-trip
+        // through parseEnv.
+        /[\s#"'\\]/.test(v)
+          ? `"${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+          : v;
       const text = `${Object.entries(current)
-        .map(([k, v]) => `${k}=${v}`)
+        .map(([k, v]) => `${k}=${envValue(v)}`)
         .join('\n')}\n`;
       await mkdir(dirname(envPath), { recursive: true });
       await writeFile(envPath, text, { mode: 0o600 });
@@ -3516,6 +3538,7 @@ export function createServer(opts: ServerOptions): ApiServer {
     actor,
     nowIso: now,
     workspace,
+    notify: (e) => hub.notify(e as StreamEvent),
   });
 
   // /interview-sessions, /statements, /statement-decisions, /tray,

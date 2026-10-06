@@ -185,9 +185,9 @@ export async function recordDeployment(
     confirmed_at: ts,
     created_at: ts,
   };
-  await ctx.store.transaction(async (store) => {
+  const created = await ctx.store.transaction(async (store) => {
     const tx: ReleaseCtx = { ...ctx, store };
-    await store.insertDeployment(row);
+    if (!(await store.insertDeployment(row))) return false;
     await materializeDeliveryState(tx, releaseId, 'deployed', {
       from: ['released'],
     });
@@ -215,7 +215,17 @@ export async function recordDeployment(
       duration_s: null,
       human_minutes: null,
     });
+    return true;
   });
+  if (!created) {
+    // Idempotent retry — the deployment row already exists (client-
+    // supplied or minted id); return the stored row, never duplicate
+    // the state write or the audit event.
+    const existing = (
+      await ctx.store.listDeployments({ workspace: ctx.workspace })
+    ).find((d) => d.deployment_id === row.deployment_id);
+    if (existing) return existing;
+  }
   return row;
 }
 

@@ -32,7 +32,7 @@ import {
   StatusBadge,
   fmtAge,
 } from '../components';
-import { useStreamRefresh } from '../hooks';
+import { useEscapeKey, useStreamRefresh } from '../hooks';
 import { itemTarget } from './Inbox';
 
 const GATE_KINDS = [
@@ -65,6 +65,7 @@ export default function Board() {
   const [dragging, setDragging] = useState<BoardCard | null>(null);
   const [hoverPhase, setHoverPhase] = useState<BoardPhase | null>(null);
   const [pending, setPending] = useState<PendingDrop | null>(null);
+  useEscapeKey(pending !== null, () => setPending(null));
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 

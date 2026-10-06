@@ -176,6 +176,7 @@ export function sanitizeAttributes(
  *  arrays recurse (bounded by the same depth guard) so secrets inside
  *  `attributes.items[].password` can't pass through verbatim. */
 function sanitizeElement(x: unknown, depth: number): unknown {
+  if (depth > 3) return { _truncated: true };
   if (typeof x === 'string') return normalizeValue(x.slice(0, 1024));
   if (Array.isArray(x)) {
     return x.slice(0, 50).map((e) => sanitizeElement(e, depth + 1));
@@ -324,7 +325,7 @@ const REF_VALUE = /^(env:|ref:|\$\{?[A-Z][A-Z0-9_]*\}?$)/;
  *  not just secret-named keys (a `notes:` field carrying a JWT is
  *  still a secret in the DB). */
 const CREDENTIAL_VALUE =
-  /eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s/@]+@|\b(?:sk|ghp|gho|ghu|ghs|ghr|glpat|xox[baprs])-[A-Za-z0-9_-]{8,}/i;
+  /eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|[a-z][a-z0-9+.-]*:\/\/[^\s/@]*:[^\s/@]+@|\b(?:sk|ghp|gho|ghu|ghs|ghr|glpat|xox[baprs])-[A-Za-z0-9_-]{8,}/i;
 
 /**
  * Fail-closed source-config check: any key that LOOKS like a secret

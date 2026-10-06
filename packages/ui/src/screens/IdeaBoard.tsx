@@ -118,7 +118,9 @@ export default function IdeaBoard() {
     try {
       await client.patchBoardItem(item.id, {
         workspace: ws,
-        expected_updated_at: item.updated_at ?? '',
+        ...(item.updated_at != null
+          ? { expected_updated_at: item.updated_at }
+          : {}),
         ...patch,
       });
       load();

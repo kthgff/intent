@@ -109,15 +109,15 @@ describe('Merge Center readiness card (wp-137)', () => {
     expect(screen.queryByText('Merge now')).toBeNull();
   });
 
-  it('offers Merge now when ready; revert only when merged', () => {
+  it('offers Merge now when ready; revert lives on the PR panel', () => {
     render(
       <MemoryRouter>
         <ReadinessCard ws="ws" onDone={() => {}} r={readiness()} />
       </MemoryRouter>,
     );
     expect(screen.getByText('Merge now')).toBeTruthy();
-    // ci-watch (unmerged) tickets never get a revert affordance —
-    // there's no merge to revert yet.
+    // The merge-center payload only ever carries ci-watch tickets —
+    // revert is a merged-work action on the PR panel, never here.
     expect(screen.queryByText('Revert…')).toBeNull();
     expect(screen.getByText(/app@abcdef12/)).toBeTruthy();
     cleanup();
@@ -130,6 +130,6 @@ describe('Merge Center readiness card (wp-137)', () => {
         />
       </MemoryRouter>,
     );
-    expect(screen.getByText('Revert…')).toBeTruthy();
+    expect(screen.queryByText('Revert…')).toBeNull();
   });
 });

@@ -54,6 +54,7 @@ export interface BoardRouteEnv {
   actor: string;
   nowIso: () => string;
   workspace: (name: string) => ConductorWorkspace;
+  notify?: (event: { type: string; payload: unknown }) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -171,6 +172,22 @@ export function registerBoardRoutes(
   env: BoardRouteEnv,
 ): void {
   const { store } = env;
+  // Same `notification`-frame convention as discovery.ts — other open
+  // clients re-read durable board/item state on any mutation here.
+  const boardItemTouched = (
+    ws: string,
+    itemId: string | null,
+    board: string | null,
+  ) =>
+    env.notify?.({
+      type: 'notification',
+      payload: {
+        kind: 'board_item_updated',
+        workspace: ws,
+        item_id: itemId,
+        board,
+      },
+    });
 
   app.get('/api/v1/boards', async (req) => {
     const { workspace: wsName } = req.query as { workspace?: string };
@@ -203,6 +220,7 @@ export function registerBoardRoutes(
         now: () => new Date(),
       }),
     );
+    boardItemTouched(body.workspace, null, row.board);
     return reply.status(201).send({ board: row });
   });
 
@@ -264,6 +282,7 @@ export function registerBoardRoutes(
         now: () => new Date(),
       }),
     );
+    boardItemTouched(body.workspace, item.id, item.board ?? boardSlug);
     return reply.status(201).send({ item });
   });
 
@@ -280,6 +299,7 @@ export function registerBoardRoutes(
         now: () => new Date(),
       }),
     );
+    boardItemTouched(body.workspace, null, boardSlug);
     return { board: row };
   });
 
@@ -310,6 +330,7 @@ export function registerBoardRoutes(
         now: () => new Date(),
       }),
     );
+    boardItemTouched(body.workspace, null, boardSlug);
     return { board: row };
   });
 

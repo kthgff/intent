@@ -91,6 +91,22 @@ export function useBoardItemRefresh(refresh: () => void): void {
   );
 }
 
+/** Window-level Escape while a modal is open — a keydown handler on the
+ *  dialog element only fires when focus is inside the modal (nothing
+ *  autofocuses), so dismiss must listen at the window. */
+export function useEscapeKey(open: boolean, onClose: () => void): void {
+  const ref = useRef(onClose);
+  ref.current = onClose;
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') ref.current();
+    };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, [open]);
+}
+
 /** run_output chunks for one run id (S-07 transcript tail). */
 export function useRunOutput(
   runId: string | null,

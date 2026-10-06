@@ -71,6 +71,12 @@ export async function decideIncidentStatus(
   }
   if (prior.status === next) return prior; // idempotent noop
 
+  // Filtered evidence refs — hoisted so the incident patch writes the
+  // same validated lists the resolvability check used (never the raw
+  // unfiltered input).
+  let resolvedDeploymentRefs: string[] | null = null;
+  let resolvedTicketRefs: string[] | null = null;
+  let resolvedPrRefs: string[] | null = null;
   if (args.action === 'resolve') {
     // Validated resolution: evidence beyond assertions. The decider
     // must supply at least one concrete ref — a linked deployment,
@@ -87,6 +93,9 @@ export async function decideIncidentStatus(
     const prRefs = (ev.pr_refs ?? []).filter(
       (r): r is string => typeof r === 'string' && r.trim() !== '',
     );
+    resolvedDeploymentRefs = deploymentRefs;
+    resolvedTicketRefs = ticketRefs;
+    resolvedPrRefs = prRefs;
     if (deploymentRefs.length + ticketRefs.length + prRefs.length === 0) {
       throw new TelemetryServiceError(
         'invalid',
@@ -133,9 +142,10 @@ export async function decideIncidentStatus(
       const patch: Parameters<typeof tx.updateIncident>[1] = {};
       if (ev.root_cause != null) patch.root_cause = ev.root_cause;
       if (ev.resolution != null) patch.resolution = ev.resolution;
-      if (ev.deployment_refs) patch.deployment_refs = ev.deployment_refs;
-      if (ev.ticket_refs) patch.ticket_refs = ev.ticket_refs;
-      if (ev.pr_refs) patch.pr_refs = ev.pr_refs;
+      if (resolvedDeploymentRefs)
+        patch.deployment_refs = resolvedDeploymentRefs;
+      if (resolvedTicketRefs) patch.ticket_refs = resolvedTicketRefs;
+      if (resolvedPrRefs) patch.pr_refs = resolvedPrRefs;
       await tx.updateIncident({ workspace: ctx.workspace, id: args.id }, patch);
     }
     const r = await tx.decideIncident(

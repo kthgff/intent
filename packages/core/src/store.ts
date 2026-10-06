@@ -442,6 +442,14 @@ export interface Store {
 
   /** board NULL rows = the capture tray (D27). */
   upsertBoardItem(item: BoardItem): Promise<void>;
+  /** OCC write — updates only when the stored `updated_at` still equals
+   *  `expectedUpdatedAt`; returns the updated row, or null when a racing
+   *  write already landed (caller maps to 409). Never a check-then-write
+   *  gap — the fence is the UPDATE predicate itself. */
+  updateBoardItemExpected(
+    item: BoardItem,
+    expectedUpdatedAt: string,
+  ): Promise<BoardItem | null>;
   getBoardItem(id: string): Promise<BoardItem | null>;
   listBoardItems(filter: {
     workspace: string;
@@ -585,8 +593,10 @@ export interface Store {
   }): Promise<ReleaseGateResultRow[]>;
 
   /** Insert a deployment (MVP evidence is manual; DELIVERY §3
-   *  invariant 4 requires non-empty `evidence`). */
-  insertDeployment(row: DeploymentRow): Promise<void>;
+   *  invariant 4 requires non-empty `evidence`). Idempotent on
+   *  (workspace, deployment_id) — returns false when the row already
+   *  exists so a retried POST never duplicates events/state writes. */
+  insertDeployment(row: DeploymentRow): Promise<boolean>;
   /** Record the manual confirmation on an existing deployment row. */
   confirmDeployment(
     key: { workspace: string; deployment_id: string },
