@@ -49,6 +49,7 @@ import { runMergeCenter } from '../merge/center.js';
 import { checksGreen, isFailing } from './checks.js';
 import {
   type DodRowClassified,
+  dodCheckStatuses,
   manualRowsAttested,
   parseDodRows,
   readDodAttestations,
@@ -523,21 +524,11 @@ async function evaluateDod(
   }
 
   const attestations = await readDodAttestations(tools, id);
-  const statuses = dodRows.map((r) => {
-    if (r.kind === 'cmd') {
-      return st.dod?.[r.criterion]?.status === 'verified'
-        ? 'verified'
-        : 'unverified';
-    }
-    if (r.kind === 'manual') {
-      return attestations.some((a) => a.criterion === r.criterion)
-        ? 'attested'
-        : 'unattested';
-    }
-    return 'unknown';
-  });
+  // wp-153: per-check evaluation via the DoD engine — every row named
+  // with its verdict; `unknown` verified_by rows fail closed.
+  const checks = dodCheckStatuses(dodRows, st.dod ?? {}, attestations);
   const allClear =
-    statuses.every((s) => s === 'verified' || s === 'attested') &&
+    checks.every((c) => c.status === 'verified' || c.status === 'attested') &&
     manualRowsAttested(dodRows, attestations);
   if (!allClear) return;
 
@@ -545,10 +536,10 @@ async function evaluateDod(
     schema: 1,
     enabled: true,
     at: nowIso(deps),
-    dod: dodRows.map((r, i) => ({
-      criterion: r.criterion,
-      verified_by: r.verified_by,
-      status: statuses[i] ?? 'unknown',
+    dod: checks.map((c) => ({
+      criterion: c.criterion,
+      verified_by: c.verified_by,
+      status: c.status,
     })),
     note: 'merge button enabled — merge NEVER auto-fires (CONDUCTOR tail gating)',
   };

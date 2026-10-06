@@ -91,6 +91,8 @@ import { registerEvidenceRoutes } from './evidence.js';
 import { registerFeatureRoutes } from './features.js';
 import { registerLinkRoutes } from './links.js';
 import { deviationMetrics, gateDwell } from './metrics.js';
+import { registerRadarRoutes } from './radar.js';
+import { registerRegisterRoutes } from './registers.js';
 import { registerReleaseRoutes } from './releases.js';
 import { registerReviewRoutes } from './review.js';
 import { StreamHub } from './sse.js';
@@ -1118,6 +1120,44 @@ export function createServer(opts: ServerOptions): ApiServer {
       tickets.map((t) => `${t.workspace}/${t.ticket_id}`),
     );
 
+    // DELIVERY §8 / wp-137: the delivery dimension (planned→released→
+    // deployed→exposed, materialized on release_items) rides the card
+    // next to the dev status — one release_items scan per workspace,
+    // strongest state wins when a ticket sits in several releases.
+    const DELIVERY_RANK: Record<string, number> = {
+      planned: 0,
+      released: 1,
+      deployed: 2,
+      exposed: 3,
+    };
+    const deliveryByTicket = new Map<
+      string,
+      { release_id: string; state: string }
+    >();
+    for (const wsName of new Set(tickets.map((t) => t.workspace))) {
+      const releases = await store.listReleases({ workspace: wsName });
+      for (const rel of releases) {
+        for (const item of await store.listReleaseItems({
+          workspace: wsName,
+          release_id: rel.release_id,
+        })) {
+          if (item.item_kind !== 'ticket' || item.removed_at) continue;
+          const key = `${wsName}/${item.item_id}`;
+          const prev = deliveryByTicket.get(key);
+          if (
+            !prev ||
+            (DELIVERY_RANK[item.delivery_state] ?? -1) >
+              (DELIVERY_RANK[prev.state] ?? -1)
+          ) {
+            deliveryByTicket.set(key, {
+              release_id: rel.release_id,
+              state: item.delivery_state,
+            });
+          }
+        }
+      }
+    }
+
     const cards = await Promise.all(
       tickets.map(async (ticket) => {
         const key = `${ticket.workspace}/${ticket.ticket_id}`;
@@ -1163,6 +1203,7 @@ export function createServer(opts: ServerOptions): ApiServer {
             liveRun !== null,
             attention,
           ),
+          delivery: deliveryByTicket.get(key) ?? null,
         };
       }),
     );
@@ -3374,6 +3415,14 @@ export function createServer(opts: ServerOptions): ApiServer {
     actor,
   });
 
+  // /assumptions, /quality-debt, /commitments — §15.10 registers (wp-153)
+  registerRegisterRoutes(app, {
+    store,
+    actor,
+    now: () => new Date(),
+    workspace,
+  });
+
   // /links — wp-111 traceability edges (D37): propose/record +
   // idempotent evented human verify/reject (OCC → 409 stale writes).
   registerLinkRoutes(app, {
@@ -3405,6 +3454,20 @@ export function createServer(opts: ServerOptions): ApiServer {
         ...(req.ticketId ? { ticketId: req.ticketId } : {}),
       }),
     notify: (e) => hub.notify(e),
+  });
+
+  // /scope-radar — wp-142 Scope Creep Radar (PRD §15.5): computed
+  // metrics + `scope-budget` escalation acknowledgment.
+  registerRadarRoutes(app, {
+    store,
+    actor,
+    nowIso: now,
+    workspace: (name) => workspace(name),
+    notify: (e) =>
+      conductor.deps.notify?.({
+        type: e.type as 'gate_cleared',
+        payload: e.payload,
+      }),
   });
 
   return app;

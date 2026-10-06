@@ -131,3 +131,77 @@ export function manualRowsAttested(
     .filter((r) => r.kind === 'manual')
     .every((r) => attested.has(r.criterion));
 }
+
+// ---------------------------------------------------------------------------
+// wp-153 DoD engine — per-check evaluation (PRD §15.10)
+// ---------------------------------------------------------------------------
+
+/** Per-check verdict for one DoD row. `pending`/`unattested`/`unverified`
+ *  keep merge disabled; `unknown` is fail-closed (an unspellable
+ *  `verified_by` can never count as done); `failed` means the cmd row
+ *  ran and did not pass — it surfaces a `dod-failed` gate item and is
+ *  not retried automatically. */
+export interface DodCheckStatus {
+  criterion: string;
+  verified_by: string;
+  kind: 'cmd' | 'manual' | 'unknown';
+  status:
+    | 'verified'
+    | 'attested'
+    | 'unverified'
+    | 'unattested'
+    | 'failed'
+    | 'unknown';
+}
+
+/** Statuses that satisfy a check (merge may enable). */
+const DOD_OK = new Set(['verified', 'attested']);
+
+/**
+ * Per-check evaluation for merge/release readiness (wp-153): each
+ * `cmd:` row reads its verify result from `cmdResults` (shepherd
+ * state), each `manual` row needs a human attestation row in
+ * `dod-attestations.json`, `unknown` rows always fail closed.
+ */
+export function dodCheckStatuses(
+  rows: readonly DodRowClassified[],
+  cmdResults: Readonly<Record<string, { status?: string } | undefined>>,
+  attestations: readonly DodAttestation[],
+): DodCheckStatus[] {
+  const attested = new Set(attestations.map((a) => a.criterion));
+  return rows.map((r) => {
+    if (r.kind === 'cmd') {
+      const st = cmdResults[r.criterion]?.status;
+      return {
+        criterion: r.criterion,
+        verified_by: r.verified_by,
+        kind: r.kind,
+        status:
+          st === 'verified'
+            ? 'verified'
+            : st === 'failed'
+              ? 'failed'
+              : 'unverified',
+      };
+    }
+    if (r.kind === 'manual') {
+      return {
+        criterion: r.criterion,
+        verified_by: r.verified_by,
+        kind: r.kind,
+        status: attested.has(r.criterion) ? 'attested' : 'unattested',
+      };
+    }
+    return {
+      criterion: r.criterion,
+      verified_by: r.verified_by,
+      kind: r.kind,
+      status: 'unknown',
+    };
+  });
+}
+
+/** Every check satisfied? (empty row set → true — nothing to verify). */
+export function dodChecksClear(checks: readonly DodCheckStatus[]): boolean {
+  return checks.every((c) => DOD_OK.has(c.status));
+}

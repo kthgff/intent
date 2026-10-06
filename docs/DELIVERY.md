@@ -161,9 +161,19 @@ POST     /api/v1/releases/:workspace/:rel/deployments{env,sha,evidence}
 POST     /api/v1/features/:workspace/:f/exposure     {env,state,evidence}
 GET      /api/v1/merge-center/:workspace             (readiness per ticket)
 POST     /api/v1/tickets/:workspace/:t/corrections   → correction ticket
+POST     /api/v1/releases/:workspace/:rel/notes      → release-notes run (wp-137)
+POST     /api/v1/releases/:workspace/:rel/notes/:audience/draft   → human draft (wp-137)
 POST     /api/v1/releases/:workspace/:rel/notes/:audience/approve
+POST     /api/v1/releases/:workspace/:rel/notes/:audience/publish
+GET      /api/v1/releases/:workspace/:rel/docs/:name → retro.md + notes-*.md read (wp-137)
 POST     /api/v1/releases/:workspace/:rel/retro      → retro run
 ```
+
+wp-137 resolved UI read gaps (TRACKER decision log): the release detail
+payload carries `deployments` and `noteDrafts` (latest draft doc_version
+per audience), and release-subject docs (`notes-<audience>.md`,
+`retro.md`) are readable via the doc route above — the ticket docs route
+404s on `REL-NNNN` subjects.
 
 ## 7. Improvement Center
 
@@ -175,8 +185,11 @@ rate, deployment rework — per-goal (D33) and per-release.
 
 ## 8. UI
 
-Two surfaces in `packages/ui`: **Merge Center** (readiness checklist
-per ticket, merge order, conflicts) and **Release Center** (release
-list, manifest diff vs approved scope, approvals, deployments,
-exposure, notes editor, retro view). Delivery status column joins the
-existing dev-status chips.
+Two surfaces in `packages/ui`: **Merge Center** (`/merge-center`, S-21 —
+readiness checklist per ticket, merge order, conflicts, execute-merge +
+revert) and **Release Center** (`/releases`, `/releases/:ws/:rel`, S-22 —
+release list, manifest cuts vs approved scope, gate verdicts, human
+approvals, deployment evidence, exposure, three-audience notes
+draft→approve→publish, retro view). Delivery status chip joins the
+existing dev-status chip on board cards (two-dimension display — dev
+`tickets.status` + delivery `release_items.delivery_state`).

@@ -59,7 +59,9 @@ function makeConfig(gates: 'full' | 'plan-package' | 'minimal' = 'full') {
       actor: 'test-bot',
       backend: 'mock',
       gates,
-      repos: {},
+      // wp-153 DoR: declared repos must resolve to configured repo
+      // context — seeded tickets all claim `code-repo`.
+      repos: { 'code-repo': { path: join(dir, 'code-repo') } },
       security: { scan_on_commit: false },
     },
     warnings: [],

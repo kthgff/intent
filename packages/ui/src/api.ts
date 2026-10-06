@@ -10,8 +10,10 @@
 import type {
   BoardItem,
   Claim,
+  DeploymentRow,
   DossierEntry,
   EventRow,
+  FeatureExposureRow,
   FeatureRow,
   GateItem,
   InterviewBranchRow,
@@ -21,6 +23,11 @@ import type {
   QuestionCandidateRow,
   Relation,
   RelationVerification,
+  ReleaseApprovalRow,
+  ReleaseItemRow,
+  ReleaseManifestRow,
+  ReleaseNoteRow,
+  ReleaseRow,
   RsQuality,
   RunRow,
   StatementArtifactLinkRow,
@@ -199,6 +206,10 @@ export interface BoardCard {
   /** Every open gate snoozed → the card leaves the board (D20/D22). */
   snoozed: boolean;
   snoozed_until: string | null;
+  /** Delivery dimension (DELIVERY §8 — two-dimension card display):
+   *  the ticket's strongest release_item state + its release, or null
+   *  when the ticket is in no release scope. */
+  delivery: { release_id: string; state: string } | null;
   /** Open gate items, ranked human-anxiety-first server-side. */
   attention: BoardAttention[];
   live_run: { id: string; stage: string; status: string } | null;
@@ -213,6 +224,59 @@ export interface BoardResponse {
   wip_limits: Partial<Record<BoardPhase, number>>;
   generated_at: string;
 }
+
+// ---- Delivery (DELIVERY.md, wp-136/wp-137) ----
+
+/** One Merge Center checklist row (conductor merge/types ChecklistItem). */
+export interface MergeChecklistItem {
+  /** `approval` | `scope` | `ac-evidence` | `checks` | `security` |
+   *  `depends-on` | `conflict` | `branch-protection` | `dod`. */
+  id: string;
+  label: string;
+  ok: boolean;
+  detail?: string;
+  /** Gate surfaced when this item blocks (`merge` | `merge_conflict`). */
+  gate?: string;
+}
+
+/** GET /merge-center/:workspace — per-ticket readiness rollup. */
+export interface MergeReadiness {
+  ticket_id: string;
+  ready: boolean;
+  items: MergeChecklistItem[];
+  blockers: MergeChecklistItem[];
+  /** repo → current PR head SHA. */
+  heads: Record<string, string | null>;
+  at: string;
+}
+
+/** GET /releases/:ws/:rel — the release detail payload (API.md). */
+export interface ReleaseDetail {
+  release: ReleaseRow;
+  items: ReleaseItemRow[];
+  manifests: ReleaseManifestRow[];
+  /** Latest manifest — what approvals/gates bind to. */
+  manifest: ReleaseManifestRow | null;
+  /** Approvals bound to the latest manifest version. */
+  approvals: ReleaseApprovalRow[];
+  /** All approval rows incl. superseded versions (audit). */
+  approvalHistory: ReleaseApprovalRow[];
+  /** Latest verdict per release gate (manifest|approved|merged|
+   *  partial-ac|corrections → pass|fail|waived). */
+  gates: Record<string, { result: string; checked_at: string }>;
+  /** Publication metadata per audience. */
+  notes: ReleaseNoteRow[];
+  /** Confirmed deployments (manual evidence, invariant 4). */
+  deployments: DeploymentRow[];
+  /** Latest draft doc_version per audience — a draft newer than the
+   *  note's pinned `doc_version` is unapproved content. */
+  noteDrafts: Record<
+    string,
+    { version: number; created_at: string | null } | null
+  >;
+}
+
+export type ReleaseNoteAudience = 'customer' | 'stakeholder' | 'technical';
 
 export interface TicketDocMeta {
   doc: string;
@@ -645,8 +709,61 @@ export interface SettingsResponse {
   config: Record<string, unknown>;
 }
 
+/** wp-142 Scope Creep Radar — mirrors the conductor's computed report
+ *  (PRD §15.5). Metrics only; no opaque score. */
+export interface ScopeRadarReport {
+  workspace: string;
+  computed_at: string;
+  subjects: {
+    subject: string;
+    drift: { doc: string; baseline: number | null; head: number | null }[];
+    drift_total: number;
+    changesets: {
+      total: number;
+      open: number;
+      post_approval: number;
+      by_classification: Record<string, number>;
+      changeset_ids: string[];
+    };
+    items: { added: number; removed: number; other: number; total: number };
+    rework: {
+      changes_requested: number;
+      fix_rounds: number;
+      revalidations: number;
+      total: number;
+    };
+    affected_executions: string[];
+    cost_usd: number | null;
+    baseline_age_days: number | null;
+  }[];
+  releases: {
+    release_id: string;
+    status: string;
+    baseline_items: number;
+    live_items: number;
+    scope_added: string[];
+    scope_removed: string[];
+    scope_change_pct: number | null;
+    manifest_versions: number;
+    changeset_ids: string[];
+  }[];
+  totals: {
+    changesets: number;
+    open_changesets: number;
+    post_approval_changes: number;
+    rework_events: number;
+    affected_executions: number;
+    cost_usd: number;
+    scope_added: number;
+    scope_removed: number;
+  };
+}
+
 const ticketPath = (ws: string, id: string) =>
   `/api/v1/tickets/${encodeURIComponent(ws)}/${encodeURIComponent(id)}`;
+
+const releasePath = (ws: string, rel: string) =>
+  `/api/v1/releases/${encodeURIComponent(ws)}/${encodeURIComponent(rel)}`;
 
 export const client = {
   inbox: (workspace?: string) =>
@@ -903,6 +1020,28 @@ export const client = {
     ),
   rsQuality: (ws: string, id: string) =>
     api<RsQualityResponse>(`${ticketPath(ws, id)}/rs-quality`),
+  // wp-142 — Scope Creep Radar (PRD §15.5). Feeds the ChangeSet
+  // decision view + Release Center header once wp-136/137 land.
+  scopeRadar: (f: {
+    workspace: string;
+    subject?: string;
+    release?: string;
+  }) =>
+    api<ScopeRadarReport>(
+      `/api/v1/scope-radar${qs({
+        workspace: f.workspace,
+        subject: f.subject,
+        release: f.release,
+      })}`,
+    ),
+  /** Acknowledge a `scope-budget` escalation — the higher approval. */
+  acknowledgeScopeBudget: (ws: string, changeset: string) =>
+    post<{ acknowledged: boolean; changeset_id: string; cleared_at: string }>(
+      `/api/v1/scope-radar/${encodeURIComponent(ws)}/${encodeURIComponent(
+        changeset,
+      )}/acknowledge`,
+      {},
+    ),
   /** D27 capture tray ingress — creates a `board: null` board_item. */
   capture: (body: {
     workspace: string;
@@ -1147,4 +1286,153 @@ export const client = {
       `/api/v1/statement-decisions/${encodeURIComponent(id)}/dismiss`,
       body,
     ),
+  // ---- wp-136/137 — Merge Center + Release Center (DELIVERY §6) ----
+  mergeCenter: (ws: string) =>
+    api<{ tickets: MergeReadiness[] }>(
+      `/api/v1/merge-center/${encodeURIComponent(ws)}`,
+    ),
+  releases: (ws: string, status?: string) =>
+    api<{ releases: ReleaseRow[] }>(
+      `/api/v1/releases/${encodeURIComponent(ws)}${qs({ status })}`,
+    ),
+  createRelease: (ws: string, body: { title: string; target?: string }) =>
+    post<{ release: ReleaseRow }>(
+      `/api/v1/releases/${encodeURIComponent(ws)}`,
+      body,
+    ),
+  releaseDetail: (ws: string, rel: string) =>
+    api<ReleaseDetail>(
+      `/api/v1/releases/${encodeURIComponent(ws)}/${encodeURIComponent(rel)}`,
+    ),
+  addReleaseItem: (
+    ws: string,
+    rel: string,
+    body: {
+      item_kind: 'feature' | 'ticket';
+      item_id: string;
+      partial_ac?: string[];
+      approved_by?: string;
+      expected_status?: string;
+    },
+  ) => post<{ item: ReleaseItemRow }>(`${releasePath(ws, rel)}/items`, body),
+  removeReleaseItem: (
+    ws: string,
+    rel: string,
+    body: { item_kind: 'feature' | 'ticket'; item_id: string },
+  ) =>
+    api<{ removed: string }>(`${releasePath(ws, rel)}/items`, {
+      method: 'DELETE',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  freezeRelease: (ws: string, rel: string, expected_status?: string) =>
+    post<{ manifest: ReleaseManifestRow }>(
+      `${releasePath(ws, rel)}/freeze`,
+      expected_status === undefined ? {} : { expected_status },
+    ),
+  approveRelease: (
+    ws: string,
+    rel: string,
+    body: {
+      decision: 'approved' | 'rejected';
+      rationale?: string;
+      approver?: string;
+      expected_status?: string;
+    },
+  ) =>
+    post<{ approval: ReleaseApprovalRow }>(
+      `${releasePath(ws, rel)}/approve`,
+      body,
+    ),
+  /** The ship write — approved → released; all five gates must pass. */
+  shipRelease: (ws: string, rel: string, expected_status?: string) =>
+    post<{ release: ReleaseRow }>(
+      `${releasePath(ws, rel)}/release`,
+      expected_status === undefined ? {} : { expected_status },
+    ),
+  /** Manual deployment evidence — every evidence field non-empty
+   *  (invariant 4; webhook/probe are reserved, never inputs). */
+  recordDeployment: (
+    ws: string,
+    rel: string,
+    body: {
+      env: string;
+      sha: string;
+      evidence: { type: 'manual'; by: string; note: string; url: string };
+    },
+  ) =>
+    post<{ deployment: DeploymentRow }>(
+      `${releasePath(ws, rel)}/deployments`,
+      body,
+    ),
+  /** feature exposure — `available` requires a confirmed deployment_id. */
+  setFeatureExposure: (
+    ws: string,
+    feature: string,
+    body: {
+      env: string;
+      state: 'hidden' | 'limited' | 'available';
+      audience?: string;
+      evidence?: string;
+      deployment_id?: string;
+    },
+  ) =>
+    post<{ exposure: FeatureExposureRow }>(
+      `/api/v1/features/${encodeURIComponent(ws)}/${encodeURIComponent(
+        feature,
+      )}/exposure`,
+      body,
+    ),
+  /** File a post-merge correction ticket (DELIVERY §2). */
+  fileCorrection: (
+    ws: string,
+    ticket: string,
+    body: {
+      title: string;
+      severity?: string;
+      priority?: string;
+      repos?: string[];
+      feature?: string;
+      description?: string;
+    },
+  ) =>
+    post<{ ticket: TicketRow }>(`${ticketPath(ws, ticket)}/corrections`, body),
+  /** Queue the `release-notes` stage (requires a frozen manifest). */
+  draftReleaseNotes: (ws: string, rel: string) =>
+    post<{ run: string }>(`${releasePath(ws, rel)}/notes`, {}),
+  /** Human draft edit — appends `notes-<audience>.md`, never mutates the
+   *  pinned approved version. */
+  saveReleaseNoteDraft: (
+    ws: string,
+    rel: string,
+    audience: string,
+    content: string,
+  ) =>
+    post<{ note: ReleaseNoteRow }>(
+      `${releasePath(ws, rel)}/notes/${encodeURIComponent(audience)}/draft`,
+      { content },
+    ),
+  approveReleaseNote: (
+    ws: string,
+    rel: string,
+    audience: string,
+    approver?: string,
+  ) =>
+    post<{ note: ReleaseNoteRow }>(
+      `${releasePath(ws, rel)}/notes/${encodeURIComponent(audience)}/approve`,
+      approver ? { approver } : {},
+    ),
+  publishReleaseNote: (ws: string, rel: string, audience: string) =>
+    post<{ note: ReleaseNoteRow }>(
+      `${releasePath(ws, rel)}/notes/${encodeURIComponent(audience)}/publish`,
+      {},
+    ),
+  /** Release-subject doc read — `retro` | `notes-<audience>` only. */
+  releaseDoc: (ws: string, rel: string, name: string) =>
+    api<DocResponse>(
+      `${releasePath(ws, rel)}/docs/${encodeURIComponent(name)}`,
+    ),
+  /** Queue the `retro` stage on a released|closed release. */
+  retroRelease: (ws: string, rel: string) =>
+    post<{ run: string }>(`${releasePath(ws, rel)}/retro`, {}),
 };

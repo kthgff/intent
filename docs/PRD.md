@@ -1258,10 +1258,34 @@ mockups/TDD/API contracts/tickets/verification as proposed changes.
   silently adopt a newer spec. Multi-ticket changes reconcile as a set.
 - **Scope Creep Radar**: scope added vs removed, post-approval changes,
   rework, affected executions, cumulative estimate drift vs baseline —
-  visible before approval, not a postmortem.
+  visible before approval, not a postmortem. Computed metrics only —
+  no opaque score; every number is explainable from rows/events
+  (wp-142, `conductor/changes/radar.ts`):
+  - scope added/removed per release = live `release_items` diffed
+    against the frozen v1 manifest; manifest recuts count as churn;
+    per baseline subject = changeset items by classification
+    (`addition`/`removal` vs the rest);
+  - post-approval changes = changesets created after a `doc_approved`
+    event on the pinned baseline doc;
+  - rework = `status_changed → changes-requested` + `fix_round_started`
+    on affected tickets + approval invalidation/expiry notes on the
+    subject's sets;
+  - affected executions = live runs (the `listLiveRuns` status set)
+    whose subject is in the blast radius;
+  - estimate drift vs baseline = per-doc `head − baseline.version`
+    (versioned-doc drift is the honest proxy until wp-153
+    `delivery_commitments` carries real estimate deltas);
+  - schedule = oldest pinned baseline age in days; cost = Σ
+    `events.cost_usd` over the blast radius.
+  Served at `GET /api/v1/scope-radar` (`?workspace&subject&release`).
 - Safeguards: approval expiry (revalidate only what's invalidated),
   ChangeSet conflict detection, owner-scoped notifications, scope
-  budgets (auto-escalate past cost/schedule thresholds).
+  budgets (auto-escalate past cost/schedule thresholds — config
+  `scope_budgets:` in SETTINGS; a breach surfaces the `scope-budget`
+  escalation gate + `escalated` event + owner notifications;
+  approving decisions and apply refuse while it is open —
+  `POST /api/v1/scope-radar/:ws/:cs/acknowledge` clearing it IS the
+  higher approval).
 
 ### 15.6 Delivery workspace — Merge Center + Release Center + Improvement
 
