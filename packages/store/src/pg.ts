@@ -511,11 +511,13 @@ export class PostgresStore implements Store {
     return rows[0] ? rowToRun(rows[0]) : null;
   }
 
-  async listLiveRuns(): Promise<RunRow[]> {
+  async listLiveRuns(workspace?: string): Promise<RunRow[]> {
     const marks = LIVE_RUN_STATUSES.map((_, i) => `$${i + 1}`).join(',');
     const rows = await this.db.query(
-      `SELECT * FROM runs WHERE status IN (${marks})`,
-      [...LIVE_RUN_STATUSES],
+      `SELECT * FROM runs WHERE status IN (${marks})
+         AND ($${LIVE_RUN_STATUSES.length + 1}::text IS NULL
+              OR workspace = $${LIVE_RUN_STATUSES.length + 1})`,
+      [...LIVE_RUN_STATUSES, workspace ?? null],
     );
     return rows.map(rowToRun);
   }
@@ -1182,7 +1184,13 @@ export class PostgresStore implements Store {
     if (filter?.subject_prefix) {
       args.push(filter.subject_prefix);
       const p = `$${args.length}`;
-      sql += `${where ? ' AND' : ' WHERE'} (subject = ${p} OR subject LIKE ${p} || ':%')`;
+      // LIKE needs the prefix escaped ('\', '%', '_' are wildcards /
+      // the escape char) — a literal '%' in a subject must not widen
+      // the match. Escape char is '\\' (ESCAPE '\').
+      const escaped = filter.subject_prefix.replace(/[\\%_]/g, '\\$&');
+      args.push(`${escaped}:%`);
+      const q = `$${args.length}`;
+      sql += `${where ? ' AND' : ' WHERE'} (subject = ${p} OR subject LIKE ${q} ESCAPE '\\')`;
     }
     const rows = await this.db.query(sql, args);
     return rows.map((r) => ({
@@ -1307,7 +1315,14 @@ export class PostgresStore implements Store {
          next_changeset_seq, next_test_env_seq, next_incident_seq,
          settings, created_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-       ON CONFLICT (workspace) DO UPDATE SET org=$2, name=$3, settings=$11`,
+       -- On conflict only fields the caller actually provided update;
+       -- an absent org/name/settings must never clobber an existing
+       -- registration (spawnWorkspaceFromBoard calls this with just
+       -- { workspace } — a blanket SET would null them out).
+       ON CONFLICT (workspace) DO UPDATE SET
+         org = COALESCE($2, projects.org),
+         name = COALESCE($3, projects.name),
+         settings = COALESCE($11, projects.settings)`,
       [
         row.workspace,
         row.org ?? null,
@@ -1319,7 +1334,7 @@ export class PostgresStore implements Store {
         row.next_changeset_seq ?? 1,
         row.next_test_env_seq ?? 1,
         row.next_incident_seq ?? 1,
-        j(row.settings ?? {}),
+        row.settings === undefined ? null : j(row.settings),
         row.created_at ?? null,
       ],
     );
@@ -2007,8 +2022,14 @@ export class PostgresStore implements Store {
       `INSERT INTO release_approvals (workspace, org, release_id,
          manifest_version, approver, decision, rationale, created_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       -- A re-verdict by the same approver on the same manifest version
+       -- IS a new decision — DO NOTHING would drop it while the release
+       -- status still flips, leaving audit contradicting state. (The
+       -- append-only UPDATE trigger on this table is dropped in 0009;
+       -- DELETE stays blocked.)
        ON CONFLICT (workspace, release_id, manifest_version, approver)
-       DO NOTHING`,
+       DO UPDATE SET
+         org=$2, decision=$6, rationale=$7, created_at=$8`,
       [
         row.workspace,
         row.org ?? null,
@@ -4504,8 +4525,10 @@ export class PostgresStore implements Store {
       `INSERT INTO telemetry_sources (id, workspace, kind, config,
          redaction_policy, enabled, created_at, updated_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-       ON CONFLICT (id) DO UPDATE SET
-         workspace=$2, kind=$3, config=$4, redaction_policy=$5,
+       -- (workspace, id) PK — a source never moves workspaces, so
+       -- workspace is deliberately NOT in the UPDATE set.
+       ON CONFLICT (workspace, id) DO UPDATE SET
+         kind=$3, config=$4, redaction_policy=$5,
          enabled=$6, updated_at=$8`,
       [
         row.id,
@@ -4554,20 +4577,35 @@ export class PostgresStore implements Store {
     // One row per (workspace, source, fingerprint_version, fingerprint)
     // — a repeat event increments count + moves last_seen; raw events
     // are never stored (INTELLIGENCE §6.1, wp-120 AC).
+    // `created` derives from pre-statement existence, not from
+    // `count === countDelta` — that heuristic lies when countDelta=0
+    // or when a prior count happens to equal the delta. The `existing`
+    // CTE snapshots before the INSERT (SQL CTEs share the statement's
+    // snapshot), so an empty `existing` means this statement created
+    // the row.
     const rows = await this.db.query(
-      `INSERT INTO error_signatures (id, workspace, source_id,
-         fingerprint_version, fingerprint, normalized_pattern,
-         representative, attributes, first_seen, last_seen, count,
-         raw_locator)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-       ON CONFLICT (workspace, source_id, fingerprint_version, fingerprint)
-       DO UPDATE SET
-         representative=$7, attributes=$8,
-         last_seen=GREATEST(error_signatures.last_seen, $10),
-         first_seen=LEAST(error_signatures.first_seen, $9),
-         count=error_signatures.count + $13,
-         raw_locator=COALESCE($12, error_signatures.raw_locator)
-       RETURNING count`,
+      `WITH existing AS (
+         SELECT 1 FROM error_signatures
+         WHERE workspace=$2 AND source_id=$3
+           AND fingerprint_version=$4 AND fingerprint=$5
+       )
+       , ins AS (
+         INSERT INTO error_signatures (id, workspace, source_id,
+           fingerprint_version, fingerprint, normalized_pattern,
+           representative, attributes, first_seen, last_seen, count,
+           raw_locator)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+         ON CONFLICT (workspace, source_id, fingerprint_version, fingerprint)
+         DO UPDATE SET
+           representative=$7, attributes=$8,
+           last_seen=GREATEST(error_signatures.last_seen, $10),
+           first_seen=LEAST(error_signatures.first_seen, $9),
+           count=error_signatures.count + $13,
+           raw_locator=COALESCE($12, error_signatures.raw_locator)
+         RETURNING count
+       )
+       SELECT count, NOT EXISTS (SELECT 1 FROM existing) AS created
+       FROM ins`,
       [
         row.id,
         row.workspace,
@@ -4585,7 +4623,7 @@ export class PostgresStore implements Store {
       ],
     );
     const state =
-      rows.length > 0 && Number(rows[0]?.count) === countDelta
+      rows.length > 0 && rows[0]?.created === true
         ? ('created' as const)
         : ('updated' as const);
     const saved = await this.db.query(
@@ -4646,7 +4684,7 @@ export class PostgresStore implements Store {
          resolution_verified, deployment_refs, ticket_refs, pr_refs,
          opened_at, resolved_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-       ON CONFLICT (id) DO NOTHING`,
+       ON CONFLICT (workspace, id) DO NOTHING`,
       [
         row.id,
         row.workspace,
@@ -4790,10 +4828,19 @@ export class PostgresStore implements Store {
   }
 
   async appendIncidentDecision(row: IncidentDecisionRow): Promise<void> {
+    // seq is allocated MAX(seq)+1 server-side (same pattern as
+    // commitDeliveryCommitment) — a caller-computed `count+1` goes
+    // stale under any concurrent winner. `row.seq` is treated as a
+    // lower bound so explicit replay/backfill still lands.
     await this.db.query(
       `INSERT INTO incident_decisions
          (workspace, incident_id, seq, status, actor, rationale, at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+       SELECT $1, $2,
+         GREATEST($3, COALESCE((
+           SELECT MAX(seq) FROM incident_decisions
+           WHERE workspace=$1 AND incident_id=$2
+         ), 0) + 1),
+         $4, $5, $6, $7`,
       [
         row.workspace,
         row.incident_id,

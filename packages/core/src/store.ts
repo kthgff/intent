@@ -240,8 +240,10 @@ export interface Store {
   ): Promise<void>;
   getRun(id: string): Promise<RunRow | null>;
   /** Live runs for the reconcile pass (status in
-   *  pending|leased|running|paused|exited). */
-  listLiveRuns(): Promise<RunRow[]>;
+   *  pending|leased|running|paused|exited). Optional `workspace`
+   *  scopes the result — without it runs across ALL workspaces are
+   *  returned, so workspace-scoped consumers must pass it. */
+  listLiveRuns(workspace?: string): Promise<RunRow[]>;
   listRuns(filter?: {
     workspace?: string;
     subject?: string;
@@ -1302,8 +1304,10 @@ export interface Store {
     | { state: 'conflict'; current: IncidentRow['status'] }
     | { state: 'missing' }
   >;
-  /** Append-only incident-decision audit (seq allocated by the caller
-   *  inside the same transaction). */
+  /** Append-only incident-decision audit. `seq` is allocated by the
+   *  store as `MAX(seq)+1` inside the caller's transaction; the row's
+   *  `seq` field is a lower-bound hint (a caller-computed `length+1`
+   *  goes stale under concurrent winners). */
   appendIncidentDecision(row: IncidentDecisionRow): Promise<void>;
   listIncidentDecisions(filter: {
     workspace: string;

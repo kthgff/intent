@@ -1250,10 +1250,3 @@ CREATE INDEX IF NOT EXISTS idx_review_decisions_review ON review_decisions (work
 CREATE INDEX IF NOT EXISTS idx_assumptions_status ON assumptions (workspace, status);
 CREATE INDEX IF NOT EXISTS idx_quality_debt_status ON quality_debt (workspace, status);
 CREATE INDEX IF NOT EXISTS idx_eval_results_run ON eval_results (workspace, eval_run_id);
-
--- --- vocabulary rename (wp-132, PRD §15.2 — pre-release: amend in place) ---
--- Doc kinds prd.md → rs.md (Requirements Specification) and
--- test.md → vs.md (Verification Specification). No-op on fresh installs;
--- renames rows in dev databases created before the rename.
-UPDATE doc_versions SET doc = 'rs.md' WHERE doc = 'prd.md';
-UPDATE doc_versions SET doc = 'vs.md' WHERE doc = 'test.md';
