@@ -2,7 +2,7 @@
 schema: 1
 id: wp-158
 title: Discovery E2E — board → statements → interview → RS → approve → tickets
-status: todo
+status: done
 priority: high
 depth: standard
 repos: []
@@ -24,9 +24,9 @@ board re-surfaced as proposal. Mock adapter drives agent stages.
 `packages/conductor/test/**`, `packages/api/test/**`, `fixtures/**`
 
 ## Acceptance criteria
-- [ ] Full discovery→approved-RS vertical green
-- [ ] Each fail-closed path covered by a test
-- [ ] `pnpm typecheck && pnpm test && pnpm lint` green
+- [x] Full discovery→approved-RS vertical green
+- [x] Each fail-closed path covered by a test
+- [x] `pnpm typecheck && pnpm test && pnpm lint` green
 
 ## Contract change
 None.
