@@ -90,6 +90,7 @@ import { registerEvidenceRoutes } from './evidence.js';
 import { registerFeatureRoutes } from './features.js';
 import { registerLinkRoutes } from './links.js';
 import { deviationMetrics, gateDwell } from './metrics.js';
+import { registerRadarRoutes } from './radar.js';
 import { registerReleaseRoutes } from './releases.js';
 import { registerReviewRoutes } from './review.js';
 import { StreamHub } from './sse.js';
@@ -3392,6 +3393,20 @@ export function createServer(opts: ServerOptions): ApiServer {
         ...(req.ticketId ? { ticketId: req.ticketId } : {}),
       }),
     notify: (e) => hub.notify(e),
+  });
+
+  // /scope-radar — wp-142 Scope Creep Radar (PRD §15.5): computed
+  // metrics + `scope-budget` escalation acknowledgment.
+  registerRadarRoutes(app, {
+    store,
+    actor,
+    nowIso: now,
+    workspace: (name) => workspace(name),
+    notify: (e) =>
+      conductor.deps.notify?.({
+        type: e.type as 'gate_cleared',
+        payload: e.payload,
+      }),
   });
 
   return app;

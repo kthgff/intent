@@ -486,6 +486,56 @@ export interface SettingsResponse {
   config: Record<string, unknown>;
 }
 
+/** wp-142 Scope Creep Radar — mirrors the conductor's computed report
+ *  (PRD §15.5). Metrics only; no opaque score. */
+export interface ScopeRadarReport {
+  workspace: string;
+  computed_at: string;
+  subjects: {
+    subject: string;
+    drift: { doc: string; baseline: number | null; head: number | null }[];
+    drift_total: number;
+    changesets: {
+      total: number;
+      open: number;
+      post_approval: number;
+      by_classification: Record<string, number>;
+      changeset_ids: string[];
+    };
+    items: { added: number; removed: number; other: number; total: number };
+    rework: {
+      changes_requested: number;
+      fix_rounds: number;
+      revalidations: number;
+      total: number;
+    };
+    affected_executions: string[];
+    cost_usd: number | null;
+    baseline_age_days: number | null;
+  }[];
+  releases: {
+    release_id: string;
+    status: string;
+    baseline_items: number;
+    live_items: number;
+    scope_added: string[];
+    scope_removed: string[];
+    scope_change_pct: number | null;
+    manifest_versions: number;
+    changeset_ids: string[];
+  }[];
+  totals: {
+    changesets: number;
+    open_changesets: number;
+    post_approval_changes: number;
+    rework_events: number;
+    affected_executions: number;
+    cost_usd: number;
+    scope_added: number;
+    scope_removed: number;
+  };
+}
+
 const ticketPath = (ws: string, id: string) =>
   `/api/v1/tickets/${encodeURIComponent(ws)}/${encodeURIComponent(id)}`;
 
@@ -744,6 +794,28 @@ export const client = {
     ),
   rsQuality: (ws: string, id: string) =>
     api<RsQualityResponse>(`${ticketPath(ws, id)}/rs-quality`),
+  // wp-142 — Scope Creep Radar (PRD §15.5). Feeds the ChangeSet
+  // decision view + Release Center header once wp-136/137 land.
+  scopeRadar: (f: {
+    workspace: string;
+    subject?: string;
+    release?: string;
+  }) =>
+    api<ScopeRadarReport>(
+      `/api/v1/scope-radar${qs({
+        workspace: f.workspace,
+        subject: f.subject,
+        release: f.release,
+      })}`,
+    ),
+  /** Acknowledge a `scope-budget` escalation — the higher approval. */
+  acknowledgeScopeBudget: (ws: string, changeset: string) =>
+    post<{ acknowledged: boolean; changeset_id: string; cleared_at: string }>(
+      `/api/v1/scope-radar/${encodeURIComponent(ws)}/${encodeURIComponent(
+        changeset,
+      )}/acknowledge`,
+      {},
+    ),
   /** D27 capture tray ingress — creates a `board: null` board_item. */
   capture: (body: {
     workspace: string;

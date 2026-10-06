@@ -131,6 +131,20 @@ budgets:
   fix_dismissal_cap: 2             # self-dismissed findings/run before
                                    # ALL findings escalate to human
   split_max_children: 5            # max child tickets per split run
+
+# --- Scope Creep Radar budgets (PRD §15.5, wp-142) ---
+# Every knob is a hard ceiling; a ChangeSet whose computed radar
+# breaches ANY set threshold escalates to the `scope-budget` gate —
+# approving decisions + apply refuse until a human clears it (the
+# higher approval). Unset keys never fire; radar metrics are always
+# computed and visible regardless.
+scope_budgets:
+  cost_usd: null               # Σ events.cost_usd over the change's blast radius
+  schedule_days: null          # oldest pinned baseline age (baseline staleness)
+  scope_pct: null              # (added+removed) ÷ baseline scope size, fraction
+  post_approval_changes: null  # changesets touching ratified scope
+  rework_events: null          # changes-requested loops + fix rounds + revalidations
+  affected_executions: null    # live runs the change would interrupt
 prior_art_recall: true             # inject {{PRIOR_ART}} into triage/
                                    # design prompts (file-overlap match)
 
