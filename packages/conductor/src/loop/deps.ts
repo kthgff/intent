@@ -74,6 +74,13 @@ export interface StreamEvent {
      *  slot / mode / statement writes; payload {workspace, session_id}).
      *  The Understanding Panel + wizard surface refresh on it. */
     | 'interview_updated'
+    /** Continuous-alignment run progress (wp-112 — the `alignment_status`
+     *  row in the API.md event table; the artifact stays durable on the
+     *  alignment_runs row). */
+    | 'alignment_status'
+    /** Feedback-cluster proposals emitted (wp-112 — proposals only,
+     *  never auto-created work). */
+    | 'feedback_clustered'
     /** DELIVERY §5 durable event names mirrored onto the stream
      *  (wp-136 — merge center + release center lifecycle). */
     | 'merge_ready'

@@ -2,7 +2,7 @@
 schema: 1
 id: wp-112
 title: Continuous alignment and evidence-backed release readiness
-status: todo
+status: done
 priority: medium
 depth: deep
 repos: []
@@ -26,14 +26,14 @@ for captured feedback. Findings are reviewable hypotheses only.
 
 ## Acceptance criteria
 
-- [ ] Alignment emits the §18 schema for missing implementation evidence, unverified ACs, unlinked changes, likely drift, and affected approved behavior
-- [ ] Every finding has evidence, confidence, freshness, next check, and optional disconfirming evidence
-- [ ] Findings cannot mutate specs, verify links/ACs, clear release gates, or create tickets without human action
-- [ ] Release readiness distinguishes deterministic pass/fail gates from the AI risk narrative; narrative cannot override a failed gate
-- [ ] On-merge mode coalesces duplicate scope/SHA runs and honors configured token/spend limits
-- [ ] Feedback clustering preserves original refs and proposes—not silently creates—board/initiative work
-- [ ] Delivery metrics aggregate team/system outcomes only; no individual developer ranking exists
-- [ ] `pnpm typecheck`, `pnpm test`, and `pnpm lint` pass
+- [x] Alignment emits the §18 schema for missing implementation evidence, unverified ACs, unlinked changes, likely drift, and affected approved behavior
+- [x] Every finding has evidence, confidence, freshness, next check, and optional disconfirming evidence
+- [x] Findings cannot mutate specs, verify links/ACs, clear release gates, or create tickets without human action
+- [x] Release readiness distinguishes deterministic pass/fail gates from the AI risk narrative; narrative cannot override a failed gate
+- [x] On-merge mode coalesces duplicate scope/SHA runs and honors configured token/spend limits
+- [x] Feedback clustering preserves original refs and proposes—not silently creates—board/initiative work
+- [x] Delivery metrics aggregate team/system outcomes only; no individual developer ranking exists
+- [x] `pnpm typecheck`, `pnpm test`, and `pnpm lint` pass
 
 ## Test plan
 
@@ -47,7 +47,16 @@ for captured feedback. Findings are reviewable hypotheses only.
 
 ## Definition of Done
 
-- [ ] Alignment and release-readiness golden-set baselines recorded
-- [ ] UI supports inspect/dismiss/verify/resolve without hiding evidence
-- [ ] All mutations write events and preserve original findings
+- [x] Alignment and release-readiness golden-set baselines recorded
+      (`packages/conductor/test/wp112.test.ts` fixtures: every finding
+      kind, clean aligned case, stale pins, contradictory evidence,
+      blocked/green gate + narrative pairs — asserted as baselines)
+- [x] UI supports inspect/dismiss/verify/resolve without hiding evidence
+      (`packages/ui/src/Alignment.tsx` — all evidence_refs +
+      disconfirming_refs render; OCC decisions via /alignment/decide)
+- [x] All mutations write events and preserve original findings
+      (`alignment_run_completed`, `alignment_finding_decided`,
+      `feedback_cluster_proposed` events + append-only
+      `alignment_finding_decisions` audit; re-runs never touch a
+      settled status)
 

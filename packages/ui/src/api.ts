@@ -497,6 +497,50 @@ export interface LinkDecisionBody {
   run?: string | null;
 }
 
+// ---- wp-112 — continuous alignment (SCHEMAS §18) -------------------
+
+/** One alignment finding — a reviewable hypothesis, never a verdict.
+ *  All evidence refs render; nothing is hidden. */
+export interface AlignmentFinding {
+  id: string;
+  workspace: string;
+  run_id: string;
+  scope: string;
+  kind: string;
+  severity: string;
+  claim: string;
+  confidence: number;
+  evidence_refs: string[];
+  disconfirming_refs: string[];
+  freshness: 'current' | 'stale';
+  suggested_next_check: string;
+  status: 'open' | 'dismissed' | 'verified' | 'resolved';
+}
+
+export interface AlignmentView {
+  scope: string;
+  latest_run: {
+    run_id: string;
+    status: string;
+    trigger: string;
+    finding_count: number;
+    created_at: string;
+    finished_at: string | null;
+  } | null;
+  artifact: { schema: number; index_heads: unknown[] } | null;
+  findings: AlignmentFinding[];
+}
+
+/** POST /alignment/decide body — OCC `expected` is the status the
+ *  human saw (same contract as link decisions). */
+export interface AlignmentDecisionBody {
+  workspace: string;
+  id: string;
+  action: 'dismiss' | 'verify' | 'resolve' | 'reopen';
+  expected: AlignmentFinding['status'] | null;
+  rationale?: string | null;
+}
+
 /** GET /evidence/source — a `code:` citation resolved to its pinned
  *  unit. `freshness: 'stale'` means the index head has moved past the
  *  pin — render as historical evidence, never as current. */
@@ -1018,6 +1062,19 @@ export const client = {
         repo,
       )}/index`,
     ),
+  // wp-112 — continuous alignment (findings are hypotheses; decide is
+  // OCC + evented; the panel never hides evidence refs)
+  alignment: (ws: string, scope: string) =>
+    api<AlignmentView>(
+      `/api/v1/alignment/${encodeURIComponent(scope)}${qs({ workspace: ws })}`,
+    ),
+  requestAlignment: (ws: string, scope: string) =>
+    post<{ run: unknown; artifact: unknown }>(
+      `/api/v1/alignment/${encodeURIComponent(scope)}`,
+      { workspace: ws },
+    ),
+  decideAlignment: (body: AlignmentDecisionBody) =>
+    post<{ finding: AlignmentFinding }>('/api/v1/alignment/decide', body),
   rsQuality: (ws: string, id: string) =>
     api<RsQualityResponse>(`${ticketPath(ws, id)}/rs-quality`),
   // wp-142 — Scope Creep Radar (PRD §15.5). Feeds the ChangeSet

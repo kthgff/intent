@@ -9,6 +9,7 @@
 import type { GateItem, TicketRow, TriageQuestion } from '@sprint-runner/core';
 import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import Alignment from '../Alignment';
 import ChatEdit, { type ChatEditTarget } from '../ChatEdit';
 import RsQualityPanel from '../RsQuality';
 import Traceability from '../Traceability';
@@ -118,6 +119,7 @@ type TabId =
   | 'activity'
   | 'runs'
   | 'links'
+  | 'alignment'
   | 'review'
   | 'failure'
   | 'split';
@@ -180,6 +182,7 @@ export default function TicketFocus() {
     { id: 'activity', label: 'Activity' },
     { id: 'runs', label: 'Runs' },
     { id: 'links', label: 'Traceability' },
+    { id: 'alignment', label: 'Alignment' },
     ...(spotlight === 'review'
       ? [{ id: 'review' as TabId, label: 'Code review' }]
       : []),
@@ -245,6 +248,7 @@ export default function TicketFocus() {
           {tab === 'activity' && <ActivityTab ws={ws} id={id} />}
           {tab === 'runs' && <RunsTab ws={ws} id={id} />}
           {tab === 'links' && <Traceability ws={ws} subject={id} />}
+          {tab === 'alignment' && <Alignment ws={ws} scope={id} />}
           {tab === 'review' && <CodeReview embedded />}
           {tab === 'failure' && (
             <FailureTab ws={ws} d={d} onDone={detail.reload} />

@@ -7,6 +7,11 @@ import { z } from 'zod';
 import type { RsQualityDimension } from './enums.js';
 import {
   ACTOR_TYPES,
+  ALIGNMENT_FINDING_KINDS,
+  ALIGNMENT_FINDING_STATUSES,
+  ALIGNMENT_RUN_STATUSES,
+  ALIGNMENT_SEVERITIES,
+  ALIGNMENT_TRIGGERS,
   ASSUMPTION_STATUSES,
   BACKENDS,
   BOARD_ITEM_KINDS,
@@ -2467,3 +2472,145 @@ export function missingQualityDimensions(
 ): RsQualityDimension[] {
   return RS_QUALITY_DIMENSIONS.filter((d) => !q.dimensions_checked.includes(d));
 }
+
+// ---------- alignment-findings.json — intended/implemented/verified gaps
+// (SCHEMAS §18, INTELLIGENCE §5, D37 Phase B, wp-112) ----------
+
+/**
+ * One alignment finding — a REVIEWABLE HYPOTHESIS, never a correctness
+ * assertion. Every finding carries evidence refs, confidence, freshness,
+ * and a suggested next check; `disconfirming_refs` holds evidence that
+ * cuts AGAINST the claim (never hidden, SCHEMAS §18). `status` is the
+ * human-settled lifecycle (`open|dismissed|verified|resolved`) — the
+ * comparison engine only ever emits `open`; a finding cannot verify a
+ * link, clear a release gate, or mutate a spec itself.
+ */
+export const AlignmentFindingSchema = z.object({
+  /** `aln_<hash>` — deterministic on (workspace, scope, kind, subject
+   *  anchor) so a re-run re-emits the same id and preserves the human's
+   *  status instead of forking duplicates. */
+  id: z.string().min(1),
+  kind: enumOf(ALIGNMENT_FINDING_KINDS),
+  severity: enumOf(ALIGNMENT_SEVERITIES),
+  claim: z.string().min(1),
+  confidence: z.number().min(0).max(1),
+  /** ≥1 citation — `ev_…`, `code:<repo>:<sha>:…`, `ac:…`, `doc:…`,
+   *  `run:<id>:<name>`, ticket/PR refs. A finding without evidence is
+   *  malformed, never a guess (fail-closed). */
+  evidence_refs: z.array(z.string().min(1)).min(1),
+  disconfirming_refs: z.array(z.string().min(1)).default([]),
+  freshness: enumOf(EVIDENCE_FRESHNESS),
+  suggested_next_check: z.string().min(1),
+  status: enumOf(ALIGNMENT_FINDING_STATUSES).default('open'),
+});
+export type AlignmentFinding = z.infer<typeof AlignmentFindingSchema>;
+
+/** `alignment-findings.json` (SCHEMAS §18) — the durable comparison
+ *  artifact, stored on its `alignment_runs` row. */
+export const AlignmentFindingsSchema = z
+  .object({
+    schema: SchemaVersionSchema,
+    workspace: z.string().min(1),
+    /** `SR-0142 | F-0007 | I-0002 | release:<id>`. */
+    scope: z.string().min(1),
+    index_heads: z.array(IndexHeadSchema),
+    findings: z.array(AlignmentFindingSchema),
+    generated_at: z.string(),
+  })
+  .superRefine((a, ctx) => {
+    const seen = new Set<string>();
+    a.findings.forEach((f, i) => {
+      if (seen.has(f.id)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['findings', i, 'id'],
+          message: `duplicate finding id '${f.id}'`,
+        });
+      }
+      seen.add(f.id);
+    });
+  });
+export type AlignmentFindings = z.infer<typeof AlignmentFindingsSchema>;
+
+/** Thrown when an `alignment-findings.json` artifact fails closed. */
+export class AlignmentError extends Error {
+  readonly issues: z.ZodIssue[];
+  constructor(issues: z.ZodIssue[]) {
+    super(
+      `alignment-findings failed validation: ${issues
+        .map((i) => `${i.path.join('.')} ${i.message}`)
+        .join('; ')}`,
+    );
+    this.name = 'AlignmentError';
+    this.issues = issues;
+  }
+}
+
+/** Fail-closed validation for `alignment-findings.json` — malformed
+ *  output blocks the run rather than guessing (AGENTS). */
+export function validateAlignmentFindings(value: unknown): AlignmentFindings {
+  const parsed = AlignmentFindingsSchema.safeParse(value);
+  if (!parsed.success) throw new AlignmentError(parsed.error.issues);
+  return parsed.data;
+}
+
+// ---------- alignment store rows (DB-SCHEMA alignment tables, wp-112) ----------
+
+/** `alignment_runs` row — one comparison execution. `trigger_sha`
+ *  binds an `on-merge` run to the merged head that fired it; the
+ *  (workspace, scope, trigger_sha) unique index coalesces duplicate
+ *  merge events into ONE run. `artifact` holds the durable
+ *  `alignment-findings.json` payload (artifact store parity: the run
+ *  row IS the artifact's home — SCHEMAS §18). */
+export const AlignmentRunRowSchema = z.object({
+  workspace: z.string().min(1),
+  run_id: z.string().min(1),
+  scope: z.string().min(1),
+  trigger: enumOf(ALIGNMENT_TRIGGERS),
+  /** The merged/observed head that fired an on-merge run (null for
+   *  manual). */
+  trigger_sha: z.string().nullish(),
+  index_heads: z.array(IndexHeadSchema).default([]),
+  status: enumOf(ALIGNMENT_RUN_STATUSES),
+  finding_count: z.number().int().nonnegative().default(0),
+  /** Serialized alignment-findings.json (validated before write). */
+  artifact: z.string().nullish(),
+  /** Spend ledgered against `budgets.*` — token/cost caps honored
+   *  BEFORE a run executes (wp-112 AC). */
+  tokens_in: z.number().int().nonnegative().nullish(),
+  tokens_out: z.number().int().nonnegative().nullish(),
+  cost_usd: z.number().nonnegative().nullish(),
+  created_at: z.string(),
+  finished_at: z.string().nullish(),
+});
+export type AlignmentRunRow = z.infer<typeof AlignmentRunRowSchema>;
+
+/** `alignment_findings` row — the persisted form of a §18 finding.
+ *  `status` changes only via an OCC human decision (decideAlignment-
+ *  Finding); a re-run refresh updates evidence/confidence/freshness
+ *  but never silently reopens a settled finding. */
+export const AlignmentFindingRowSchema = AlignmentFindingSchema.extend({
+  workspace: z.string().min(1),
+  run_id: z.string().min(1),
+  scope: z.string().min(1),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type AlignmentFindingRow = z.infer<typeof AlignmentFindingRowSchema>;
+
+/** `alignment_finding_decisions` row — append-only audit of every
+ *  human status transition (mirrors `finding_resolutions`). The
+ *  finding row preserves the original claim/evidence; history lives
+ *  here and in `events` (wp-112 DoD). */
+export const AlignmentFindingDecisionRowSchema = z.object({
+  workspace: z.string().min(1),
+  finding_id: z.string().min(1),
+  seq: z.number().int().positive(),
+  status: enumOf(ALIGNMENT_FINDING_STATUSES),
+  actor: z.string().min(1),
+  rationale: z.string().nullish(),
+  at: z.string(),
+});
+export type AlignmentFindingDecisionRow = z.infer<
+  typeof AlignmentFindingDecisionRowSchema
+>;

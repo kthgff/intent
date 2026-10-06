@@ -41,8 +41,8 @@ const run = (over: Partial<RunRow> = {}): RunRow => ({
 });
 
 describe('migrations + meta', () => {
-  it('applies pg/0001_init through 0006 and records schema_meta', async () => {
-    expect(await s().getSchemaVersion()).toBe(6);
+  it('applies pg/0001_init through 0007 and records schema_meta', async () => {
+    expect(await s().getSchemaVersion()).toBe(7);
     const rows = await s().db.query<{ table_name: string }>(
       `SELECT table_name FROM information_schema.tables
        WHERE table_schema='public' ORDER BY table_name`,
@@ -121,12 +121,16 @@ describe('migrations + meta', () => {
       'retrieval_evaluations',
       // wp-157 test-environment requests
       'test_env_requests',
+      // wp-112 continuous alignment (D37 Phase B)
+      'alignment_runs',
+      'alignment_findings',
+      'alignment_finding_decisions',
     ]) {
       expect(tables).toContain(t);
     }
     // re-running migrations is idempotent
     await s().migrate();
-    expect(await s().getSchemaVersion()).toBe(6);
+    expect(await s().getSchemaVersion()).toBe(7);
   });
 });
 
