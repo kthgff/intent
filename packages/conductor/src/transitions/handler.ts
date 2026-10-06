@@ -66,6 +66,8 @@ import { gateForStatus, gateKindFor } from '../gates/index.js';
 import { parseTicketMd } from '../import/parse.js';
 import { IMPORT_RECONCILE_GATE } from '../import/reconcile.js';
 import { retryDecision } from '../loop/retry.js';
+import { DOR_GATE, evaluateDor } from '../registers/dor.js';
+import { recordGateWaiver } from '../registers/quality-debt.js';
 import { completeRetro, registerNotesDraft } from '../release/index.js';
 import {
   type ReviewDocument,
@@ -322,6 +324,79 @@ export class RealTransitionHandler implements TransitionHandler {
           return { stage: 'triage' };
         }
         case 'ready': {
+          // wp-153 DoR (PRD §15.10): the per-work-type readiness
+          // checklist evaluates BEFORE the spec chain launches — a
+          // ticket missing required elements does not proceed.
+          // Failures surface a `dor` gate item naming every missed
+          // check (never a silent block, never a silent proceed);
+          // clearing the gate re-evaluates — a human can only force
+          // through via ticket `forced:`.
+          const dor = await evaluateDor({
+            ctx,
+            config: this.#config,
+            ticket,
+          });
+          if (!dor.ok && !ticket.forced) {
+            const item = await ctx.store.getGateItem({
+              workspace: ctx.workspace,
+              subject: id,
+              gate: DOR_GATE,
+            });
+            if (item && !item.cleared_at) return null;
+            await tools.surfaceGateItem({
+              subject: id,
+              gate: DOR_GATE,
+              kind: 'failure',
+              priority: ticket.priority as never,
+              payload: {
+                gate: DOR_GATE,
+                missing: dor.missing.map((c) => ({
+                  id: c.id,
+                  label: c.label,
+                  detail: c.detail,
+                })),
+                checks: dor.checks,
+                stale_assumptions: dor.staleAssumptions,
+                expired_debt: dor.expiredDebt,
+                parallel_safety: ticket.parallel_safety ?? null,
+              },
+            });
+            await emitEvent(tools, {
+              ticketId: id,
+              event: 'note_added',
+              data: {
+                kind: 'dor-blocked',
+                missing: dor.missing.map((c) => c.id),
+              },
+            });
+            return null;
+          }
+          // A `forced` ticket proceeds on failed checks — that IS a
+          // waiver, and waivers feed the quality-debt register
+          // (§15.10): accepted risk, owned, revisitable.
+          if (!dor.ok && ticket.forced) {
+            await recordGateWaiver(
+              {
+                store: ctx.store,
+                workspace: ctx.workspace,
+                actor: ctx.actor,
+                now: ctx.now,
+              },
+              {
+                subject: id,
+                gate: DOR_GATE,
+                actor: ctx.actor,
+                reason: `DoR overridden — missing: ${dor.missing
+                  .map((c) => c.id)
+                  .join(', ')}`,
+              },
+            );
+            await emitEvent(tools, {
+              ticketId: id,
+              event: 'gate_overridden',
+              data: { gate: DOR_GATE, missing: dor.missing.map((c) => c.id) },
+            });
+          }
           await this.#setStatus(ctx, id, 'prd-draft');
           return { stage: 'prd' };
         }
@@ -491,6 +566,24 @@ export class RealTransitionHandler implements TransitionHandler {
                   (e.data as Record<string, unknown>)?.gate === 'rs-quality',
               );
               if (!recorded) await clearedGateEvent('rs-quality');
+              // wp-153: an rs-quality OVERRIDE is accepted risk — it
+              // feeds the quality-debt register (waivers are debt).
+              if (ticket.forced) {
+                await recordGateWaiver(
+                  {
+                    store: ctx.store,
+                    workspace: ctx.workspace,
+                    actor: ctx.actor,
+                    now: ctx.now,
+                  },
+                  {
+                    subject: id,
+                    gate: 'rs-quality',
+                    actor: ctx.actor,
+                    reason: 'rs-quality gate overridden (forced)',
+                  },
+                );
+              }
             }
           }
           const gate = gateForStatus(status, this.gateMode);

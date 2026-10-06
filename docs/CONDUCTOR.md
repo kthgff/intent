@@ -160,6 +160,16 @@ gate actions, imports) and the conductor reads the DB directly.
   `tdd-approved → test-draft → test-review`; `test-approved →`
   (waits for human go) `→ in-progress → review` (auto-fix rounds
   inside the cap) `→ changes-requested` gate.
+- **Definition of Ready (PRD §15.10, wp-153)**: the `ready → prd-draft`
+  auto-advance first evaluates the DoR checklist — per-work-type named
+  checks (objective stated, ACs testable, dependencies resolved,
+  open slots/decisions settled, repo context configured, security
+  considered, budget adequate, high-impact assumptions resolved).
+  Any miss surfaces a `dor` `failure` gate item NAMING each failed
+  check — never a silent block, never a silent proceed. The item is
+  re-evaluated on every tick after it clears; a `forced:` ticket
+  proceeds on failed checks and the override lands as a
+  `quality_debt` waiver row (`accepted-risk`).
 
 ## Sentinel → transition table
 
@@ -301,9 +311,38 @@ validated → committed → done | failed | blocked | killed`
   comments → `comment-fix` run; green + quiet → merge button enabled.
   Per-PR state lives in `ticket_repos` — `merged` only when ALL repos'
   PRs merge (mixed per-repo states render on S-05/S-09).
-- **DoD at merge**: `test.md` DoD rows with `verified_by: cmd:<…>`
+- **DoD at merge**: `vs.md` DoD rows with `verified_by: cmd:<…>`
   execute as a verify task before merge enables; `manual` rows are a
-  human attest checkbox on the review/PR page.
+  human attest checkbox on the review/PR page. wp-153 makes this a
+  per-check engine (`dodCheckStatuses`): every row reports a named
+  verdict (`verified`/`attested`/`unverified`/`unattested`/`failed`/
+  `unknown`), `unknown` `verified_by` spellings fail CLOSED, a failed
+  `cmd:` row surfaces a `dod-failed` gate item and is not retried
+  automatically, and the merge checklist names the unmet criteria.
+- **Process registers (PRD §15.10, wp-153)**:
+  `conductor/registers` owns the rules over the store's rows —
+  - *Assumption Register*: stages capture unverified dependencies
+    (statement, impact, evidence needed, provenance `source` +
+    `doc:<name>#v<n>` pins in `affected`). `high`-impact `unverified`
+    rows are DoR blockers; `verified`/`risk-accepted` confirmations
+    are human-only; an unverified row whose pinned doc head advanced
+    is stale and revalidates LOUDLY (`assumption_stale` event, deduped
+    per pin→head pair). Open rows render into ticket/RS prompt context
+    (`{{CONTEXT_MD}}`).
+  - *Quality Debt Register*: accepted risk, deferred refactors,
+    security exceptions, weak tests, doc gaps — owner + revisit +
+    approval trail. Gate OVERRIDES (forced DoR, forced `rs-quality`)
+    feed it as `accepted-risk` waiver rows; live rows past
+    `expires_at` flip to `expired` LOUDLY (event + notification).
+  - *Delivery Commitments*: versioned committed scope via
+    `commitDeliveryCommitment` (append-only, `max(version)+1`);
+    `commitScope`/`advanceCommitment` enforce the lifecycle
+    (planned → committed → implemented → verified → delivered, +
+    missed/cancelled — an illegal move throws). `commitmentDrift`
+    compares committed `requirement_versions`/`tickets` against
+    current doc heads + ticket statuses; `auditCommitments` emits
+    `commitment_drift` events (deduped per drift signature) so drift
+    vs plan is visible on the radar/metrics surface.
 - **Collision warning**: tickets whose `entities_referenced`/file plans
   overlap an in-flight ticket get a `conflicts_with` note on the ticket
   + an inbox item. Warn-only — never blocks; the rebase run handles the

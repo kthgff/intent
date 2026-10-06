@@ -88,6 +88,7 @@ import {
 import { registerEvidenceRoutes } from './evidence.js';
 import { registerLinkRoutes } from './links.js';
 import { deviationMetrics, gateDwell } from './metrics.js';
+import { registerRegisterRoutes } from './registers.js';
 import { registerReviewRoutes } from './review.js';
 import { StreamHub } from './sse.js';
 
@@ -3316,6 +3317,14 @@ export function createServer(opts: ServerOptions): ApiServer {
         payload: e.payload,
       }),
     now,
+  });
+
+  // /assumptions, /quality-debt, /commitments — §15.10 registers (wp-153)
+  registerRegisterRoutes(app, {
+    store,
+    actor,
+    now: () => new Date(),
+    workspace,
   });
 
   // /links — wp-111 traceability edges (D37): propose/record +

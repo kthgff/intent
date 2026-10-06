@@ -118,7 +118,7 @@ Program plan for W16+ (PRD §14+§15): `docs/DEV-PLAN.md` + `docs/DELIVERY.md`.
 | W20 | wp-150 | Security review dimension: categories, finding fields, risk-tiered enforcement | wp-148 | done |
 | W21 | wp-151 | Ticket taxonomy: work types/origins, per-type intake, Ticket Workbench | wp-131 | done |
 | W21 | wp-152 | Feature Workspace: tabs, health rollup, acceptance package, scoped assistant | wp-131, wp-134, wp-146 | todo |
-| W21 | wp-153 | Process machinery: DoR/DoD engines, Assumption Register, Quality Debt, Delivery Commitments | wp-131, wp-134 | todo |
+| W21 | wp-153 | Process machinery: DoR/DoD engines, Assumption Register, Quality Debt, Delivery Commitments | wp-131, wp-134 | done |
 | W21 | wp-154 | Work Decomposition Engine + contract-first tickets + integration coordination | wp-131, wp-143 | done |
 | W22 | wp-155 | Model Routing Registry: versioned task→model config, latency classes, cost-per-accepted | wp-131 | done |
 | W22 | wp-156 | AI Evaluation Lab: golden sets, bake-off harness, promotion gates | wp-155, wp-143 | done |
