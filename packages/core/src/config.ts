@@ -187,6 +187,30 @@ export const ImportersConfigSchema = z.object({
 });
 export type ImportersConfig = z.infer<typeof ImportersConfigSchema>;
 
+/** `scope_budgets:` settings block (PRD §15.5 safeguards, wp-142) —
+ *  Scope Creep Radar thresholds. Every knob is a hard ceiling; a
+ *  ChangeSet whose computed radar breaches ANY configured threshold is
+ *  escalated to the `scope-budget` gate (higher human approval) before
+ *  it may be decided/applied. Unset keys never fire. */
+export const ScopeBudgetsSchema = z.object({
+  /** Cumulative cost_usd of the change's blast radius (events ledger). */
+  cost_usd: z.number().nonnegative().nullish(),
+  /** Schedule drift — baseline age in days (pinned baseline version →
+   *  now) beyond which change volume is escalation-worthy. */
+  schedule_days: z.number().nonnegative().nullish(),
+  /** Scope churn: (items added + removed) ÷ baseline scope size, as a
+   *  fraction (0.25 = 25%). */
+  scope_pct: z.number().nonnegative().nullish(),
+  /** Post-approval changesets against the same baseline subject. */
+  post_approval_changes: z.number().int().nonnegative().nullish(),
+  /** Rework events in the blast radius (changes-requested loops,
+   *  fix rounds, invalidated/expired approvals). */
+  rework_events: z.number().int().nonnegative().nullish(),
+  /** Running executions the change would interrupt (wp-141). */
+  affected_executions: z.number().int().nonnegative().nullish(),
+});
+export type ScopeBudgets = z.infer<typeof ScopeBudgetsSchema>;
+
 export const SecurityConfigSchema = z.object({
   scanner: z.enum(['gitleaks', 'trufflehog']).default('gitleaks'),
   /** FAIL-CLOSED — scan error/finding blocks the commit (SETTINGS). */
@@ -251,6 +275,8 @@ export const ConfigSchema = z.object({
     .object({ poll_interval_s: z.number().int().default(60) })
     .default({}),
   budgets: BudgetsSchema.default({}),
+  /** Scope Creep Radar thresholds (PRD §15.5, wp-142). */
+  scope_budgets: ScopeBudgetsSchema.default({}),
   prior_art_recall: z.boolean().default(true),
   semantic: SemanticConfigSchema.default({}),
   /** Evidence plane / code intelligence (SETTINGS, D37, wp-111). */

@@ -2,7 +2,7 @@
 schema: 1
 id: wp-142
 title: Scope Creep Radar — scope metrics, budgets, escalation
-status: todo
+status: done
 priority: medium
 depth: standard
 repos: []
@@ -26,10 +26,10 @@ the Release Center header.
 `packages/ui` radar widget on Release Center + ChangeSet views
 
 ## Acceptance criteria
-- [ ] All radar metrics computed from events/versions — explainable, no opaque score
-- [ ] Budget thresholds escalate correctly
-- [ ] Notifications reach only affected artifact owners
-- [ ] `pnpm test` green
+- [x] All radar metrics computed from events/versions — explainable, no opaque score
+- [x] Budget thresholds escalate correctly
+- [x] Notifications reach only affected artifact owners
+- [x] `pnpm test` green
 
 ## Contract change
 None.
