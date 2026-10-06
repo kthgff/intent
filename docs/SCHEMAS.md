@@ -693,6 +693,15 @@ The artifact contains no raw secret/credential/request-body values. Counts and
 time windows come from the structured observability query, not vector search.
 Root cause remains unverified until a human or authoritative outcome records it.
 
+As shipped (wp-120, `packages/conductor/src/telemetry/`): the artifact is
+validated fail-closed by `IncidentInvestigationSchema` and persisted as the
+incident subject's `incident-investigation.json` doc_version (immutable
+history, D24); `incidents.investigation_ref` points at the latest version
+(`doc:<id>:incident-investigation.json:v<N>`). `signature` is the
+`error_signatures.id`; `observed` counts/windows come from the signature row
+and `deployments` rows — never embeddings. `proposed_action.requires_human`
+is `literal(true)` — the draft-ticket gate is structural.
+
 ## 20. runs.request — the queue-row request payload (D40 + wp-141)
 
 `runs.request` is jsonb; producers write it, consumers parse with

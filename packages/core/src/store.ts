@@ -29,6 +29,7 @@ import type {
   DossierEntry,
   Embedding,
   Entity,
+  ErrorSignatureRow,
   EvalCaseRow,
   EvalResultRow,
   EvalRunRow,
@@ -39,6 +40,9 @@ import type {
   FeatureRow,
   FindingResolutionRow,
   GateItem,
+  IncidentDecisionRow,
+  IncidentRow,
+  IncidentTicketProposalRow,
   InitiativeRow,
   InterviewBranchRow,
   InterviewMessageRow,
@@ -75,6 +79,7 @@ import type {
   StatementRelationRow,
   StatementRow,
   StatementVersionRow,
+  TelemetrySourceRow,
   TestEnvRequestRow,
   TicketRepoRow,
   TicketRow,
@@ -1198,4 +1203,147 @@ export interface Store {
     subject?: string;
     status?: string;
   }): Promise<TestEnvRequestRow[]>;
+
+  // =====================================================================
+  // Telemetry + incident intelligence (SCHEMAS §19, INTELLIGENCE §6,
+  // D37 Phase C, wp-120). Raw events never land here — only sanitized,
+  // deduplicated signatures, backend locators, incidents, investigations,
+  // and verified resolutions. `incidents.status` and proposal `status`
+  // move ONLY through the OCC decide paths (decideIncident /
+  // decideIncidentTicketProposal); ingest upserts never touch them.
+  // =====================================================================
+
+  /** Register/update a telemetry source. `config` carries secret
+   *  names/refs only — the connector layer rejects raw values. */
+  upsertTelemetrySource(row: TelemetrySourceRow): Promise<void>;
+  getTelemetrySource(key: {
+    workspace: string;
+    id: string;
+  }): Promise<TelemetrySourceRow | null>;
+  listTelemetrySources(filter?: {
+    workspace?: string;
+    enabled?: boolean;
+  }): Promise<TelemetrySourceRow[]>;
+
+  /**
+   * Upsert an error signature on its dedupe key (workspace,
+   *   source_id, fingerprint_version, fingerprint): a repeat event
+   *   refreshes `representative`/`attributes`/`last_seen` and adds
+   *   `count_delta` to `count` — one versioned row per pattern, never
+   *   a row per event (INTELLIGENCE §6.1). Returns the row and whether
+   *   it was newly created.
+   */
+  upsertErrorSignature(
+    row: ErrorSignatureRow,
+    countDelta: number,
+  ): Promise<{ state: 'created' | 'updated'; row: ErrorSignatureRow }>;
+  getErrorSignature(key: {
+    workspace: string;
+    id: string;
+  }): Promise<ErrorSignatureRow | null>;
+  listErrorSignatures(filter?: {
+    workspace?: string;
+    source_id?: string;
+  }): Promise<ErrorSignatureRow[]>;
+  /** Retention — remove derived signatures (and only derived state;
+   *  the source backend is never touched) older than `before`. */
+  pruneErrorSignatures(key: {
+    workspace: string;
+    before: string;
+  }): Promise<number>;
+
+  /** INC-NNNN allocator — same transactional seq-bump as tickets. */
+  allocIncidentId(workspace: string): Promise<string>;
+
+  /** Open an incident bound to a signature. Idempotent on `id`. */
+  insertIncident(row: IncidentRow): Promise<void>;
+  getIncident(key: {
+    workspace: string;
+    id: string;
+  }): Promise<IncidentRow | null>;
+  listIncidents(filter?: {
+    workspace?: string;
+    status?: string;
+    signature_id?: string;
+  }): Promise<IncidentRow[]>;
+  /** Non-lifecycle fields only (summary/investigation_ref/root_cause/
+   *  resolution/refs) — `status`/`resolution_verified`/`resolved_at`
+   *  move exclusively through `decideIncident`. */
+  updateIncident(
+    key: { workspace: string; id: string },
+    patch: Partial<
+      Pick<
+        IncidentRow,
+        | 'summary'
+        | 'investigation_ref'
+        | 'root_cause'
+        | 'resolution'
+        | 'deployment_refs'
+        | 'ticket_refs'
+        | 'pr_refs'
+      >
+    >,
+  ): Promise<void>;
+  /**
+   * Atomic optimistic-concurrency status transition for a human
+   * incident decision — same contract as `decideAlignmentFinding`:
+   * `updated` | `noop` | `conflict` (stale `expected`) | `missing`.
+   * `next: 'resolved'` additionally stamps `resolution_verified=1` and
+   * `resolved_at`; `reopen` clears them.
+   */
+  decideIncident(
+    key: { workspace: string; id: string },
+    expected: IncidentRow['status'] | null,
+    next: IncidentRow['status'],
+    at: string,
+  ): Promise<
+    | { state: 'updated'; prior: IncidentRow['status'] }
+    | { state: 'noop' }
+    | { state: 'conflict'; current: IncidentRow['status'] }
+    | { state: 'missing' }
+  >;
+  /** Append-only incident-decision audit (seq allocated by the caller
+   *  inside the same transaction). */
+  appendIncidentDecision(row: IncidentDecisionRow): Promise<void>;
+  listIncidentDecisions(filter: {
+    workspace: string;
+    incident_id: string;
+  }): Promise<IncidentDecisionRow[]>;
+  /** Retention — remove incidents (and their decision audit) last
+   *  touched before `before`; the source backend is never touched. */
+  pruneIncidents(key: {
+    workspace: string;
+    before: string;
+  }): Promise<number>;
+
+  /** Draft-ticket proposals — the draft-ticket gate (wp-120). */
+  insertIncidentTicketProposal(row: IncidentTicketProposalRow): Promise<void>;
+  getIncidentTicketProposal(key: {
+    workspace: string;
+    id: string;
+  }): Promise<IncidentTicketProposalRow | null>;
+  listIncidentTicketProposals(filter?: {
+    workspace?: string;
+    incident_id?: string;
+    status?: string;
+  }): Promise<IncidentTicketProposalRow[]>;
+  /**
+   * OCC approve/reject on a draft proposal — `approved` records
+   *   `board_item_id` of the tray item the decision created. Same
+   *   `updated|noop|conflict|missing` contract as the other decide
+   *   paths.
+   */
+  decideIncidentTicketProposal(
+    key: { workspace: string; id: string },
+    expected: IncidentTicketProposalRow['status'] | null,
+    next: IncidentTicketProposalRow['status'],
+    at: string,
+    decidedBy: string,
+    boardItemId?: string | null,
+  ): Promise<
+    | { state: 'updated'; prior: IncidentTicketProposalRow['status'] }
+    | { state: 'noop' }
+    | { state: 'conflict'; current: IncidentTicketProposalRow['status'] }
+    | { state: 'missing' }
+  >;
 }

@@ -41,6 +41,7 @@ import {
   DOSSIER_SCOPES,
   DOSSIER_SECTIONS,
   DOSSIER_SOURCES,
+  DRAFT_TICKET_STATUSES,
   ENTITY_KINDS,
   ENTITY_SOURCES,
   EVAL_RUN_STATUSES,
@@ -56,6 +57,7 @@ import {
   FINDING_STATUSES,
   GAP_KINDS,
   GATE_KINDS,
+  INCIDENT_STATUSES,
   INITIATIVE_STATUSES,
   INTERVIEW_BRANCH_STATUSES,
   INTERVIEW_MESSAGE_ROLES,
@@ -814,6 +816,8 @@ export const ProjectRowSchema = z.object({
   next_changeset_seq: z.number().int().default(1),
   /** TE-NNNN allocator (PRD §15.10, wp-157). */
   next_test_env_seq: z.number().int().default(1),
+  /** INC-NNNN allocator (D37 Phase C, wp-120). */
+  next_incident_seq: z.number().int().default(1),
   settings: z.record(z.unknown()).default({}),
   created_at: z.string().nullish(),
 });
@@ -2613,4 +2617,189 @@ export const AlignmentFindingDecisionRowSchema = z.object({
 });
 export type AlignmentFindingDecisionRow = z.infer<
   typeof AlignmentFindingDecisionRowSchema
+>;
+
+// ---------- incident-investigation.json — production hypothesis set
+// (SCHEMAS §19, INTELLIGENCE §6.2, D37 Phase C, wp-120) ----------
+
+/**
+ * One ranked root-cause hypothesis. Like an alignment finding this is
+ * a REVIEWABLE HYPOTHESIS — it cannot verify a link, resolve the
+ * incident, or create a ticket itself. `disconfirming_refs` discloses
+ * evidence that cuts AGAINST the hypothesis (never hidden).
+ */
+export const IncidentHypothesisSchema = z.object({
+  rank: z.number().int().positive(),
+  summary: z.string().min(1),
+  confidence: z.number().min(0).max(1),
+  evidence_refs: z.array(z.string().min(1)).min(1),
+  disconfirming_refs: z.array(z.string().min(1)).default([]),
+  next_checks: z.array(z.string().min(1)).default([]),
+});
+export type IncidentHypothesis = z.infer<typeof IncidentHypothesisSchema>;
+
+/** `incident-investigation.json` (SCHEMAS §19) — the durable
+ *  correlation artifact for one incident, stored as the incident
+ *  subject's `incident-investigation.json` doc_version and referenced
+ *  by `incidents.investigation_ref`. Contains NO raw secret/
+ *  credential/request-body values — counts and time windows come from
+ *  the signature's structured rows, never vector retrieval. */
+export const IncidentInvestigationSchema = z.object({
+  schema: SchemaVersionSchema,
+  workspace: z.string().min(1),
+  incident: z.string().min(1),
+  signature: z.string().min(1),
+  window: z.object({ from: z.string(), to: z.string() }),
+  sanitization_policy: z.string().min(1),
+  observed: z.object({
+    count: z.number().int().nonnegative(),
+    first_seen: z.string().nullish(),
+    last_seen: z.string().nullish(),
+    services: z.array(z.string()).default([]),
+    deployments: z.array(z.string()).default([]),
+  }),
+  hypotheses: z.array(IncidentHypothesisSchema),
+  similar_incidents: z
+    .array(
+      z.object({
+        incident: z.string().min(1),
+        resolution_verified: z.boolean(),
+      }),
+    )
+    .default([]),
+  proposed_action: z.object({
+    kind: z.enum(['draft-ticket', 'none']),
+    requires_human: z.literal(true),
+    proposal_id: z.string().nullish(),
+  }),
+  generated_at: z.string(),
+});
+export type IncidentInvestigation = z.infer<typeof IncidentInvestigationSchema>;
+
+/** Thrown when an `incident-investigation.json` artifact fails
+ *  closed. */
+export class IncidentInvestigationError extends Error {
+  readonly issues: z.ZodIssue[];
+  constructor(issues: z.ZodIssue[]) {
+    super(
+      `incident-investigation failed validation: ${issues
+        .map((i) => `${i.path.join('.')} ${i.message}`)
+        .join('; ')}`,
+    );
+    this.name = 'IncidentInvestigationError';
+    this.issues = issues;
+  }
+}
+
+/** Fail-closed validation for `incident-investigation.json` —
+ *  malformed output blocks rather than guessing (AGENTS). */
+export function validateIncidentInvestigation(
+  value: unknown,
+): IncidentInvestigation {
+  const parsed = IncidentInvestigationSchema.safeParse(value);
+  if (!parsed.success)
+    throw new IncidentInvestigationError(parsed.error.issues);
+  return parsed.data;
+}
+
+// ---------- telemetry/incident store rows (DB-SCHEMA production
+// intelligence tables + wp-120 addendum) ----------
+
+/** `telemetry_sources` row — one configured observability backend.
+ *  `config` carries secret NAMES/REFS only (`env:…`), never values
+ *  (DB-SCHEMA rules); `redaction_policy` records the sanitizer version
+ *  applied at the ingest boundary. */
+export const TelemetrySourceRowSchema = z.object({
+  id: z.string().min(1),
+  workspace: z.string().min(1),
+  kind: z.string().min(1),
+  config: z.record(z.unknown()).default({}),
+  redaction_policy: z.string().nullish(),
+  enabled: z.number().int().default(1),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type TelemetrySourceRow = z.infer<typeof TelemetrySourceRowSchema>;
+
+/** `error_signatures` row — a deduplicated, sanitized error pattern.
+ *  Identity is (workspace, source_id, fingerprint_version,
+ *  fingerprint); `count`/`first_seen`/`last_seen` aggregate repeated
+ *  events — raw events are NEVER copied into Veto (`raw_locator`
+ *  points back into the source backend). */
+export const ErrorSignatureRowSchema = z.object({
+  id: z.string().min(1),
+  workspace: z.string().min(1),
+  source_id: z.string().min(1),
+  fingerprint_version: z.string().min(1),
+  fingerprint: z.string().min(1),
+  normalized_pattern: z.string().min(1),
+  /** Bounded sanitized representative sample — never a raw event. */
+  representative: z.string().nullish(),
+  attributes: z.record(z.unknown()).default({}),
+  first_seen: z.string(),
+  last_seen: z.string(),
+  count: z.number().int().nonnegative(),
+  raw_locator: z.string().nullish(),
+});
+export type ErrorSignatureRow = z.infer<typeof ErrorSignatureRowSchema>;
+
+/** `incidents` row — an opened investigation unit bound to an error
+ *  signature. `status` moves ONLY through the OCC `decideIncident`
+ *  path; `resolution_verified` is set when a human resolves with
+ *  evidence (or an authoritative outcome records it) — AI assertions
+ *  never flip it. */
+export const IncidentRowSchema = z.object({
+  id: z.string().min(1),
+  workspace: z.string().min(1),
+  signature_id: z.string().min(1),
+  status: enumOf(INCIDENT_STATUSES),
+  summary: z.string().nullish(),
+  /** `doc:<id>:incident-investigation.json:v<N>` — durable §19 ref. */
+  investigation_ref: z.string().nullish(),
+  root_cause: z.string().nullish(),
+  resolution: z.string().nullish(),
+  resolution_verified: z.number().int().default(0),
+  deployment_refs: z.array(z.string()).default([]),
+  ticket_refs: z.array(z.string()).default([]),
+  pr_refs: z.array(z.string()).default([]),
+  opened_at: z.string(),
+  resolved_at: z.string().nullish(),
+});
+export type IncidentRow = z.infer<typeof IncidentRowSchema>;
+
+/** `incident_decisions` row — append-only audit of every human
+ *  lifecycle transition (mirrors `alignment_finding_decisions`). */
+export const IncidentDecisionRowSchema = z.object({
+  workspace: z.string().min(1),
+  incident_id: z.string().min(1),
+  seq: z.number().int().positive(),
+  status: enumOf(INCIDENT_STATUSES),
+  actor: z.string().min(1),
+  rationale: z.string().nullish(),
+  at: z.string(),
+});
+export type IncidentDecisionRow = z.infer<typeof IncidentDecisionRowSchema>;
+
+/** `incident_ticket_proposals` row — a draft ticket/scope proposal an
+ *  incident may emit. `status` moves ONLY through the human OCC decide
+ *  path; `approved` produces a capture-tray board item (`board_item_id`
+ *  set at decision time) — nothing enters committed scope without it. */
+export const IncidentTicketProposalRowSchema = z.object({
+  workspace: z.string().min(1),
+  id: z.string().min(1),
+  incident_id: z.string().min(1),
+  title: z.string().min(1),
+  body: z.string().nullish(),
+  /** e.g. `{"work_type":"bug","severity":"major",…}` — advisory. */
+  draft: z.record(z.unknown()).default({}),
+  status: enumOf(DRAFT_TICKET_STATUSES),
+  board_item_id: z.string().nullish(),
+  decided_by: z.string().nullish(),
+  decided_at: z.string().nullish(),
+  created_by: z.string().min(1),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type IncidentTicketProposalRow = z.infer<
+  typeof IncidentTicketProposalRowSchema
 >;

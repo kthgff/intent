@@ -342,6 +342,16 @@ export const EVENT_NAMES = [
   'commitment_recorded',
   'commitment_status',
   'commitment_drift',
+  /** Telemetry/incident intelligence (D37 Phase C, wp-120) — a
+   *  sanitized batch updated error signatures (never raw events); an
+   *  incident opened for a new/regressed signature; a human decided an
+   *  incident lifecycle transition; a draft ticket was proposed or
+   *  human-decided (proposals never silently create scope). */
+  'telemetry_ingested',
+  'incident_opened',
+  'incident_decided',
+  'draft_ticket_proposed',
+  'draft_ticket_decided',
 ] as const;
 export type EventName = (typeof EVENT_NAMES)[number];
 
@@ -1507,6 +1517,60 @@ export type AlignmentRunStatus = (typeof ALIGNMENT_RUN_STATUSES)[number];
  *  fork the run history (wp-112 AC). */
 export const ALIGNMENT_TRIGGERS = ['manual', 'on-merge'] as const;
 export type AlignmentTrigger = (typeof ALIGNMENT_TRIGGERS)[number];
+
+// ---------- telemetry + incident intelligence (SCHEMAS §19, D37
+// Phase C, wp-120) ----------
+
+/** Observability backends a telemetry source may bind (DB-SCHEMA
+ *  `telemetry_sources.kind`). `otlp` is the first shipped connector
+ *  (INTELLIGENCE §6.1 — spike rationale in docs/exec/wp-120 notes +
+ *  the adapter contract is backend-neutral). */
+export const TELEMETRY_SOURCE_KINDS = [
+  'otlp',
+  'loki',
+  'opensearch',
+  'file',
+  'journald',
+  'docker',
+] as const;
+export type TelemetrySourceKind = (typeof TELEMETRY_SOURCE_KINDS)[number];
+
+/** Incident lifecycle (DB-SCHEMA `incidents.status`). `resolved`
+ *  requires recorded evidence — an AI assertion alone can never
+ *  resolve (wp-120 AC; resolution lands via `resolve` decide only). */
+export const INCIDENT_STATUSES = [
+  'open',
+  'investigating',
+  'resolved',
+  'closed',
+] as const;
+export type IncidentStatus = (typeof INCIDENT_STATUSES)[number];
+
+/** Human decision actions on an incident (API `POST /incidents/decide`)
+ *  — wp-111/112 OCC-decide convention. */
+export const INCIDENT_ACTIONS = [
+  'investigate',
+  'resolve',
+  'close',
+  'reopen',
+] as const;
+export type IncidentAction = (typeof INCIDENT_ACTIONS)[number];
+
+/** Draft-ticket proposal lifecycle (wp-120 draft-ticket gate). A
+ *  proposal is born `draft`; a human `approve` moves it into the
+ *  normal intake pipeline (tray board item), `reject` retires it.
+ *  Nothing enters committed scope without that human decision. */
+export const DRAFT_TICKET_STATUSES = ['draft', 'approved', 'rejected'] as const;
+export type DraftTicketStatus = (typeof DRAFT_TICKET_STATUSES)[number];
+
+/** Human actions on a draft-ticket proposal. */
+export const DRAFT_TICKET_ACTIONS = ['approve', 'reject'] as const;
+export type DraftTicketAction = (typeof DRAFT_TICKET_ACTIONS)[number];
+
+/** Fingerprint algorithm version — part of the error_signatures
+ *  dedupe key so a normalization change never silently re-clusters
+ *  historical rows. */
+export const FINGERPRINT_VERSION = 'fp-v1' as const;
 
 /**
  * RS quality-pass dimensions (INTELLIGENCE §5, wp-111). The cited AI

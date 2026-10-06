@@ -41,8 +41,8 @@ const run = (over: Partial<RunRow> = {}): RunRow => ({
 });
 
 describe('migrations + meta', () => {
-  it('applies pg/0001_init through 0007 and records schema_meta', async () => {
-    expect(await s().getSchemaVersion()).toBe(7);
+  it('applies pg/0001_init through 0008 and records schema_meta', async () => {
+    expect(await s().getSchemaVersion()).toBe(8);
     const rows = await s().db.query<{ table_name: string }>(
       `SELECT table_name FROM information_schema.tables
        WHERE table_schema='public' ORDER BY table_name`,
@@ -125,12 +125,18 @@ describe('migrations + meta', () => {
       'alignment_runs',
       'alignment_findings',
       'alignment_finding_decisions',
+      // wp-120 telemetry/incident intelligence (D37 Phase C)
+      'telemetry_sources',
+      'error_signatures',
+      'incidents',
+      'incident_decisions',
+      'incident_ticket_proposals',
     ]) {
       expect(tables).toContain(t);
     }
     // re-running migrations is idempotent
     await s().migrate();
-    expect(await s().getSchemaVersion()).toBe(7);
+    expect(await s().getSchemaVersion()).toBe(8);
   });
 });
 

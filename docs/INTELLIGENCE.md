@@ -233,6 +233,28 @@ A resolved incident becomes a reusable knowledge record only after a human or
 authoritative system supplies the resolution outcome. Recurrence detection may
 suggest that a fix failed; it does not silently reopen or modify work.
 
+As shipped (wp-120, `packages/conductor/src/telemetry/` +
+`POST /telemetry/ingest`, `/incidents/*`): the first connector is
+backend-neutral decoded events (OTLP is the bound source kind — every
+observability backend already speaks OTLP, so a receiver only has to
+produce `TelemetryEvent[]`); `sanitize.ts` scrubs secrets/PII/request
+bodies before any persistence and preserves exception class, error
+code, frames, service, version, and environment in the fingerprint
+(deployment ids and trace/span ids are attributes, never fingerprint
+inputs). One `error_signatures` row per (workspace, source,
+fingerprint_version, fingerprint) aggregates counts — no per-event
+writes. New signatures and recurrence-after-resolution open `INC-NNNN`
+incidents; a live incident absorbs repeats. `investigateIncident`
+correlates signature → deployments in the observed window → release
+items → prior verified resolutions into the §19 artifact (durable
+doc_version). `decideIncident` is the OCC human-decide path
+(`incident_decisions` audit + `incident_decided`); `resolve` requires
+caller-supplied deployment/ticket/pr evidence — never assertion alone.
+Draft tickets ride `incident_ticket_proposals` — `draft` until a human
+`approve` creates a capture-tray board item (retro-proposal parity);
+`pruneErrorSignatures`/`pruneIncidents` implement retention on derived
+rows only.
+
 ## 7. Evaluation and operating metrics
 
 Each intelligence capability ships with a versioned golden set. Minimum

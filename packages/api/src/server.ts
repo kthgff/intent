@@ -97,6 +97,7 @@ import { registerRegisterRoutes } from './registers.js';
 import { registerReleaseRoutes } from './releases.js';
 import { registerReviewRoutes } from './review.js';
 import { StreamHub } from './sse.js';
+import { registerTelemetryRoutes } from './telemetry.js';
 
 // ---------------------------------------------------------------------------
 // Request-body schemas (fail-closed — a malformed body is a 400, never
@@ -3449,6 +3450,20 @@ export function createServer(opts: ServerOptions): ApiServer {
     notify: (e) =>
       conductor.deps.notify?.({
         type: 'alignment_status',
+        payload: e.payload,
+      }),
+  });
+
+  // /telemetry/*, /incidents* — wp-120 telemetry + incident
+  // intelligence (D37 Phase C): sanitized ingest → fingerprint/dedupe,
+  // durable §19 investigations, OCC incident decisions, and the
+  // human-gated draft-ticket proposals (never silent scope).
+  registerTelemetryRoutes(app, {
+    store,
+    actor,
+    notify: (e) =>
+      conductor.deps.notify?.({
+        type: 'incident_status',
         payload: e.payload,
       }),
   });

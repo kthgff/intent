@@ -46,6 +46,7 @@ import type {
   Embedding,
   EmbeddingKey,
   Entity,
+  ErrorSignatureRow,
   EvalCaseRow,
   EvalResultRow,
   EvalRunRow,
@@ -57,6 +58,9 @@ import type {
   FindingResolutionRow,
   GateItem,
   GateItemKey,
+  IncidentDecisionRow,
+  IncidentRow,
+  IncidentTicketProposalRow,
   InitiativeRow,
   InterviewBranchRow,
   InterviewMessageRow,
@@ -97,6 +101,7 @@ import type {
   StatementRow,
   StatementVersionRow,
   Store,
+  TelemetrySourceRow,
   TestEnvRequestRow,
   TicketKey,
   TicketRepoKey,
@@ -1299,9 +1304,10 @@ export class PostgresStore implements Store {
     await this.db.query(
       `INSERT INTO projects (workspace, org, name, next_ticket_seq,
          next_feature_seq, next_initiative_seq, next_release_seq,
-         next_changeset_seq, next_test_env_seq, settings, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-       ON CONFLICT (workspace) DO UPDATE SET org=$2, name=$3, settings=$10`,
+         next_changeset_seq, next_test_env_seq, next_incident_seq,
+         settings, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+       ON CONFLICT (workspace) DO UPDATE SET org=$2, name=$3, settings=$11`,
       [
         row.workspace,
         row.org ?? null,
@@ -1312,6 +1318,7 @@ export class PostgresStore implements Store {
         row.next_release_seq ?? 1,
         row.next_changeset_seq ?? 1,
         row.next_test_env_seq ?? 1,
+        row.next_incident_seq ?? 1,
         j(row.settings ?? {}),
         row.created_at ?? null,
       ],
@@ -1341,7 +1348,8 @@ export class PostgresStore implements Store {
       | 'next_initiative_seq'
       | 'next_release_seq'
       | 'next_changeset_seq'
-      | 'next_test_env_seq',
+      | 'next_test_env_seq'
+      | 'next_incident_seq',
     prefix: string,
   ): Promise<string> {
     const bump = () =>
@@ -1366,21 +1374,23 @@ export class PostgresStore implements Store {
         );
         return r[0]?.n ?? 1;
       };
-      const [t, f, i, rel, cs, te] = await Promise.all([
+      const [t, f, i, rel, cs, te, inc] = await Promise.all([
         seqStart('tickets', 'ticket_id', 'SR'),
         seqStart('features', 'feature', 'F'),
         seqStart('initiatives', 'initiative', 'I'),
         seqStart('releases', 'release_id', 'REL'),
         seqStart('changesets', 'changeset_id', 'CS'),
         seqStart('test_env_requests', 'request_id', 'TE'),
+        seqStart('incidents', 'id', 'INC'),
       ]);
       await this.db.query(
         `INSERT INTO projects (workspace, name, next_ticket_seq,
            next_feature_seq, next_initiative_seq, next_release_seq,
-           next_changeset_seq, next_test_env_seq, settings, created_at)
-         VALUES ($1, $1, $2, $3, $4, $5, $6, $7, '{}', $8)
+           next_changeset_seq, next_test_env_seq, next_incident_seq,
+           settings, created_at)
+         VALUES ($1, $1, $2, $3, $4, $5, $6, $7, $8, '{}', $9)
          ON CONFLICT (workspace) DO NOTHING`,
-        [workspace, t, f, i, rel, cs, te, new Date().toISOString()],
+        [workspace, t, f, i, rel, cs, te, inc, new Date().toISOString()],
       );
       rows = await bump();
     }
@@ -1415,6 +1425,10 @@ export class PostgresStore implements Store {
 
   allocTestEnvRequestId(workspace: string): Promise<string> {
     return this.allocSeq(workspace, 'next_test_env_seq', 'TE');
+  }
+
+  allocIncidentId(workspace: string): Promise<string> {
+    return this.allocSeq(workspace, 'next_incident_seq', 'INC');
   }
 
   // ---- test-environment requests (PRD §15.10, wp-157) ----
@@ -4482,6 +4496,446 @@ export class PostgresStore implements Store {
       at: r.at as string,
     }));
   }
+
+  // ---- telemetry + incident intelligence (SCHEMAS §19, wp-120) ----
+
+  async upsertTelemetrySource(row: TelemetrySourceRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO telemetry_sources (id, workspace, kind, config,
+         redaction_policy, enabled, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       ON CONFLICT (id) DO UPDATE SET
+         workspace=$2, kind=$3, config=$4, redaction_policy=$5,
+         enabled=$6, updated_at=$8`,
+      [
+        row.id,
+        row.workspace,
+        row.kind,
+        j(row.config ?? {}),
+        row.redaction_policy ?? null,
+        row.enabled ?? 1,
+        row.created_at,
+        row.updated_at,
+      ],
+    );
+  }
+
+  async getTelemetrySource(key: {
+    workspace: string;
+    id: string;
+  }): Promise<TelemetrySourceRow | null> {
+    const rows = await this.db.query(
+      'SELECT * FROM telemetry_sources WHERE workspace=$1 AND id=$2',
+      [key.workspace, key.id],
+    );
+    return rows[0] ? rowToTelemetrySource(rows[0]) : null;
+  }
+
+  async listTelemetrySources(
+    filter: { workspace?: string; enabled?: boolean } = {},
+  ): Promise<TelemetrySourceRow[]> {
+    const { where, args } = pgWhere({ workspace: filter.workspace });
+    const suffix =
+      filter.enabled === undefined
+        ? ''
+        : `${where ? ' AND' : ' WHERE'} enabled = ${filter.enabled ? 1 : 0}`;
+    const rows = await this.db.query(
+      `SELECT * FROM telemetry_sources ${where}${suffix}
+       ORDER BY id`,
+      args,
+    );
+    return rows.map(rowToTelemetrySource);
+  }
+
+  async upsertErrorSignature(
+    row: ErrorSignatureRow,
+    countDelta: number,
+  ): Promise<{ state: 'created' | 'updated'; row: ErrorSignatureRow }> {
+    // One row per (workspace, source, fingerprint_version, fingerprint)
+    // — a repeat event increments count + moves last_seen; raw events
+    // are never stored (INTELLIGENCE §6.1, wp-120 AC).
+    const rows = await this.db.query(
+      `INSERT INTO error_signatures (id, workspace, source_id,
+         fingerprint_version, fingerprint, normalized_pattern,
+         representative, attributes, first_seen, last_seen, count,
+         raw_locator)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+       ON CONFLICT (workspace, source_id, fingerprint_version, fingerprint)
+       DO UPDATE SET
+         representative=$7, attributes=$8,
+         last_seen=GREATEST(error_signatures.last_seen, $10),
+         first_seen=LEAST(error_signatures.first_seen, $9),
+         count=error_signatures.count + $13,
+         raw_locator=COALESCE($12, error_signatures.raw_locator)
+       RETURNING count`,
+      [
+        row.id,
+        row.workspace,
+        row.source_id,
+        row.fingerprint_version,
+        row.fingerprint,
+        row.normalized_pattern,
+        row.representative ?? null,
+        j(row.attributes ?? {}),
+        row.first_seen,
+        row.last_seen,
+        countDelta,
+        row.raw_locator ?? null,
+        countDelta,
+      ],
+    );
+    const state =
+      rows.length > 0 && Number(rows[0]?.count) === countDelta
+        ? ('created' as const)
+        : ('updated' as const);
+    const saved = await this.db.query(
+      `SELECT * FROM error_signatures
+       WHERE workspace=$1 AND source_id=$2
+         AND fingerprint_version=$3 AND fingerprint=$4`,
+      [row.workspace, row.source_id, row.fingerprint_version, row.fingerprint],
+    );
+    if (!saved[0]) {
+      throw new Error(
+        `error signature upsert collided but no row found (${row.fingerprint})`,
+      );
+    }
+    return { state, row: rowToErrorSignature(saved[0]) };
+  }
+
+  async getErrorSignature(key: {
+    workspace: string;
+    id: string;
+  }): Promise<ErrorSignatureRow | null> {
+    const rows = await this.db.query(
+      'SELECT * FROM error_signatures WHERE workspace=$1 AND id=$2',
+      [key.workspace, key.id],
+    );
+    return rows[0] ? rowToErrorSignature(rows[0]) : null;
+  }
+
+  async listErrorSignatures(
+    filter: { workspace?: string; source_id?: string } = {},
+  ): Promise<ErrorSignatureRow[]> {
+    const { where, args } = pgWhere({
+      workspace: filter.workspace,
+      source_id: filter.source_id,
+    });
+    const rows = await this.db.query(
+      `SELECT * FROM error_signatures ${where} ORDER BY last_seen DESC`,
+      args,
+    );
+    return rows.map(rowToErrorSignature);
+  }
+
+  async pruneErrorSignatures(key: {
+    workspace: string;
+    before: string;
+  }): Promise<number> {
+    const rows = await this.db.query(
+      `DELETE FROM error_signatures
+       WHERE workspace=$1 AND last_seen < $2 RETURNING id`,
+      [key.workspace, key.before],
+    );
+    return rows.length;
+  }
+
+  async insertIncident(row: IncidentRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO incidents (id, workspace, signature_id, status,
+         summary, investigation_ref, root_cause, resolution,
+         resolution_verified, deployment_refs, ticket_refs, pr_refs,
+         opened_at, resolved_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+       ON CONFLICT (id) DO NOTHING`,
+      [
+        row.id,
+        row.workspace,
+        row.signature_id,
+        row.status,
+        row.summary ?? null,
+        row.investigation_ref ?? null,
+        row.root_cause ?? null,
+        row.resolution ?? null,
+        row.resolution_verified ?? 0,
+        j(row.deployment_refs ?? []),
+        j(row.ticket_refs ?? []),
+        j(row.pr_refs ?? []),
+        row.opened_at,
+        row.resolved_at ?? null,
+      ],
+    );
+  }
+
+  async getIncident(key: {
+    workspace: string;
+    id: string;
+  }): Promise<IncidentRow | null> {
+    const rows = await this.db.query(
+      'SELECT * FROM incidents WHERE workspace=$1 AND id=$2',
+      [key.workspace, key.id],
+    );
+    return rows[0] ? rowToIncident(rows[0]) : null;
+  }
+
+  async listIncidents(
+    filter: {
+      workspace?: string;
+      status?: string;
+      signature_id?: string;
+    } = {},
+  ): Promise<IncidentRow[]> {
+    const { where, args } = pgWhere({
+      workspace: filter.workspace,
+      status: filter.status,
+      signature_id: filter.signature_id,
+    });
+    const rows = await this.db.query(
+      `SELECT * FROM incidents ${where} ORDER BY opened_at DESC`,
+      args,
+    );
+    return rows.map(rowToIncident);
+  }
+
+  async updateIncident(
+    key: { workspace: string; id: string },
+    patch: Partial<
+      Pick<
+        IncidentRow,
+        | 'summary'
+        | 'investigation_ref'
+        | 'root_cause'
+        | 'resolution'
+        | 'deployment_refs'
+        | 'ticket_refs'
+        | 'pr_refs'
+      >
+    >,
+  ): Promise<void> {
+    const sets: string[] = [];
+    const args: unknown[] = [];
+    const push = (col: string, v: unknown) => {
+      args.push(v);
+      sets.push(`${col}=$${args.length}`);
+    };
+    if (patch.summary !== undefined) push('summary', patch.summary);
+    if (patch.investigation_ref !== undefined)
+      push('investigation_ref', patch.investigation_ref);
+    if (patch.root_cause !== undefined) push('root_cause', patch.root_cause);
+    if (patch.resolution !== undefined) push('resolution', patch.resolution);
+    if (patch.deployment_refs !== undefined)
+      push('deployment_refs', j(patch.deployment_refs));
+    if (patch.ticket_refs !== undefined)
+      push('ticket_refs', j(patch.ticket_refs));
+    if (patch.pr_refs !== undefined) push('pr_refs', j(patch.pr_refs));
+    if (sets.length === 0) return;
+    args.push(key.workspace, key.id);
+    await this.db.query(
+      `UPDATE incidents SET ${sets.join(', ')}
+       WHERE workspace=$${args.length - 1} AND id=$${args.length}`,
+      args,
+    );
+  }
+
+  async decideIncident(
+    key: { workspace: string; id: string },
+    expected: IncidentRow['status'],
+    next: IncidentRow['status'],
+    at: string,
+  ) {
+    // OCC contract parity with decideAlignmentFinding: expected rides
+    // the WHERE clause; resolved stamps resolution_verified/resolved_at,
+    // reopen clears them — all inside ONE statement so a stale write
+    // loses atomically, never partially.
+    // `resolved` stamps resolution_verified/resolved_at (`at` = $4,
+    // expected shifts to $5); open/investigating clear them; `closed`
+    // preserves them — three explicit statements so every bound param
+    // is used (pglite can't infer an unused param's type).
+    const rows =
+      next === 'resolved'
+        ? await this.db.query(
+            `UPDATE incidents SET status=$3::text,
+               resolution_verified=1, resolved_at=$4::text
+             WHERE workspace=$1 AND id=$2
+               AND status IS NOT DISTINCT FROM $5::text
+             RETURNING status`,
+            [key.workspace, key.id, next, at, expected ?? null],
+          )
+        : next === 'closed'
+          ? await this.db.query(
+              `UPDATE incidents SET status=$3::text
+               WHERE workspace=$1 AND id=$2
+                 AND status IS NOT DISTINCT FROM $4::text
+               RETURNING status`,
+              [key.workspace, key.id, next, expected ?? null],
+            )
+          : await this.db.query(
+              `UPDATE incidents SET status=$3::text,
+                 resolution_verified=0, resolved_at=NULL
+               WHERE workspace=$1 AND id=$2
+                 AND status IS NOT DISTINCT FROM $4::text
+               RETURNING status`,
+              [key.workspace, key.id, next, expected ?? null],
+            );
+    if (rows.length > 0) {
+      return { state: 'updated' as const, prior: expected };
+    }
+    const cur = await this.db.query(
+      'SELECT status FROM incidents WHERE workspace=$1 AND id=$2',
+      [key.workspace, key.id],
+    );
+    if (cur.length === 0) return { state: 'missing' as const };
+    const current = (cur[0]?.status as IncidentRow['status']) ?? undefined;
+    if (current === next) return { state: 'noop' as const };
+    return { state: 'conflict' as const, current };
+  }
+
+  async appendIncidentDecision(row: IncidentDecisionRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO incident_decisions
+         (workspace, incident_id, seq, status, actor, rationale, at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [
+        row.workspace,
+        row.incident_id,
+        row.seq,
+        row.status,
+        row.actor,
+        row.rationale ?? null,
+        row.at,
+      ],
+    );
+  }
+
+  async listIncidentDecisions(filter: {
+    workspace: string;
+    incident_id: string;
+  }): Promise<IncidentDecisionRow[]> {
+    const rows = await this.db.query(
+      `SELECT * FROM incident_decisions
+       WHERE workspace=$1 AND incident_id=$2 ORDER BY seq`,
+      [filter.workspace, filter.incident_id],
+    );
+    return rows.map((r) => ({
+      workspace: r.workspace as string,
+      incident_id: r.incident_id as string,
+      seq: Number(r.seq),
+      status: r.status as IncidentDecisionRow['status'],
+      actor: r.actor as string,
+      rationale: (r.rationale as string | null) ?? null,
+      at: r.at as string,
+    }));
+  }
+
+  async pruneIncidents(key: {
+    workspace: string;
+    before: string;
+  }): Promise<number> {
+    const rows = await this.db.query(
+      `DELETE FROM incidents
+       WHERE workspace=$1 AND opened_at < $2 RETURNING id`,
+      [key.workspace, key.before],
+    );
+    return rows.length;
+  }
+
+  async insertIncidentTicketProposal(
+    row: IncidentTicketProposalRow,
+  ): Promise<void> {
+    await this.db.query(
+      `INSERT INTO incident_ticket_proposals
+         (workspace, id, incident_id, title, body, draft, status,
+          board_item_id, decided_by, decided_at, created_by,
+          created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+       ON CONFLICT (workspace, id) DO NOTHING`,
+      [
+        row.workspace,
+        row.id,
+        row.incident_id,
+        row.title,
+        row.body ?? null,
+        j(row.draft ?? {}),
+        row.status,
+        row.board_item_id ?? null,
+        row.decided_by ?? null,
+        row.decided_at ?? null,
+        row.created_by,
+        row.created_at,
+        row.updated_at,
+      ],
+    );
+  }
+
+  async getIncidentTicketProposal(key: {
+    workspace: string;
+    id: string;
+  }): Promise<IncidentTicketProposalRow | null> {
+    const rows = await this.db.query(
+      `SELECT * FROM incident_ticket_proposals
+       WHERE workspace=$1 AND id=$2`,
+      [key.workspace, key.id],
+    );
+    return rows[0] ? rowToIncidentTicketProposal(rows[0]) : null;
+  }
+
+  async listIncidentTicketProposals(
+    filter: {
+      workspace?: string;
+      incident_id?: string;
+      status?: string;
+    } = {},
+  ): Promise<IncidentTicketProposalRow[]> {
+    const { where, args } = pgWhere({
+      workspace: filter.workspace,
+      incident_id: filter.incident_id,
+      status: filter.status,
+    });
+    const rows = await this.db.query(
+      `SELECT * FROM incident_ticket_proposals ${where} ORDER BY created_at`,
+      args,
+    );
+    return rows.map(rowToIncidentTicketProposal);
+  }
+
+  async decideIncidentTicketProposal(
+    key: { workspace: string; id: string },
+    expected: IncidentTicketProposalRow['status'],
+    next: IncidentTicketProposalRow['status'],
+    at: string,
+    decidedBy: string,
+    boardItemId?: string | null,
+  ) {
+    const rows = await this.db.query(
+      `UPDATE incident_ticket_proposals
+       SET status=$3, decided_by=$6, decided_at=$4,
+           board_item_id=COALESCE($7, board_item_id), updated_at=$4
+       WHERE workspace=$1 AND id=$2
+         AND status IS NOT DISTINCT FROM $5
+       RETURNING status`,
+      [
+        key.workspace,
+        key.id,
+        next,
+        at,
+        expected ?? null,
+        decidedBy,
+        boardItemId ?? null,
+      ],
+    );
+    if (rows.length > 0) {
+      return { state: 'updated' as const, prior: expected };
+    }
+    const cur = await this.db.query(
+      `SELECT status FROM incident_ticket_proposals
+       WHERE workspace=$1 AND id=$2`,
+      [key.workspace, key.id],
+    );
+    if (cur.length === 0) return { state: 'missing' as const };
+    const current =
+      (cur[0]?.status as IncidentTicketProposalRow['status']) ?? undefined;
+    if (current === next) return { state: 'noop' as const };
+    return { state: 'conflict' as const, current };
+  }
 }
 
 // ---------- shared row helpers ----------
@@ -4729,6 +5183,7 @@ function rowToProject(row: Row): ProjectRow {
     next_release_seq: (row.next_release_seq as number) ?? 1,
     next_changeset_seq: (row.next_changeset_seq as number) ?? 1,
     next_test_env_seq: (row.next_test_env_seq as number) ?? 1,
+    next_incident_seq: (row.next_incident_seq as number) ?? 1,
     settings: unj(row.settings, {}),
     created_at: (row.created_at as string | null) ?? null,
   };
@@ -5572,6 +6027,73 @@ function rowToAlignmentFinding(row: Row): AlignmentFindingRow {
     freshness: row.freshness as AlignmentFindingRow['freshness'],
     suggested_next_check: row.suggested_next_check as string,
     status: row.status as AlignmentFindingRow['status'],
+    created_at: row.created_at as string,
+    updated_at: row.updated_at as string,
+  };
+}
+
+function rowToTelemetrySource(row: Row): TelemetrySourceRow {
+  return {
+    id: row.id as string,
+    workspace: row.workspace as string,
+    kind: row.kind as string,
+    config: unj<TelemetrySourceRow['config']>(row.config, {}),
+    redaction_policy: (row.redaction_policy as string | null) ?? null,
+    enabled: Number(row.enabled ?? 1),
+    created_at: row.created_at as string,
+    updated_at: row.updated_at as string,
+  };
+}
+
+function rowToErrorSignature(row: Row): ErrorSignatureRow {
+  return {
+    id: row.id as string,
+    workspace: row.workspace as string,
+    source_id: row.source_id as string,
+    fingerprint_version: row.fingerprint_version as string,
+    fingerprint: row.fingerprint as string,
+    normalized_pattern: row.normalized_pattern as string,
+    representative: (row.representative as string | null) ?? null,
+    attributes: unj<ErrorSignatureRow['attributes']>(row.attributes, {}),
+    first_seen: row.first_seen as string,
+    last_seen: row.last_seen as string,
+    count: Number(row.count ?? 0),
+    raw_locator: (row.raw_locator as string | null) ?? null,
+  };
+}
+
+function rowToIncident(row: Row): IncidentRow {
+  return {
+    id: row.id as string,
+    workspace: row.workspace as string,
+    signature_id: row.signature_id as string,
+    status: row.status as IncidentRow['status'],
+    summary: (row.summary as string | null) ?? null,
+    investigation_ref: (row.investigation_ref as string | null) ?? null,
+    root_cause: (row.root_cause as string | null) ?? null,
+    resolution: (row.resolution as string | null) ?? null,
+    resolution_verified: Number(row.resolution_verified ?? 0),
+    deployment_refs: unj<string[]>(row.deployment_refs, []),
+    ticket_refs: unj<string[]>(row.ticket_refs, []),
+    pr_refs: unj<string[]>(row.pr_refs, []),
+    opened_at: row.opened_at as string,
+    resolved_at: (row.resolved_at as string | null) ?? null,
+  };
+}
+
+function rowToIncidentTicketProposal(row: Row): IncidentTicketProposalRow {
+  return {
+    workspace: row.workspace as string,
+    id: row.id as string,
+    incident_id: row.incident_id as string,
+    title: row.title as string,
+    body: (row.body as string | null) ?? null,
+    draft: unj<IncidentTicketProposalRow['draft']>(row.draft, {}),
+    status: row.status as IncidentTicketProposalRow['status'],
+    board_item_id: (row.board_item_id as string | null) ?? null,
+    decided_by: (row.decided_by as string | null) ?? null,
+    decided_at: (row.decided_at as string | null) ?? null,
+    created_by: row.created_by as string,
     created_at: row.created_at as string,
     updated_at: row.updated_at as string,
   };

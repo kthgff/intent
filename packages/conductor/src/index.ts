@@ -1,4 +1,5 @@
 export * from './align/index.js';
+export * from './telemetry/index.js';
 export * from './changes/index.js';
 export * from './contracts.js';
 export * from './events/index.js';

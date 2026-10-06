@@ -43,6 +43,7 @@ projects(
   next_initiative_seq INT DEFAULT 1,       -- I-NNNN
   next_release_seq INT DEFAULT 1,          -- REL-NNNN (DELIVERY §3)
   next_changeset_seq INT DEFAULT 1,        -- CS-NNNN (PRD §15.5, wp-140)
+  next_incident_seq INT DEFAULT 1,         -- INC-NNNN (D37 Phase C, wp-120)
   settings TEXT,                           -- jsonb — per-project config
                                            -- overrides (SETTINGS
                                            -- precedence layer)
@@ -344,13 +345,29 @@ error_signatures(
   raw_locator TEXT,                            -- backend query/ref, not raw log
   UNIQUE(workspace, source_id, fingerprint_version, fingerprint));
 incidents(
-  id TEXT PRIMARY KEY, workspace TEXT,
-  signature_id TEXT, status TEXT,
-  summary TEXT, investigation_ref TEXT,
+  id TEXT PRIMARY KEY, workspace TEXT,     -- INC-NNNN (next_incident_seq)
+  signature_id TEXT, status TEXT,          -- open|investigating|resolved|closed
+                                           --   — OCC decide only
+  summary TEXT, investigation_ref TEXT,    -- doc:<id>:incident-investigation.json:vN
   root_cause TEXT, resolution TEXT,
   resolution_verified INT DEFAULT 0,
   deployment_refs TEXT, ticket_refs TEXT, pr_refs TEXT,
   opened_at TEXT, resolved_at TEXT);
+incident_decisions(                        -- append-only human-decision
+  workspace TEXT, incident_id TEXT, seq INT, -- audit (alignment_finding_
+  status TEXT, actor TEXT, rationale TEXT, --   decisions parity);
+  at TEXT,                                 -- trigger-enforced (0008)
+  PRIMARY KEY(workspace, incident_id, seq));
+incident_ticket_proposals(                 -- the draft-ticket gate:
+  workspace TEXT, id TEXT,                 -- prop_…; born `draft`
+  incident_id TEXT, title TEXT, body TEXT,
+  draft TEXT,                              -- json advisory ticket fields
+  status TEXT,                             -- draft|approved|rejected —
+                                           --   human OCC decide only
+  board_item_id TEXT,                      -- tray item created on approve
+  decided_by TEXT, decided_at TEXT,
+  created_by TEXT, created_at TEXT, updated_at TEXT,
+  PRIMARY KEY(workspace, id));
 
 -- --- delivery / releases (DELIVERY §3, wp-131/133-135) ---
 releases(workspace, org, release_id,      -- REL-NNNN (next_release_seq)
@@ -640,6 +657,15 @@ eval_results(                             -- append-only; re-run = new eval_run
   metrics, and counts stay in the configured observability backend. Veto stores
   sanitized/deduplicated signatures, backend locators, investigations, and
   verified resolutions. `config` stores secret names/refs only, never values.
+- **Incident lifecycle is human-decided** (wp-120): `incidents.status`
+  moves only through `decideIncident` (OCC `expected` + append-only
+  `incident_decisions` + `incident_decided` event); `resolved` stamps
+  `resolution_verified`/`resolved_at` and requires caller-supplied
+  deployment/ticket/pr evidence — never an AI assertion. Draft-ticket
+  proposals stay `draft` until a human `approve` creates ONE
+  capture-tray board item (`incident_ticket_proposals.board_item_id`).
+- **Incidents allocate INC-NNNN** via `projects.next_incident_seq`
+  (added by migration 0008 — same transactional seq-bump rule).
 - **Notifications**: generated on `gate_items` insert and on
   `run_failed`/`run_killed`/`blocked` events. Snoozed gate items
   (`snoozed_until > now`) stay open but are excluded from badge counts
@@ -657,5 +683,5 @@ eval_results(                             -- append-only; re-run = new eval_run
   manifests/approvals/gate-results, statement_versions, wizard
   versions, interview transcript/snapshots, review
   revisions/decisions/resolutions, delivery_commitments versions,
-  eval_results — UPDATE/DELETE raises at the DB layer, not just by
-  interface discipline.
+  eval_results, incident_decisions — UPDATE/DELETE raises at the DB
+  layer, not just by interface discipline.

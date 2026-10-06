@@ -81,6 +81,10 @@ export interface StreamEvent {
     /** Feedback-cluster proposals emitted (wp-112 — proposals only,
      *  never auto-created work). */
     | 'feedback_clustered'
+    /** Telemetry/incident intelligence (wp-120 — mirrors
+     *  `telemetry_ingested`/`incident_*`/`draft_ticket_*` event rows;
+     *  signature/incident writes are durable before this fires). */
+    | 'incident_status'
     /** DELIVERY §5 durable event names mirrored onto the stream
      *  (wp-136 — merge center + release center lifecycle). */
     | 'merge_ready'
