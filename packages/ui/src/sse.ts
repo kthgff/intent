@@ -25,6 +25,9 @@ export type StreamEventMap = {
   notification: Notification;
   /** A `tickets` row changed — refresh hint for board/focus (s-01). */
   ticket_updated: { workspace: string; ticket_id: string; status?: string };
+  /** Interview Orchestrator session state changed (wp-147) — the
+   *  Understanding Panel / wizard surface refresh hint. */
+  interview_updated: { workspace: string; session_id: string | null };
 };
 
 export type StreamEventType = keyof StreamEventMap;
@@ -38,6 +41,7 @@ const TYPES: StreamEventType[] = [
   'usage_partial',
   'notification',
   'ticket_updated',
+  'interview_updated',
 ];
 
 export interface StreamHandlers {

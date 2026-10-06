@@ -2,7 +2,7 @@
 schema: 1
 id: wp-147
 title: Discovery UI — board canvas v2, Understanding Panel, wizard surface
-status: todo
+status: done
 priority: high
 depth: deep
 repos: []
@@ -28,10 +28,10 @@ extraction (voice capture deferred).
 `packages/ui/src/**`, `docs/UI-INVENTORY.md`, `docs/design/mockups/`
 
 ## Acceptance criteria
-- [ ] All three input modes feed the same session state
-- [ ] Understanding Panel updates live via SSE during interview
-- [ ] Correction edits write statement versions, not silent overwrites
-- [ ] Screens inventoried (UI-INVENTORY S-2x)
+- [x] All three input modes feed the same session state
+- [x] Understanding Panel updates live via SSE during interview
+- [x] Correction edits write statement versions, not silent overwrites
+- [x] Screens inventoried (UI-INVENTORY S-2x)
 
 ## Contract change
 None.

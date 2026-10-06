@@ -70,6 +70,10 @@ export interface StreamEvent {
     /** Traceability-link verify/reject landed (wp-111 — mirrors the
      *  link_verified/link_rejected events row; payload is the edge). */
     | 'link_decided'
+    /** Interview Orchestrator session state changed (wp-147 — answer /
+     *  slot / mode / statement writes; payload {workspace, session_id}).
+     *  The Understanding Panel + wizard surface refresh on it. */
+    | 'interview_updated'
     /** DELIVERY §5 durable event names mirrored onto the stream
      *  (wp-136 — merge center + release center lifecycle). */
     | 'merge_ready'

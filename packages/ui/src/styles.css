@@ -699,3 +699,237 @@ th {
   margin-bottom: 8px;
   font-size: 12.5px;
 }
+
+/* ---- S-16 idea canvas (wp-147): paper zone, sticky colors ------- */
+.canvas {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  overflow-x: auto;
+  padding: 12px;
+  border-radius: 10px;
+  background: #1c1917; /* warm zinc-925 — the "paper" zone */
+}
+.canvas-lane {
+  min-width: 220px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.canvas-lane-head {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.sticky {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+  border: none;
+  border-radius: 6px;
+  padding: 10px;
+  min-height: 56px;
+  font: inherit;
+  color: #1c1917;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+}
+.sticky.dim {
+  opacity: 0.45;
+}
+.sticky.selected {
+  outline: 2px solid var(--accent);
+}
+.sticky .muted {
+  color: rgba(28, 25, 23, 0.6);
+}
+.sticky-chip {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.sticky-text {
+  font-size: 13px;
+}
+.note-yellow {
+  background: #fde68a;
+}
+.note-pink {
+  background: #fbcfe8;
+}
+.note-blue {
+  background: #bfdbfe;
+}
+.note-green {
+  background: #bbf7d0;
+}
+.note-orange {
+  background: #fed7aa;
+}
+.note-purple {
+  background: #ddd6fe;
+}
+.note-red {
+  background: #fecaca;
+}
+.sticky .badge,
+.sticky-chip.note-yellow {
+  background: #fde68a;
+}
+.sticky-chip.note-pink {
+  background: #fbcfe8;
+}
+.sticky-chip.note-blue {
+  background: #bfdbfe;
+}
+.sticky-chip.note-green {
+  background: #bbf7d0;
+}
+.sticky-chip.note-orange {
+  background: #fed7aa;
+}
+.sticky-chip.note-purple {
+  background: #ddd6fe;
+}
+.sticky-chip.note-red {
+  background: #fecaca;
+}
+.sticky-chip {
+  border-radius: 4px;
+  padding: 1px 5px;
+  color: #1c1917;
+}
+
+/* tray dock — collapsible bottom strip on the canvas (D27) */
+.tray-dock {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 8px;
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-raised);
+}
+
+/* item/tray inspector + understanding panel */
+.inspector {
+  margin-top: 10px;
+}
+.statement-row {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+.provenance summary {
+  cursor: pointer;
+  font-size: 12px;
+}
+
+/* S-20 tray layout */
+.tray-layout {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 12px;
+}
+.tray-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.tray-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-raised);
+  font: inherit;
+  color: var(--text);
+  cursor: pointer;
+  margin-bottom: 4px;
+}
+.tray-row.selected {
+  border-color: var(--accent);
+}
+
+/* discovery session — wizard surface + understanding panel */
+.discovery-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 14px;
+  margin-top: 10px;
+}
+.understanding {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--bg-raised);
+  max-height: 80vh;
+  overflow-y: auto;
+}
+.slot-chips {
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 8px 0;
+}
+.badge.slot-known {
+  border-color: var(--green);
+}
+.badge.slot-inferred {
+  border-color: var(--accent, #818cf8);
+}
+.badge.slot-missing {
+  border-color: var(--text-dim);
+}
+.badge.slot-conflicted {
+  border-color: var(--red, #f87171);
+}
+.badge.slot-deferred,
+.badge.slot-not-applicable {
+  border-color: var(--border);
+}
+.transcript {
+  max-height: 260px;
+  overflow-y: auto;
+}
+.msg-assistant {
+  color: var(--text);
+}
+.msg-system {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+/* S-19 capture */
+.capture-form textarea {
+  width: 100%;
+}
+.save-banner {
+  display: block;
+  margin-top: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--green);
+  border-radius: 6px;
+}
+.mode-toggle {
+  display: flex;
+  gap: 4px;
+}
+.board-card-link {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+}

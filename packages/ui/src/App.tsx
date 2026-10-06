@@ -4,14 +4,18 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, NavLink, Route, Routes, useLocation } from 'react-router-dom';
-import { client } from './api';
+import { type IdeaBoardRow, client } from './api';
 import DemoApp, { isDemoMode } from './demo/DemoApp';
+import Boards from './screens/Boards';
+import Capture, { CaptureForm } from './screens/Capture';
 import CodeReview from './screens/CodeReview';
 import CreateImport from './screens/CreateImport';
+import DiscoverySession from './screens/DiscoverySession';
 import DocReview from './screens/DocReview';
 import Escalations from './screens/Escalations';
 import FeatureWorkspace from './screens/FeatureWorkspace';
 import Home from './screens/Home';
+import IdeaBoard from './screens/IdeaBoard';
 import Inbox from './screens/Inbox';
 import KnowledgeBase from './screens/KnowledgeBase';
 import Ledger from './screens/Ledger';
@@ -20,6 +24,7 @@ import PrPanel from './screens/PrPanel';
 import RunMonitor, { RunsList } from './screens/RunMonitor';
 import Settings from './screens/Settings';
 import TicketFocus from './screens/TicketFocus';
+import Tray from './screens/Tray';
 import Wizard from './screens/Wizard';
 import Workspaces from './screens/Workspaces';
 import type { StreamEventMap } from './sse';
@@ -33,8 +38,53 @@ interface Toast {
 function ProductionApp() {
   const [openCount, setOpenCount] = useState<number | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [captureOpen, setCaptureOpen] = useState(false);
+  const [captureData, setCaptureData] = useState<{
+    workspaces: string[];
+    boards: IdeaBoardRow[];
+    noteKinds: string[];
+  } | null>(null);
   const toastSeq = useRef(0);
   const location = useLocation();
+
+  // ⌘⇧C — the compact Quick Capture modal (S-19; same component as
+  // /capture, loaded lazily so it never carries the canvas runtime).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        e.shiftKey &&
+        e.key.toLowerCase() === 'c'
+      ) {
+        e.preventDefault();
+        setCaptureOpen((o) => !o);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  useEffect(() => {
+    if (!captureOpen || captureData) return;
+    client
+      .workspaces()
+      .then(async (r) => {
+        const names = r.workspaces.map((w) => w.name);
+        const t = await client.boardTaxonomy();
+        let boards: IdeaBoardRow[] = [];
+        if (names[0]) {
+          boards = (await client.ideaBoards(names[0])).boards;
+        }
+        setCaptureData({
+          workspaces: names,
+          boards,
+          noteKinds: t.note_kinds,
+        });
+      })
+      .catch(() =>
+        setCaptureData({ workspaces: [], boards: [], noteKinds: [] }),
+      );
+  }, [captureOpen, captureData]);
 
   const refreshBadge = useCallback(() => {
     client
@@ -83,6 +133,9 @@ function ProductionApp() {
             </span>
           )}
         </NavLink>
+        <NavLink to="/boards">Boards</NavLink>
+        <NavLink to="/capture">Capture</NavLink>
+        <NavLink to="/tray">Tray</NavLink>
         <NavLink to="/new">Create / Import</NavLink>
         <NavLink to="/runs">Runs</NavLink>
         <NavLink to="/queue">Failures</NavLink>
@@ -97,6 +150,14 @@ function ProductionApp() {
           <Route path="/" element={<Home />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/new" element={<CreateImport />} />
+          <Route path="/boards" element={<Boards />} />
+          <Route path="/boards/:ws/:board" element={<IdeaBoard />} />
+          <Route path="/capture" element={<Capture />} />
+          <Route path="/tray" element={<Tray />} />
+          <Route
+            path="/discovery/:ws/:session"
+            element={<DiscoverySession />}
+          />
           <Route path="/features/:ws/:id" element={<FeatureWorkspace />} />
           <Route path="/tickets/:ws/:id" element={<TicketFocus />} />
           <Route path="/tickets/:ws/:id/wizard" element={<Wizard />} />
@@ -114,6 +175,35 @@ function ProductionApp() {
           <Route path="*" element={<Home />} />
         </Routes>
       </main>
+      {captureOpen && (
+        <div
+          className="modal-back"
+          role="presentation"
+          onClick={() => setCaptureOpen(false)}
+          onKeyDown={(e) => e.key === 'Escape' && setCaptureOpen(false)}
+        >
+          <dialog
+            open
+            className="modal"
+            aria-label="quick capture"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
+            <strong>Quick capture</strong>
+            {captureData ? (
+              <CaptureForm
+                compact
+                workspaces={captureData.workspaces}
+                boards={captureData.boards}
+                noteKinds={captureData.noteKinds}
+                onSaved={() => pushToast('captured → tray')}
+              />
+            ) : (
+              <p className="muted">Loading…</p>
+            )}
+          </dialog>
+        </div>
+      )}
       <div className="toasts" aria-live="polite">
         {toasts.map((t) => (
           <div key={t.id} className="toast">

@@ -341,6 +341,17 @@ call that key `workspace` until the internal migration.
 - **Snooze** (2026-10-03, design docs): S-01 items can be snoozed
   (defer without clearing) — needs `gate_items.snoozed_until` column
   + `/inbox` field; snoozed items are excluded from badge counts.
+- **Discovery UI** (wp-147): S-15 `/boards`, S-16 `/boards/:ws/:board`
+  (idea canvas — zone/type/status lane grouping, typed-sticky taxonomy
+  chips + colors, per-item statement surface via `boardSurface`, OCC
+  item mutations, tray dock, delivery mode = the shared S-01 kanban
+  scoped to the workspace), S-19 `/capture` + the ⌘⇧C modal (shared
+  `CaptureForm`), S-20 `/tray`, and the §15.9 wizard surface
+  `/discovery/:ws/:session` — three input modes switchable mid-session,
+  question card with planner-provenance ("why this question"), slot
+  chips (never a %), resume briefing modal, live Understanding Panel
+  (`interview_updated` SSE). Still design-level: tldraw pan/zoom
+  canvas, voice capture, connectors/comments, synthesis cost preview.
 - **Theming** (2026-10-04, D34): light + dark modes ship together —
   11 semantic tokens (`--bg`/`--bg-raised`/`--bg-hover`/`--border`/
   `--text`/`--text-dim`/`--accent`/`--green`/`--yellow`/`--red`/

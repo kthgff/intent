@@ -14,10 +14,21 @@ import type {
   EventRow,
   FeatureRow,
   GateItem,
+  InterviewBranchRow,
+  InterviewMessageRow,
+  InterviewSessionRow,
+  KnowledgeSlotRow,
+  QuestionCandidateRow,
   Relation,
   RelationVerification,
   RsQuality,
   RunRow,
+  StatementArtifactLinkRow,
+  StatementClarificationRow,
+  StatementDecisionRow,
+  StatementRelationRow,
+  StatementRow,
+  StatementVersionRow,
   TicketRepoRow,
   TicketRow,
   Triage,
@@ -456,6 +467,154 @@ export interface RsQualityResponse {
   quality: RsQuality;
 }
 
+// ---- Discovery surface (PRD §15.3/§15.9, wp-147) ----
+
+/** Idea-board list row (GET /boards) — the type's capabilities ride
+ *  the row so the UI never re-derives them. */
+export interface IdeaBoardRow {
+  workspace: string;
+  org?: string | null;
+  board: string;
+  name?: string | null;
+  board_type?: string | null;
+  status?: string | null;
+  created_at?: string | null;
+  type_config?: {
+    inputs: string[];
+    capabilities: string[];
+    outputs: string[];
+    approval: string;
+  } | null;
+}
+
+export interface BoardTaxonomy {
+  board_types: string[];
+  note_kinds: string[];
+  note_importances: string[];
+  note_statuses: string[];
+  type_config: Record<
+    string,
+    {
+      inputs: string[];
+      capabilities: string[];
+      outputs: string[];
+      approval: string;
+    }
+  >;
+}
+
+export interface IdeaBoardDetail {
+  board: IdeaBoardRow;
+  type_config: IdeaBoardRow['type_config'];
+  items: { item: BoardItem; statements: StatementRow[] }[];
+}
+
+/** Versioned wizard catalog entry (GET /interview-wizards). */
+export interface InterviewWizard {
+  wizard_id: string;
+  name: string | null;
+  description: string | null;
+  version: number;
+  current_version: number | null;
+  slots: {
+    slot: string;
+    label: string | null;
+    required: boolean;
+    scope: string | null;
+    question: string | null;
+  }[];
+  thresholds: { draft: string[]; approval: string[] };
+}
+
+export interface ReadinessBlocker {
+  slot: string;
+  state: string;
+  reason: string;
+}
+
+/** Explainable readiness report (§15.9) — indicators, never a score. */
+export interface ReadinessReport {
+  draft_ready: boolean;
+  approval_ready: boolean;
+  required_total: number;
+  states: Record<string, number>;
+  draft_blockers: ReadinessBlocker[];
+  approval_blockers: ReadinessBlocker[];
+  open_decisions: string[];
+  summary: string;
+}
+
+export interface InterviewSessionDetail {
+  session: InterviewSessionRow;
+  slots: KnowledgeSlotRow[];
+  questions: QuestionCandidateRow[];
+  pending_question: QuestionCandidateRow | null;
+  transcript: InterviewMessageRow[];
+  readiness: ReadinessReport;
+  branches: InterviewBranchRow[];
+}
+
+/** A statement decorated with its open decision item, when any. */
+export type PanelStatement = StatementRow & {
+  open_decision?: StatementDecisionRow | null;
+  open_decisions?: number;
+};
+
+/** Understanding Panel payload (wp-146 contract): four buckets +
+ *  slots + explainable readiness — never an opaque percentage. */
+export interface Understanding {
+  session: InterviewSessionRow;
+  readiness: ReadinessReport;
+  confirmed: { slots: KnowledgeSlotRow[]; statements: PanelStatement[] };
+  interpretation: {
+    slots: KnowledgeSlotRow[];
+    statements: PanelStatement[];
+  };
+  needs_clarification: {
+    slots: KnowledgeSlotRow[];
+    clarifications: StatementClarificationRow[];
+  };
+  decision_required: {
+    slots: KnowledgeSlotRow[];
+    decisions: (StatementDecisionRow & { statement: StatementRow | null })[];
+    statements: PanelStatement[];
+  };
+}
+
+export interface AnswerResult {
+  message: InterviewMessageRow;
+  statements: StatementRow[];
+  slots: KnowledgeSlotRow[];
+  next: {
+    candidate: QuestionCandidateRow;
+    message: InterviewMessageRow;
+  } | null;
+  readiness: ReadinessReport;
+}
+
+export interface ResumeBriefing {
+  session_id: string;
+  from_version: number | null;
+  to_version: number;
+  changed_slots: { slot: string; from: string | null; to: string }[];
+  new_messages: InterviewMessageRow[];
+  readiness_before: ReadinessReport | null;
+  readiness_after: ReadinessReport;
+  summary: string;
+}
+
+export interface StatementDetail {
+  statement: StatementRow;
+  versions: StatementVersionRow[];
+  relations: {
+    outgoing: StatementRelationRow[];
+    incoming: StatementRelationRow[];
+  };
+  decisions: StatementDecisionRow[];
+  clarifications: StatementClarificationRow[];
+  artifact_links: StatementArtifactLinkRow[];
+}
+
 export interface WorkspaceInfo {
   name: string;
   root_path: string;
@@ -752,4 +911,240 @@ export const client = {
     body?: string;
     serves?: string | string[];
   }) => post<{ item: BoardItem }>('/api/v1/capture', body),
+
+  // ---- Discovery surface (wp-147) ----
+  boardTaxonomy: () => api<BoardTaxonomy>('/api/v1/boards/meta/taxonomy'),
+  ideaBoards: (ws: string) =>
+    api<{ boards: IdeaBoardRow[] }>(`/api/v1/boards${qs({ workspace: ws })}`),
+  createIdeaBoard: (body: {
+    workspace: string;
+    board: string;
+    name?: string;
+    org?: string;
+    board_type?: string;
+    status?: string;
+  }) => post<{ board: IdeaBoardRow }>('/api/v1/boards', body),
+  ideaBoard: (ws: string, board: string) =>
+    api<IdeaBoardDetail>(
+      `/api/v1/boards/${encodeURIComponent(board)}${qs({ workspace: ws })}`,
+    ),
+  addBoardItem: (
+    board: string,
+    body: {
+      workspace: string;
+      kind?: string;
+      note_kind?: string;
+      importance?: string;
+      title?: string;
+      body?: string;
+      topic?: string;
+      zone?: string;
+      serves?: string[];
+      x?: number;
+      y?: number;
+    },
+  ) =>
+    post<{ item: BoardItem }>(
+      `/api/v1/boards/${encodeURIComponent(board)}/items`,
+      body,
+    ),
+  boardItemStatements: (ws: string, id: string) =>
+    api<{ item: BoardItem; statements: StatementRow[] }>(
+      `/api/v1/board-items/${encodeURIComponent(id)}/statements${qs({
+        workspace: ws,
+      })}`,
+    ),
+  patchBoardItem: (
+    id: string,
+    body: {
+      workspace: string;
+      expected_updated_at: string;
+      board?: string | null;
+      kind?: string;
+      note_kind?: string | null;
+      importance?: string | null;
+      topic?: string | null;
+      note_status?: string;
+      title?: string | null;
+      body?: string | null;
+      zone?: string | null;
+      serves?: string[] | null;
+      x?: number | null;
+      y?: number | null;
+      status?: string;
+    },
+  ) =>
+    api<{ item: BoardItem }>(`/api/v1/board-items/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  deleteBoardItem: (ws: string, id: string) =>
+    api<{ deleted: boolean }>(
+      `/api/v1/board-items/${encodeURIComponent(id)}${qs({ workspace: ws })}`,
+      { method: 'DELETE' },
+    ),
+  tray: (ws: string, kind?: string) =>
+    api<{ items: BoardItem[] }>(`/api/v1/tray${qs({ workspace: ws, kind })}`),
+
+  // Interview Orchestrator sessions (§15.9 — distinct from the
+  // chat-to-edit `/interview/<session>` surface).
+  interviewWizards: (ws: string) =>
+    api<{ wizards: InterviewWizard[] }>(
+      `/api/v1/interview-wizards${qs({ workspace: ws })}`,
+    ),
+  interviewSessions: (ws: string, f?: { status?: string; subject?: string }) =>
+    api<{ sessions: InterviewSessionRow[] }>(
+      `/api/v1/interview-sessions${qs({
+        workspace: ws,
+        status: f?.status,
+        subject: f?.subject,
+      })}`,
+    ),
+  startInterviewSession: (body: {
+    workspace: string;
+    wizard_id: string;
+    subject?: string;
+    mode?: string;
+    branch?: string;
+    role?: string;
+  }) =>
+    post<{ session: InterviewSessionRow }>('/api/v1/interview-sessions', body),
+  discoverySession: (ws: string, session: string) =>
+    api<InterviewSessionDetail>(
+      `/api/v1/interview-sessions/${encodeURIComponent(session)}${qs({
+        workspace: ws,
+      })}`,
+    ),
+  answerQuestion: (
+    session: string,
+    body: {
+      workspace: string;
+      answer: string;
+      question_id?: string;
+      slot?: string;
+      slots?: string[];
+    },
+  ) =>
+    post<{ result: AnswerResult }>(
+      `/api/v1/interview-sessions/${encodeURIComponent(session)}/answer`,
+      body,
+    ),
+  setInterviewMode: (session: string, workspace: string, mode: string) =>
+    post<{ session: InterviewSessionRow }>(
+      `/api/v1/interview-sessions/${encodeURIComponent(session)}/mode`,
+      { workspace, mode },
+    ),
+  setInterviewStatus: (session: string, workspace: string, status: string) =>
+    post<{ session: InterviewSessionRow }>(
+      `/api/v1/interview-sessions/${encodeURIComponent(session)}/status`,
+      { workspace, status },
+    ),
+  pauseInterview: (session: string, workspace: string) =>
+    post<{ session: InterviewSessionRow }>(
+      `/api/v1/interview-sessions/${encodeURIComponent(session)}/pause`,
+      { workspace },
+    ),
+  resumeInterview: (session: string, workspace: string) =>
+    post<{ session: InterviewSessionRow; briefing: ResumeBriefing }>(
+      `/api/v1/interview-sessions/${encodeURIComponent(session)}/resume`,
+      { workspace },
+    ),
+  resolveQuestion: (
+    session: string,
+    questionId: string,
+    body: {
+      workspace: string;
+      status: 'answered' | 'skipped' | 'unanswerable';
+      reason?: string;
+    },
+  ) =>
+    post<{ question: QuestionCandidateRow }>(
+      `/api/v1/interview-sessions/${encodeURIComponent(
+        session,
+      )}/questions/${encodeURIComponent(questionId)}/resolve`,
+      body,
+    ),
+  updateSlot: (
+    session: string,
+    slot: string,
+    body: {
+      workspace: string;
+      state: 'known' | 'not-applicable' | 'deferred';
+      value?: string;
+    },
+  ) =>
+    post<{ slot: KnowledgeSlotRow }>(
+      `/api/v1/interview-sessions/${encodeURIComponent(
+        session,
+      )}/slots/${encodeURIComponent(slot)}`,
+      body,
+    ),
+  understanding: (ws: string, session: string) =>
+    api<Understanding>(
+      `/api/v1/interview-sessions/${encodeURIComponent(
+        session,
+      )}/understanding${qs({ workspace: ws })}`,
+    ),
+
+  // Statement ledger — decide/correct are human affordances routed
+  // through the lifecycle engine (§15.3).
+  statements: (ws: string, f?: { status?: string; subject?: string }) =>
+    api<{ statements: PanelStatement[] }>(
+      `/api/v1/statements${qs({
+        workspace: ws,
+        status: f?.status,
+        subject: f?.subject,
+      })}`,
+    ),
+  statement: (ws: string, id: string) =>
+    api<StatementDetail>(
+      `/api/v1/statements/${encodeURIComponent(id)}${qs({ workspace: ws })}`,
+    ),
+  decideStatement: (
+    id: string,
+    body: {
+      workspace: string;
+      action: 'confirm' | 'dispute' | 'reject';
+      reason?: string;
+    },
+  ) =>
+    post<{ statement: StatementRow; decision_id?: string }>(
+      `/api/v1/statements/${encodeURIComponent(id)}/decide`,
+      body,
+    ),
+  correctStatement: (
+    id: string,
+    body: {
+      workspace: string;
+      text: string;
+      session_id?: string;
+      slots?: string[];
+    },
+  ) =>
+    post<{ statement: StatementRow; superseded: StatementRow }>(
+      `/api/v1/statements/${encodeURIComponent(id)}/correct`,
+      body,
+    ),
+  decideStatementDecision: (
+    id: string,
+    body: {
+      workspace: string;
+      decision: string;
+      rationale?: string;
+      apply?: 'confirmed' | 'rejected' | 'superseded' | 'proposed';
+    },
+  ) =>
+    post<{ decision: StatementDecisionRow }>(
+      `/api/v1/statement-decisions/${encodeURIComponent(id)}/decide`,
+      body,
+    ),
+  dismissStatementDecision: (
+    id: string,
+    body: { workspace: string; rationale?: string },
+  ) =>
+    post<{ dismissed: boolean }>(
+      `/api/v1/statement-decisions/${encodeURIComponent(id)}/dismiss`,
+      body,
+    ),
 };

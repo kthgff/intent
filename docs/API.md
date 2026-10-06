@@ -43,7 +43,27 @@ payload shapes come from `SCHEMAS.md`/`DB-SCHEMA.md`.
 | `/inbox` | GET | S-01 inbox tab — unified `gate_items`, ranked human-anxiety-first → priority → age (D21); `?workspace=` filter |
 | `/board` | GET | S-01 board tab — tickets grouped by `phase` column (Backlog·Spec·Build·Review·Done), each card carrying `attention` (open gate_items) and `drop_targets` (allowed drag actions — server-computed, UI only highlights; invalid drops rejected, never trusted client-side); `?workspace=` filter |
 | `/tickets` | GET | S-01/S-05 lists — `tickets` rows (filters: status, repo, workspace, feature) |
-| `/boards`, `/initiatives` | — | **Draft (D26/D27, FEATURES.md §7):** S-15/S-16/S-18 — idea boards, board items, scoped synthesize, entity CRUD, re-plan/re-parent, provenance amendments. Not implemented; contract TBD in the board work package |
+| `/boards` | GET, POST | S-15/S-16 idea boards (§15.3, wp-144). GET `?workspace=` lists boards + per-type config; POST `{workspace, board, name?, org?, board_type?, status?}` → 201. Board type is config, not a pipeline |
+| `/boards/<board>` | GET | S-16 canvas — board row + `type_config` + `items`: every board_item paired with its extracted statements (`boardSurface`) — the statement surface per item |
+| `/boards/<board>/items` | POST | Typed sticky `{workspace, kind?, note_kind?, topic?, importance?, applies_to?, note_status?, rationale?, title?, body?, ref?, zone?, serves?, x/y/w/h?}` → 201. Fail-closed on unknown taxonomy values |
+| `/boards/<board>/status` `/resurface` `/resurface/accept` `/spawn` `/extract` `/reference` | POST | wp-144 lifecycle + handoffs: resurface is always an approval-required proposal; `extract` ingests a `statements.json` batch (verbatim-gated, atomic); `reference` cites an approved doc or files a ChangeSet (`request` present) — approved items never mutate |
+| `/board-items/<id>/statements` | GET | S-16 inspector — one item + its statements |
+| `/board-items/<id>` | PATCH, DELETE | S-16/S-20 item mutation (wp-147). PATCH is OCC-fenced: `expected_updated_at` must match the row or 409; consumed/frozen items are supersede-only → 409. Tray→board moves route through the engine's promotion rule. DELETE refuses consumed/frozen (supersede, never delete) |
+| `/boards/meta/taxonomy` | GET | The closed enums + per-type config the UI renders (board types, note kinds/importances/statuses) |
+| `/tray` | GET | S-20 project tray — `board: null` items (`?workspace=`, `?kind=`) |
+| `/interview-wizards` | GET | The versioned wizard catalog (`?workspace=`): MVP configs + declared slots + thresholds (draft ⊆ approval). Read-only; definitions seed idempotently on session start |
+| `/interview-sessions` | GET, POST | §15.9 orchestrator sessions (wp-145/147) — distinct from the chat-to-edit `/interview/<session>` surface. GET `?workspace=&status=&subject=`; POST `{workspace, wizard_id, subject?, mode?, session_id?, branch?, role?}` → 201 (seeds the slot rows; idempotent on session id) |
+| `/interview-sessions/<id>` | GET | Session detail: session + slots + questions + `pending_question` + durable transcript + explainable readiness + branches |
+| `/interview-sessions/<id>/answer` | POST | `{workspace, answer, question_id?, slot?, slots?}` — the answer persists durably BEFORE any next question is generated (engine-enforced); one answer may satisfy many slots |
+| `/interview-sessions/<id>/mode` `/status` `/pause` `/resume` | POST | Three input modes (`conversation`/`guided`/`bulk`) switchable without loss; `resume` returns the knowledge-diff briefing ("what changed since you left") |
+| `/interview-sessions/<id>/questions/<q>/resolve` | POST | `{status: answered\|skipped\|unanswerable, reason?}` — `unanswerable` defers the slot and is never re-asked |
+| `/interview-sessions/<id>/slots/<slot>` | POST | `{state: known\|not-applicable\|deferred}` — `known` is the human confirmation step (confirms every proposed statement bound to the slot) |
+| `/interview-sessions/<id>/understanding` | GET | **Understanding Panel** (wp-146 contract, wp-147 route): `confirmed` / `interpretation` / `needs_clarification` / `decision_required` buckets of session-bound statements+slots+open decisions+clarifications, each carrying provenance (`source_ref`, `extraction_run`, `version`) — explainable indicators, never a score |
+| `/statements` | GET | Statement Ledger list (`?workspace=&status=&intent=&scope=&scope_ref=&subject=`); rows carry `open_decisions` count |
+| `/statements/<id>` | GET | Statement detail — head + version history + relations (out/in) + decisions + clarifications + artifact links |
+| `/statements/<id>/decide` | POST | `{action: confirm\|dispute\|reject, reason?}` — human lifecycle via the engine: confirm upgrades provenance to stakeholder-verified; dispute opens a decision item (idempotent); reject retires (never deletes) |
+| `/statements/<id>/correct` | POST | `{text, session_id?, slots?}` → a NEW confirmed statement + `supersedes` edge on the old one — correction edits write versioned history, never silent overwrites (wp-147); optional slot rebinding feeds the correction back into the session |
+| `/statement-decisions/<id>/decide` `/dismiss` | POST | Rule an open decision item (`{decision, rationale?, apply?}` optionally applies the outcome to the bound statement) or dismiss it |
 | `/features` | GET | S-17 (wp-152) — feature rows (`?workspace=&initiative=&status=` filters) |
 | `/features/<ws>/<feature>` | GET | S-17 detail rollup — feature row + initiative + doc_versions metadata + member tickets grouped by work_type×status + requirement links (`documents`/`implements` relations; **primary** = first verified `documents` edge) + **health** (explainable findings list — `blocked_ticket`/`failed_ticket`/`open_gate`/`unverified_ac`/`stale_approval`/`undelivered_ticket`/`not_accepted`/`no_tickets`, each with evidence `refs`, never a score) + acceptance state + release memberships/exposure/deployments + subject events |
 | `/features/<ws>/<feature>/docs/<name>` | GET | S-17 Design/Requirements tabs — versioned feature docs (`feature.md`/`ac.md`/`vs.md`/`notes.md`/`mockup.json`/`adr.md`/`provenance.json`), bare names or full kinds; consecutive-version diffs computed server-side. 400 on other doc kinds, 404 absent |
@@ -107,6 +127,7 @@ One event source per client:
 | `index_status` | `{workspace, repo, commit_sha, status, stats?}` | D37 repository intelligence freshness and background-index progress |
 | `alignment_status` | `{scope, run_id, status, finding_count?}` | Phase B alignment run progress; final artifact is durable |
 | `notification` | notification row | desktop toasts |
+| `interview_updated` | `{workspace, session_id}` | wp-147 — Interview Orchestrator mutations (answer/mode/slot/statement writes); Understanding Panel + wizard surface refresh hint |
 | `merge_ready` / `merge_attempted` / `merge_conflict` / `release_created` / `release_items_changed` / `manifest_cut` / `release_approved` / `release_released` / `deployment_confirmed` / `feature_exposed` / `release_note_approved` / `retro_completed` / `correction_filed` / `dependent_revalidated` | the appended `events` row | DELIVERY §5 (wp-136) — the durable delivery/merge lifecycle events mirrored onto the stream; Merge Center + Release Center live updates |
 
 Every streamed fact is also written durably (`events` rows, other DB

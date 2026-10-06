@@ -86,6 +86,7 @@ import {
   lineDiff,
   parseUnifiedDiff,
 } from './diff.js';
+import { registerDiscoveryRoutes } from './discovery.js';
 import { registerEvidenceRoutes } from './evidence.js';
 import { registerFeatureRoutes } from './features.js';
 import { registerLinkRoutes } from './links.js';
@@ -3323,6 +3324,18 @@ export function createServer(opts: ServerOptions): ApiServer {
     actor,
     nowIso: now,
     workspace,
+  });
+
+  // /interview-sessions, /statements, /statement-decisions, /tray,
+  // /board-items — the Discovery UI surface (PRD §15.3/§15.9, wp-147):
+  // Interview Orchestrator sessions + the Understanding Panel payload,
+  // statement decide/correct affordances, and the capture tray.
+  registerDiscoveryRoutes(app, {
+    store,
+    actor,
+    nowIso: now,
+    workspace,
+    notify: (e) => hub.notify(e),
   });
 
   // ------------------------------------------------------------------

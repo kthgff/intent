@@ -146,7 +146,10 @@ async function seedFeature(id: string) {
     workspace: WS,
     feature: id,
     title: `${id} feature`,
-    status: 'active',
+    // wp-152 (D47): features must reach `done` via explicit human
+    // acceptance before a release can carry them — shipRelease items
+    // fail `not-approved` on `active`.
+    status: 'done',
   });
 }
 
