@@ -17,7 +17,7 @@ import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, extname, join, resolve, sep } from 'node:path';
+import { dirname, extname, isAbsolute, join, resolve, sep } from 'node:path';
 import type { ConductorDeps, StreamEvent } from '@veto/conductor';
 import {
   type Conductor,
@@ -55,6 +55,7 @@ import {
   type Store,
   TICKET_ORIGINS,
   TICKET_PRIORITIES,
+  TICKET_SEVERITIES,
   TICKET_WORK_TYPES,
   type TicketOrigin,
   type TicketPriority,
@@ -324,11 +325,11 @@ const notImplemented = (m: string) => new ApiError(501, 'not_implemented', m);
 
 /** Zod-parse a JSON body → the typed shape, or a 400 naming the
  *  issues (fail-closed — a malformed body never reaches a write). */
-export function parseBody<T>(
-  schema: z.ZodType<T>,
+export function parseBody<S extends z.ZodTypeAny>(
+  schema: S,
   body: unknown,
   what: string,
-): T {
+): z.output<S> {
   const r = schema.safeParse(body ?? {});
   if (!r.success) {
     throw badRequest(
@@ -337,7 +338,21 @@ export function parseBody<T>(
         .join('; ')}`,
     );
   }
-  return r.data;
+  return r.data as z.output<S>;
+}
+
+/** JSON.parse a stored artifact — fail-closed: corrupt durable
+ *  content is a 502 `corrupt_artifact`, never a guessed payload. */
+export function parseArtifactJson(content: string, what: string): unknown {
+  try {
+    return JSON.parse(content);
+  } catch (e) {
+    throw new ApiError(
+      502,
+      'corrupt_artifact',
+      `${what} is not valid JSON: ${(e as Error).message}`,
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -587,9 +602,12 @@ export function createServer(opts: ServerOptions): ApiServer {
     const status = (err as ApiError).statusCode ?? 500;
     const code =
       (err as ApiError).code ?? (status < 500 ? 'request_failed' : 'internal');
+    // 5xx detail stays server-side — a raw err.message can leak paths,
+    // SQL text, or store internals; the client only learns it failed.
+    if (status >= 500) app.log.error(err);
     void reply.status(status).send({
       error: code,
-      message: err.message,
+      message: status >= 500 ? 'internal error' : err.message,
       ...((err as ApiError).refs ? { refs: (err as ApiError).refs } : {}),
     });
   });
@@ -707,6 +725,40 @@ export function createServer(opts: ServerOptions): ApiServer {
     const t = await store.getTicket({ workspace: ws, ticket_id: ticketId });
     if (!t) throw notFound(`unknown ticket '${ws}/${ticketId}'`);
     return t;
+  }
+
+  /**
+   * Verify a POST /tickets `scope_ref` against durable approved-scope
+   * evidence (§15.7). The string is never the proof — it must resolve
+   * to one of:
+   *   - a `boards` row at status `approved` (the approved board
+   *     proposal that authorized the work);
+   *   - a feature/initiative subject carrying a `doc_approved` event —
+   *     the approved RS/acceptance doc_version (the event lands with
+   *     `ticket_id` = the subject id, matching acceptFeature);
+   *   - any other subject with a `doc_approved` event on its `rs` doc
+   *     (an approved requirements spec anywhere in the workspace).
+   */
+  async function scopeRefApproved(
+    wsName: string,
+    ref: string,
+  ): Promise<boolean> {
+    const board = await store.getBoard(wsName, ref);
+    if (board) return board.status === 'approved';
+    const approvals = await store.listEvents({
+      workspace: wsName,
+      ticket_id: ref,
+      event: 'doc_approved',
+    });
+    if (await store.getFeature(wsName, ref)) {
+      return approvals.length > 0;
+    }
+    return approvals.some(
+      (e) =>
+        e.data?.doc === 'rs' ||
+        e.data?.doc === 'rs.md' ||
+        e.data?.doc === 'acceptance-package',
+    );
   }
 
   /**
@@ -961,16 +1013,15 @@ export function createServer(opts: ServerOptions): ApiServer {
 
   app.get('/', async (req, reply) => {
     if (req.url.startsWith('/?token=')) {
-      // Loopback bootstrap: hand out the session cookie (API.md).
+      // Loopback bootstrap: hand out the session cookie (API.md), then
+      // 303-redirect to `/` so the bearer token doesn't linger in
+      // browser history / referrer logs.
       void reply
         .header(
           'set-cookie',
           `${sessionCookie}=${opts.uiToken}; HttpOnly; SameSite=Strict; Path=/`,
         )
-        .type('text/html')
-        .send(
-          '<html><body><h1>veto</h1><p>Session established.</p></body></html>',
-        );
+        .redirect('/', 303);
       return;
     }
     if (uiMounted && (await serveStaticFile(reply, 'index.html'))) {
@@ -1290,10 +1341,26 @@ export function createServer(opts: ServerOptions): ApiServer {
       );
     }
     // Approved scope = an approved origin (rs/board) or an explicit
-    // `scope_ref` to the authorizing RS/board proposal.
-    const scopeApproved =
-      (APPROVED_SCOPE_ORIGINS as readonly string[]).includes(origin) ||
-      body.scope_ref !== undefined;
+    // `scope_ref` to the authorizing RS/board proposal — which must
+    // resolve to a REAL approved artifact, never just a string:
+    //   - a board row at lifecycle status `approved` (the board
+    //     proposal IS the approval);
+    //   - a feature/initiative carrying a durable `doc_approved` event
+    //     (the RS/acceptance approval the ticket traces back to);
+    //   - any other subject with a `doc_approved` event on its rs doc.
+    // Anything else is a fabricated proof — 404 unknown ref, 409 when
+    // the ref exists but isn't approved.
+    let scopeApproved = (APPROVED_SCOPE_ORIGINS as readonly string[]).includes(
+      origin,
+    );
+    if (body.scope_ref !== undefined) {
+      scopeApproved = await scopeRefApproved(ws.name, body.scope_ref);
+      if (!scopeApproved) {
+        throw conflict(
+          `scope_ref '${body.scope_ref}' does not resolve to an approved artifact (approved board or a subject with a doc_approved rs/acceptance doc)`,
+        );
+      }
+    }
     // §15.7 direct-create rules: a type that isn't directly creatable
     // (story) needs approved scope; `needsScopeApproval` decides.
     if (
@@ -1304,14 +1371,26 @@ export function createServer(opts: ServerOptions): ApiServer {
         `work type '${workType}' may not be created directly — it must originate from an approved RS/board proposal (set origin ${APPROVED_SCOPE_ORIGINS.join('|')} or supply scope_ref)`,
       );
     }
-    // Priority ≠ severity: severity is forbidden where it can only mean
-    // "importance" (it drives triage on bugs/security/incidents only).
-    if (
-      body.severity !== undefined &&
-      severityRule(workType, origin) === 'forbidden'
-    ) {
+    // Priority ≠ severity (§15.7): the enum is validated, `forbidden`
+    // where it could only mean "importance", and `required` up front
+    // for bug/security/incident work — the same rule the intake gate
+    // enforces downstream, applied here so a malformed create 400s
+    // instead of landing a ticket that can never leave `imported`.
+    if (body.severity !== undefined) {
+      const rule = severityRule(workType, origin);
+      if (!(TICKET_SEVERITIES as readonly string[]).includes(body.severity)) {
+        throw badRequest(
+          `unknown severity '${body.severity}' (expected ${TICKET_SEVERITIES.join('|')})`,
+        );
+      }
+      if (rule === 'forbidden') {
+        throw badRequest(
+          `severity does not apply to ${workType} tickets (priority ≠ severity, §15.7)`,
+        );
+      }
+    } else if (severityRule(workType, origin) === 'required') {
       throw badRequest(
-        `severity does not apply to ${workType} tickets (priority ≠ severity, §15.7)`,
+        `severity is required for ${workType} tickets (§15.7 — expected ${TICKET_SEVERITIES.join('|')})`,
       );
     }
     const priority = (body.priority ?? 'medium') as TicketPriority;
@@ -1473,7 +1552,7 @@ export function createServer(opts: ServerOptions): ApiServer {
     return {
       ticket: row,
       ticket_md: ticketMd,
-      triage: triageRaw ? JSON.parse(triageRaw) : null,
+      triage: triageRaw ? parseArtifactJson(triageRaw, 'triage.json') : null,
       repos,
       docs,
       phase,
@@ -1602,18 +1681,12 @@ export function createServer(opts: ServerOptions): ApiServer {
     if (art === null) {
       throw notFound(`no review.json for ${wsName}/${ticket}`);
     }
-    let review: unknown;
-    try {
-      review = JSON.parse(art.content);
-    } catch {
-      // Fail-closed: a malformed artifact is an honest 5xx, never a
-      // half-parsed payload the UI mistakes for a clean review.
-      throw new ApiError(
-        502,
-        'artifact_corrupt',
-        `review.json on run ${art.runId} is not valid JSON`,
-      );
-    }
+    // Fail-closed: a malformed artifact is an honest 5xx, never a
+    // half-parsed payload the UI mistakes for a clean review.
+    const review = parseArtifactJson(
+      art.content,
+      `review.json on run ${art.runId}`,
+    );
     return { run_id: art.runId, name: art.name, review };
   });
 
@@ -1632,16 +1705,10 @@ export function createServer(opts: ServerOptions): ApiServer {
     if (art === null) {
       throw notFound(`no rs-quality.json for ${wsName}/${ticket}`);
     }
-    let quality: unknown;
-    try {
-      quality = JSON.parse(art.content);
-    } catch {
-      throw new ApiError(
-        502,
-        'artifact_corrupt',
-        `rs-quality.json on run ${art.runId} is not valid JSON`,
-      );
-    }
+    const quality = parseArtifactJson(
+      art.content,
+      `rs-quality.json on run ${art.runId}`,
+    );
     return { run_id: art.runId, name: art.name, quality };
   });
 
@@ -1699,7 +1766,7 @@ export function createServer(opts: ServerOptions): ApiServer {
         `${file} not found for ${isInterview ? 'subject' : 'ticket'}`,
       );
     }
-    const doc = JSON.parse(art.content) as {
+    const doc = parseArtifactJson(art.content, file) as {
       questions?: Array<Record<string, unknown>>;
     };
     const ts = now();
@@ -1910,7 +1977,7 @@ export function createServer(opts: ServerOptions): ApiServer {
       // back onto its producing run.
       const art = await latestArtifact(wsName, ticket, 'review.json');
       if (art === null) throw notFound('review.json not found for ticket');
-      const review = JSON.parse(art.content) as {
+      const review = parseArtifactJson(art.content, 'review.json') as {
         findings: Array<Record<string, unknown>>;
       };
       const finding = review.findings.find((f) => f.thread_id === fid);
@@ -2262,9 +2329,55 @@ export function createServer(opts: ServerOptions): ApiServer {
     // D29: a workspace is a plain root dir (run dirs, repo anchoring,
     // .veto/ scratch) — no tickets repo to clone, no tickets_repos
     // config key. The project row is the DB registration.
-    const rootPath =
-      body.path ??
-      join(homedir(), '.local', 'share', 'veto', 'workspaces', body.name);
+    // `path` is caller-supplied: this is a local tool, so the rule is
+    // "absolute and outside the OS-owned trees" — a relative path or a
+    // root under /etc, /usr, /System, … is refused before mkdir.
+    let rootPath: string;
+    if (body.path !== undefined) {
+      const resolved = resolve(body.path);
+      if (!isAbsolute(body.path)) {
+        throw badRequest(`workspace path '${body.path}' must be absolute`);
+      }
+      const SYSTEM_ROOTS = [
+        '/etc',
+        '/usr',
+        '/System',
+        '/bin',
+        '/sbin',
+        '/lib',
+        '/lib64',
+        '/boot',
+        '/dev',
+        '/proc',
+        '/sys',
+        '/var',
+        '/private',
+        '/root',
+        '/Library',
+        '/Applications',
+        '/Windows',
+        '/Program Files',
+        '/Program Files (x86)',
+      ];
+      if (
+        resolved === '/' ||
+        SYSTEM_ROOTS.some((r) => resolved === r || resolved.startsWith(`${r}/`))
+      ) {
+        throw badRequest(
+          `workspace path '${resolved}' is inside an OS-managed tree — pick a user-writable directory`,
+        );
+      }
+      rootPath = resolved;
+    } else {
+      rootPath = join(
+        homedir(),
+        '.local',
+        'share',
+        'veto',
+        'workspaces',
+        body.name,
+      );
+    }
     await mkdir(rootPath, { recursive: true });
     const ts = now();
     const existing = await store.getProject(body.name);
@@ -2349,7 +2462,10 @@ export function createServer(opts: ServerOptions): ApiServer {
     return content
       .split('\n')
       .filter((l) => l.trim() !== '')
-      .map((l) => JSON.parse(l) as EditSessionLine);
+      .map(
+        (l) =>
+          parseArtifactJson(l, 'edit-session transcript') as EditSessionLine,
+      );
   }
 
   async function appendSessionLine(
@@ -2622,14 +2738,21 @@ export function createServer(opts: ServerOptions): ApiServer {
       throw conflict(`edit session '${session}' already discarded`);
     }
     const ws = workspace(wsName);
-    const row = await getTicketOr404(wsName, subject);
+    // The subject may be a feature (F-*) or a ticket — the POST
+    // /interview route admits both (D27 subject_ref generalization),
+    // so approve must resolve the same way or feature proposals 404
+    // here forever.
+    const featureRow = await store.getFeature(wsName, subject);
+    const subjectStatus = featureRow
+      ? featureRow.status
+      : (await getTicketOr404(wsName, subject)).status;
     if (
       body?.expected_status !== undefined &&
-      row.status !== body.expected_status
+      subjectStatus !== body.expected_status
     ) {
       throw conflict(
         `stale write: expected status '${body.expected_status}', ` +
-          `ticket is '${row.status}'`,
+          `${featureRow ? 'feature' : 'ticket'} is '${subjectStatus}'`,
       );
     }
     const gate = `edit:${session}`;
@@ -2695,12 +2818,16 @@ export function createServer(opts: ServerOptions): ApiServer {
       actor,
     );
     await emitEvent(ws, {
+      // events.ticket_id doubles as the subject column for feature
+      // rows (acceptFeature does the same); `subject_kind` keeps the
+      // attribution unambiguous for consumers.
       ticketId: subject,
       event: 'doc_edited',
       run: art.runId,
       refs: [`doc:${subject}:${target}`],
       data: {
         session,
+        subject_kind: featureRow ? 'feature' : 'ticket',
         doc: target,
         version: dv.version,
         via: 'chat-to-edit',
@@ -2743,7 +2870,13 @@ export function createServer(opts: ServerOptions): ApiServer {
     await emitEvent(ws, {
       ticketId: subject,
       event: 'note_added',
-      data: { session, kind: 'edit-discarded' },
+      data: {
+        session,
+        kind: 'edit-discarded',
+        subject_kind: (await store.getFeature(ws.name, subject))
+          ? 'feature'
+          : 'ticket',
+      },
     });
     await appendSessionLine(found.workspace, session, found.doc.content, {
       ts: now(),
@@ -2945,6 +3078,17 @@ export function createServer(opts: ServerOptions): ApiServer {
         ...(body.serves !== undefined ? { serves: body.serves } : {}),
       },
     });
+    // Board-item live hint (D52 — StreamEvent has no board_item type;
+    // `notification` frames carry `{kind:'board_item_updated'}`).
+    hub.notify({
+      type: 'notification',
+      payload: {
+        kind: 'board_item_updated',
+        workspace: ws.name,
+        item_id: item.id,
+        board: null,
+      },
+    });
     return reply.status(201).send({ item });
   });
 
@@ -2985,7 +3129,19 @@ export function createServer(opts: ServerOptions): ApiServer {
 
     if (body?.secrets && Object.keys(body.secrets).length > 0) {
       // Write-only secrets: merged into the global .env, never read back
-      // out through the API (SETTINGS.md secrets section).
+      // out through the API (SETTINGS.md secrets section). Values are
+      // written as raw `K=V` lines — validate so a crafted value can't
+      // inject extra lines/vars into the file.
+      for (const [k, v] of Object.entries(body.secrets)) {
+        if (!/^[A-Z_][A-Z0-9_]*$/.test(k)) {
+          throw badRequest(
+            `secret key '${k}' is not a valid env name (expected [A-Z_][A-Z0-9_]*)`,
+          );
+        }
+        if (typeof v !== 'string' || /[\r\n]/.test(v)) {
+          throw badRequest(`secret '${k}' must be a single-line value`);
+        }
+      }
       const envPath = join(dirname(globalConfigPath), '.env');
       const current = existsSync(envPath)
         ? parseEnv(await readFile(envPath, 'utf8'))

@@ -38,6 +38,7 @@ export default function DiscoverySession() {
   const [understanding, setUnderstanding] = useState<Understanding | null>(
     null,
   );
+  const [understandingError, setUnderstandingError] = useState<unknown>(null);
   const [answer, setAnswer] = useState('');
   const [bulk, setBulk] = useState('');
   const [busy, setBusy] = useState(false);
@@ -47,8 +48,11 @@ export default function DiscoverySession() {
   const loadUnderstanding = useCallback(() => {
     client
       .understanding(ws, session)
-      .then(setUnderstanding)
-      .catch(() => {});
+      .then((u) => {
+        setUnderstanding(u);
+        setUnderstandingError(null);
+      })
+      .catch(setUnderstandingError);
   }, [ws, session]);
 
   const reload = useCallback(() => {
@@ -79,13 +83,18 @@ export default function DiscoverySession() {
   const mode = (s.mode ?? 'conversation') as InputMode;
   const pending = d.pending_question;
 
-  const act = async (fn: () => Promise<unknown>, what: string) => {
+  const act = async (
+    fn: () => Promise<unknown>,
+    what: string,
+  ): Promise<boolean> => {
     setBusy(true);
     try {
       await fn();
       reload();
+      return true;
     } catch (e) {
       setToast(`${what}: ${e instanceof Error ? e.message : String(e)}`);
+      return false;
     } finally {
       setBusy(false);
     }
@@ -105,8 +114,9 @@ export default function DiscoverySession() {
   const onAnswer = async () => {
     const text = answer.trim();
     if (!text) return;
-    await submitAnswer(text, pending?.question_id);
-    setAnswer('');
+    // Only clear the draft once the answer actually landed — a failed
+    // submit must never eat the user's text.
+    if (await submitAnswer(text, pending?.question_id)) setAnswer('');
   };
 
   const onBulk = async () => {
@@ -416,6 +426,9 @@ export default function DiscoverySession() {
           </div>
         </div>
 
+        {understandingError != null && (
+          <p className="muted">Understanding panel unavailable.</p>
+        )}
         {understanding && (
           <UnderstandingPanel
             ws={ws}
@@ -439,7 +452,10 @@ export default function DiscoverySession() {
             className="modal"
             aria-label="resume briefing"
             onClick={(e) => e.stopPropagation()}
-            onKeyDown={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === 'Escape') setBriefing(null);
+            }}
           >
             <strong>What changed since you left</strong>
             <ul className="list">

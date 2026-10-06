@@ -27,7 +27,7 @@ import {
 import { type LinkAction, LinkError, decideLink, proposeLink } from '@veto/kb';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { ApiError } from './server.js';
+import { ApiError, parseBody } from './server.js';
 
 const DecideBody = z.object({
   workspace: z.string().min(1),
@@ -81,7 +81,7 @@ export function registerLinkRoutes(
   deps: LinksRouteDeps,
 ): void {
   app.get('/api/v1/links', async (req) => {
-    const q = ListQuery.parse(req.query ?? {});
+    const q = parseBody(ListQuery, req.query, 'links query');
     const relations = await deps.store.listRelations({
       // Ticket-scoped read: `SR-1` also returns `SR-1:ac:*` edges.
       subject_prefix: q.subject,
@@ -92,7 +92,7 @@ export function registerLinkRoutes(
   });
 
   app.post('/api/v1/links', async (req, reply) => {
-    const body = ProposeBody.parse(req.body ?? {});
+    const body = parseBody(ProposeBody, req.body, 'link propose');
     try {
       const { edge, created } = await proposeLink(
         deps.store,
@@ -107,7 +107,7 @@ export function registerLinkRoutes(
   });
 
   app.post('/api/v1/links/decide', async (req) => {
-    const body = DecideBody.parse(req.body ?? {});
+    const body = parseBody(DecideBody, req.body, 'link decide');
     try {
       const edge = await decideLink(deps.store, deps.config, {
         workspace: body.workspace,

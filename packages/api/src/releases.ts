@@ -109,12 +109,10 @@ const ItemBody = Occ.extend({
   actor_kind: z.enum(ACTOR_TYPES).optional(),
 }).passthrough();
 
-const RemoveItemBody = z
-  .object({
-    item_kind: z.enum(RELEASE_ITEM_KINDS),
-    item_id: z.string().min(1),
-  })
-  .passthrough();
+const RemoveItemBody = Occ.extend({
+  item_kind: z.enum(RELEASE_ITEM_KINDS),
+  item_id: z.string().min(1),
+}).passthrough();
 
 const ApproveBody = Occ.extend({
   decision: z.enum(RELEASE_APPROVAL_DECISIONS),
@@ -373,9 +371,11 @@ export function registerReleaseRoutes(
       rel: string;
     };
     const ws = deps.workspace(wsName);
+    const ctx = releaseCtx(ws);
     const body = parseBody(RemoveItemBody, req.body, 'remove release item');
+    await checkExpected(ctx, rel, body.expected_status);
     await guard(() =>
-      removeReleaseItem(releaseCtx(ws), rel, {
+      removeReleaseItem(ctx, rel, {
         itemKind: body.item_kind,
         itemId: body.item_id,
       }),
@@ -488,7 +488,21 @@ export function registerReleaseRoutes(
     }
     const ctx = { ...deps.toolCtx(ws), gh: deps.gh };
     const readiness = await evaluateMergeCenter(ctx);
-    return { tickets: [...readiness.values()] };
+    // Join the ticket status so the UI can gate merged-only
+    // affordances (revert) — readiness rows are evaluated for
+    // `ci-watch` tickets, which are by definition not yet merged.
+    const statusBy = new Map(
+      (await deps.store.listTickets({ workspace: wsName })).map((t) => [
+        t.ticket_id,
+        t.status,
+      ]),
+    );
+    return {
+      tickets: [...readiness.values()].map((r) => ({
+        ...r,
+        status: statusBy.get(r.ticket_id) ?? null,
+      })),
+    };
   });
 
   // ------------------------------------------------------------------

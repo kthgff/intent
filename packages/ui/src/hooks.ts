@@ -69,6 +69,28 @@ export function useStreamRefresh(
   );
 }
 
+/** Refresh when a board item changed anywhere (D52 — the API emits
+ *  `notification` frames with `payload.kind === 'board_item_updated'`;
+ *  the conductor StreamEvent union has no dedicated type). */
+export function useBoardItemRefresh(refresh: () => void): void {
+  const ref = useRef(refresh);
+  ref.current = refresh;
+  useEffect(
+    () =>
+      subscribeStream({
+        onEvent: (type, payload) => {
+          if (
+            type === 'notification' &&
+            (payload as { kind?: string } | null)?.kind === 'board_item_updated'
+          ) {
+            ref.current();
+          }
+        },
+      }),
+    [],
+  );
+}
+
 /** run_output chunks for one run id (S-07 transcript tail). */
 export function useRunOutput(
   runId: string | null,

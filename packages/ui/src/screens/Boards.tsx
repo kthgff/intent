@@ -10,7 +10,7 @@ import { Link } from 'react-router-dom';
 import { client } from '../api';
 import type { IdeaBoardRow } from '../api';
 import { Empty, ErrorBox, Field, Loading, StatusBadge } from '../components';
-import { useStreamRefresh } from '../hooks';
+import { useBoardItemRefresh, useStreamRefresh } from '../hooks';
 
 export function BoardTypePicker({
   value,
@@ -90,6 +90,7 @@ export default function Boards() {
   }, [load]);
 
   useStreamRefresh(load, ['interview_updated']);
+  useBoardItemRefresh(load);
 
   useEffect(() => {
     if (!toast) return;

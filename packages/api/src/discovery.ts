@@ -239,6 +239,21 @@ export function registerDiscoveryRoutes(
       payload: { workspace: ws, session_id: session ?? null },
     });
 
+  /** Board-item live hint (D52) — the conductor's StreamEvent union
+   *  has no `board_item_updated` member, so the hint rides the
+   *  `notification` type with `payload.kind` discriminating; UIs
+   *  re-read durable state (the stream is never the only copy). */
+  const boardItemTouched = (ws: string, item: BoardItem | string) =>
+    env.notify?.({
+      type: 'notification',
+      payload: {
+        kind: 'board_item_updated',
+        workspace: ws,
+        item_id: typeof item === 'string' ? item : item.id,
+        board: typeof item === 'string' ? null : (item.board ?? null),
+      },
+    });
+
   async function requireSession(ws: string, sessionId: string) {
     const s = await interview.getSession(ictx(ws), sessionId);
     if (!s) {
@@ -884,6 +899,7 @@ export function registerDiscoveryRoutes(
     };
     await store.upsertBoardItem(next);
     touched(body.workspace);
+    boardItemTouched(body.workspace, next);
     return { item: next };
   });
 
@@ -906,6 +922,7 @@ export function registerDiscoveryRoutes(
     }
     await store.deleteBoardItem(id);
     touched(wsName);
+    boardItemTouched(wsName, item);
     return { deleted: true, id };
   });
 }

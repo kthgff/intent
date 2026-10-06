@@ -242,7 +242,9 @@ describe('token bootstrap', () => {
   it('GET /?token= sets a session cookie on loopback', async () => {
     const app = makeServer();
     const res = await app.inject({ method: 'GET', url: `/?token=${TOKEN}` });
-    expect(res.statusCode).toBe(200);
+    // 303 → `/` — the token must not linger in browser history.
+    expect(res.statusCode).toBe(303);
+    expect(res.headers.location).toBe('/');
     const cookie = res.headers['set-cookie'] as string;
     expect(cookie).toContain('veto_session=');
     // cookie works on subsequent requests

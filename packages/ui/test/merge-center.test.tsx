@@ -109,14 +109,27 @@ describe('Merge Center readiness card (wp-137)', () => {
     expect(screen.queryByText('Merge now')).toBeNull();
   });
 
-  it('offers Merge now + a revert affordance when ready', () => {
+  it('offers Merge now when ready; revert only when merged', () => {
     render(
       <MemoryRouter>
         <ReadinessCard ws="ws" onDone={() => {}} r={readiness()} />
       </MemoryRouter>,
     );
     expect(screen.getByText('Merge now')).toBeTruthy();
-    expect(screen.getByText('Revert…')).toBeTruthy();
+    // ci-watch (unmerged) tickets never get a revert affordance —
+    // there's no merge to revert yet.
+    expect(screen.queryByText('Revert…')).toBeNull();
     expect(screen.getByText(/app@abcdef12/)).toBeTruthy();
+    cleanup();
+    render(
+      <MemoryRouter>
+        <ReadinessCard
+          ws="ws"
+          onDone={() => {}}
+          r={readiness({ status: 'merged' })}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText('Revert…')).toBeTruthy();
   });
 });

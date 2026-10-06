@@ -30,6 +30,10 @@ export function CaptureForm({
   const [workspace, setWorkspace] = useState(
     defaultWorkspace ?? workspaces[0] ?? '',
   );
+  // Boards are per-workspace — the parent may only have fetched the
+  // first workspace's set, so the form refetches on workspace change
+  // (never offer another workspace's boards as a destination).
+  const [localBoards, setLocalBoards] = useState<IdeaBoardRow[]>(boards);
   const [text, setText] = useState('');
   const [kind, setKind] = useState('idea');
   const [kindTouched, setKindTouched] = useState(false);
@@ -42,6 +46,30 @@ export function CaptureForm({
   useEffect(() => {
     if (!kindTouched) setKind(guessCaptureKind(text));
   }, [text, kindTouched]);
+
+  useEffect(() => setLocalBoards(boards), [boards]);
+
+  useEffect(() => {
+    if (!workspace) return;
+    let live = true;
+    client
+      .ideaBoards(workspace)
+      .then((r) => {
+        if (live) setLocalBoards(r.boards);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [workspace]);
+
+  // A chosen board destination belongs to the previous workspace —
+  // reset to tray when the workspace changes under it.
+  useEffect(() => {
+    setDestination((d) =>
+      d !== 'tray' && !localBoards.some((b) => b.board === d) ? 'tray' : d,
+    );
+  }, [localBoards]);
 
   const save = async () => {
     if (!workspace || !text.trim()) return;
@@ -64,7 +92,9 @@ export function CaptureForm({
         item = (
           await client.patchBoardItem(item.id, {
             workspace,
-            expected_updated_at: item.updated_at ?? '',
+            ...(item.updated_at != null
+              ? { expected_updated_at: item.updated_at }
+              : {}),
             note_kind: kind,
           })
         ).item;
@@ -146,7 +176,7 @@ export function CaptureForm({
           onChange={(e) => setDestination(e.target.value)}
         >
           <option value="tray">Tray</option>
-          {boards.map((b) => (
+          {localBoards.map((b) => (
             <option key={b.board} value={b.board}>
               {b.name ?? b.board}
             </option>

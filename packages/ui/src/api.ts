@@ -254,6 +254,9 @@ export interface MergeChecklistItem {
 /** GET /merge-center/:workspace — per-ticket readiness rollup. */
 export interface MergeReadiness {
   ticket_id: string;
+  /** The ticket's pipeline status (joined server-side) — lets the UI
+   *  gate merged-only affordances (e.g. revert). */
+  status?: string | null;
   ready: boolean;
   items: MergeChecklistItem[];
   blockers: MergeChecklistItem[];
@@ -1166,7 +1169,9 @@ export const client = {
     id: string,
     body: {
       workspace: string;
-      expected_updated_at: string;
+      /** OCC fence — sent only when the client actually read a
+       *  timestamp (an empty string is ambiguous, never a wildcard). */
+      expected_updated_at?: string;
       board?: string | null;
       kind?: string;
       note_kind?: string | null;
@@ -1387,7 +1392,11 @@ export const client = {
   removeReleaseItem: (
     ws: string,
     rel: string,
-    body: { item_kind: 'feature' | 'ticket'; item_id: string },
+    body: {
+      item_kind: 'feature' | 'ticket';
+      item_id: string;
+      expected_status?: string;
+    },
   ) =>
     api<{ removed: string }>(`${releasePath(ws, rel)}/items`, {
       method: 'DELETE',

@@ -28,7 +28,7 @@ import {
   noteKindMeta,
   statementProvenance,
 } from '../discovery';
-import { useStreamRefresh } from '../hooks';
+import { useBoardItemRefresh, useStreamRefresh } from '../hooks';
 
 const GROUPINGS: { id: CanvasGrouping; label: string }[] = [
   { id: 'zone', label: 'Zones' },
@@ -50,6 +50,7 @@ export default function IdeaBoard() {
   const [delivery, setDelivery] = useState<Awaited<
     ReturnType<typeof client.board>
   > | null>(null);
+  const [deliveryError, setDeliveryError] = useState<unknown>(null);
   const [newNote, setNewNote] = useState({ title: '', note_kind: 'idea' });
   const [taxonomy, setTaxonomy] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -82,11 +83,15 @@ export default function IdeaBoard() {
     if (mode !== 'delivery' || !ws) return;
     client
       .board(ws)
-      .then(setDelivery)
-      .catch(() => {});
+      .then((d) => {
+        setDelivery(d);
+        setDeliveryError(null);
+      })
+      .catch(setDeliveryError);
   }, [mode, ws]);
 
   useStreamRefresh(load, ['interview_updated', 'ticket_updated']);
+  useBoardItemRefresh(load);
 
   useEffect(() => {
     if (!toast) return;
@@ -327,6 +332,8 @@ export default function IdeaBoard() {
             </div>
           )}
         </>
+      ) : deliveryError != null ? (
+        <ErrorBox error={deliveryError} />
       ) : (
         <DeliveryView data={delivery} />
       )}

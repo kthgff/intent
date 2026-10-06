@@ -346,7 +346,10 @@ export default function Board() {
             className="modal"
             aria-label="confirm drop"
             onClick={(e) => e.stopPropagation()}
-            onKeyDown={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === 'Escape') setPending(null);
+            }}
           >
             <strong>{pending.card.ticket.ticket_id}</strong>
             <p>{pending.target.label}</p>

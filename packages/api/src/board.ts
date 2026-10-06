@@ -72,7 +72,7 @@ const CreateBoardBody = z
     board_type: z.string().optional(),
     status: z.string().optional(),
   })
-  .passthrough();
+  .strict();
 
 const CreateItemBody = z
   .object({
@@ -94,15 +94,15 @@ const CreateItemBody = z
     w: z.number().optional(),
     h: z.number().optional(),
   })
-  .passthrough();
+  .strict();
 
 const SetStatusBody = z
   .object({ workspace: WorkspaceName, status: z.string() })
-  .passthrough();
+  .strict();
 
 const ResurfaceBody = z
   .object({ workspace: WorkspaceName, reason: z.string().optional() })
-  .passthrough();
+  .strict();
 
 const SpawnBody = z
   .object({
@@ -111,7 +111,7 @@ const SpawnBody = z
     name: z.string().optional(),
     board: BoardSlug.optional(),
   })
-  .passthrough();
+  .strict();
 
 const ReferenceBody = z
   .object({
@@ -121,7 +121,7 @@ const ReferenceBody = z
     request: z.string().optional(),
     title: z.string().optional(),
   })
-  .passthrough();
+  .strict();
 
 const ExtractBody = z
   .object({
@@ -132,7 +132,7 @@ const ExtractBody = z
     statements: z.array(z.unknown()).optional(),
     item_ids: z.array(z.string()).optional(),
   })
-  .passthrough();
+  .strict();
 
 function parse<T>(schema: z.ZodType<T>, body: unknown, what: string): T {
   const r = schema.safeParse(body ?? {});

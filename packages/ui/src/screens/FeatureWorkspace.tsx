@@ -15,6 +15,7 @@ import { Link, useParams } from 'react-router-dom';
 import ChatEdit from '../ChatEdit';
 import {
   type AcceptancePackage,
+  ApiError,
   type DocResponse,
   type FeatureAcRow,
   type FeatureDetail,
@@ -204,11 +205,13 @@ function OverviewTab({ ws, d }: { ws: string; d: FeatureDetail }) {
     <div className="panel">
       <h2>Objective</h2>
       {doc.loading && <Loading />}
-      {doc.error != null ? (
-        <Empty label="No feature.md yet — the feature has no scope doc." />
-      ) : (
-        doc.data && <Markdown text={doc.data.content} />
-      )}
+      {doc.error != null &&
+        (doc.error instanceof ApiError && doc.error.status === 404 ? (
+          <Empty label="No feature.md yet — the feature has no scope doc." />
+        ) : (
+          <ErrorBox error={doc.error} />
+        ))}
+      {doc.data && <Markdown text={doc.data.content} />}
       <h2>Facts</h2>
       <table>
         <tbody>
