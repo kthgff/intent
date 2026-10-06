@@ -38,8 +38,12 @@ export function itemTarget(item: InboxItem): string {
   const base = `/tickets/${encodeURIComponent(item.workspace)}/${encodeURIComponent(item.subject)}`;
   if (item.gate === 'needs-info' || item.gate === 'design-qa')
     return `${base}/wizard`;
-  if (item.gate.endsWith('-review') && item.kind === 'approval')
-    return `${base}/docs/${item.gate.replace('-review', '')}`;
+  if (item.gate.endsWith('-review') && item.kind === 'approval') {
+    // Gate ids keep pre-rename vocabulary; doc routes use rs.md/vs.md.
+    const legacy: Record<string, string> = { prd: 'rs', test: 'vs' };
+    const gateDoc = item.gate.replace('-review', '');
+    return `${base}/docs/${legacy[gateDoc] ?? gateDoc}`;
+  }
   if (item.gate === 'changes-requested' || item.gate === 'approved')
     return `${base}/review`;
   if (item.gate === 'ci-watch' || item.gate === 'merge') return `${base}/pr`;

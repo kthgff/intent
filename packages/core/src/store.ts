@@ -368,9 +368,33 @@ export interface Store {
   upsertRelation(r: Relation): Promise<void>;
   listRelations(filter?: {
     subject?: string;
+    /** Ticket-scoped edge sets (wp-111): `subject = prefix OR subject
+     *  LIKE prefix || ':%'` so `SR-1` also matches `SR-1:ac:AC-2`. */
+    subject_prefix?: string;
     predicate?: string;
     object?: string;
   }): Promise<Relation[]>;
+  /**
+   * Atomic optimistic-concurrency update of an edge's `verification`
+   * (wp-111 human verify/reject — D37): the WHERE clause carries the
+   * `expected` state so a contested write loses IN the statement (no
+   * check-then-write race). Result:
+   *  - `updated`  — the transition landed (`prior` = the pre-write state)
+   *  - `noop`     — edge already at `next` (idempotent repeat; NO event)
+   *  - `conflict` — edge exists but isn't at `expected` (stale write →
+   *                 the caller surfaces HTTP 409; `current` included)
+   *  - `missing`  — no such edge (caller surfaces 404)
+   */
+  decideRelation(
+    key: { subject: string; predicate: string; object: string },
+    expected: Relation['verification'],
+    next: NonNullable<Relation['verification']>,
+  ): Promise<
+    | { state: 'updated'; prior: Relation['verification'] }
+    | { state: 'noop' }
+    | { state: 'conflict'; current: Relation['verification'] }
+    | { state: 'missing' }
+  >;
   deleteRelation(r: Relation): Promise<void>;
 
   /** sqlite-vec / pgvector (DB-SCHEMA embeddings; §12 uses: prior-art

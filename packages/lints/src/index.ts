@@ -43,3 +43,16 @@ export {
 } from './fingerprint.js';
 export { type SpecLintResult, renderSpecLint, specLint } from './spec-lint.js';
 export { securityFindingLint } from './security-findings.js';
+export {
+  canonicalManifestItems,
+  type CorrectionFact,
+  evaluateReleaseGates,
+  isMaterialCorrection,
+  MATERIAL_CORRECTION_SEVERITIES,
+  RELEASE_GATE_IDS,
+  type ReleaseGateCheck,
+  type ReleaseGateFacts,
+  type ReleaseGateId,
+  releaseGatesGreen,
+  releaseManifestDigest,
+} from './release-gates.js';

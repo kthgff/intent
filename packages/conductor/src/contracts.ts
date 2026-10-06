@@ -365,7 +365,10 @@ export async function applyTicketStatus(args: {
   );
 }
 
-async function applyTicketStatusTx(
+/** Transaction-bound variant — the caller composes the wider write
+ *  path (e.g. `release_released` flipping member tickets inside the
+ *  release transaction, wp-134). */
+export async function applyTicketStatusTx(
   store: Store,
   ctx: TransitionContext,
   opts: ApplyStatusOptions,

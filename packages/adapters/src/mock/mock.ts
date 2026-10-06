@@ -259,9 +259,16 @@ export class MockAdapter implements Adapter {
       join(tmpdir(), `sr-mock-${Date.now()}`);
     mkdirSync(artifactDir, { recursive: true });
 
+    // In-tree artifact dirs are the `.sprint-runner/<run-id>/` scratch
+    // contract — the log must live INSIDE the leaf so collectArtifacts
+    // moves it into run_dir as `run.log` (SKIP_FILES) instead of
+    // stranding a `mock-run-*.log` sibling that trips the residue
+    // check for `can_write_outside_tree: false` backends.
     const logPath =
       mopts?.logPath ??
-      join(dirname(artifactDir), `mock-run-${Date.now()}.log`);
+      (isInsideTree(worktree, artifactDir)
+        ? join(artifactDir, 'run.log')
+        : join(dirname(artifactDir), `mock-run-${Date.now()}.log`));
     mkdirSync(dirname(logPath), { recursive: true });
     const logFd = openSync(logPath, 'a');
 

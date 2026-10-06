@@ -66,7 +66,10 @@ export interface StreamEvent {
     | 'index_status'
     /** ChangeSet lifecycle writes (wp-140 — SSE mirrors `changeset_*`,
      *  DELIVERY §5). */
-    | 'changeset';
+    | 'changeset'
+    /** Traceability-link verify/reject landed (wp-111 — mirrors the
+     *  link_verified/link_rejected events row; payload is the edge). */
+    | 'link_decided';
   payload: unknown;
 }
 
@@ -190,6 +193,7 @@ export function containerRuntimeDeps(
   return {
     docker: deps.docker ?? new CliDockerClient(),
     store: deps.store,
+    workspaces: deps.workspaces.map((w) => w.name),
     containers: deps.config.containers,
     capabilities: deps.config.capabilities,
     ...(deps.containerDockerfile !== undefined

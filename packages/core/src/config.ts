@@ -132,6 +132,49 @@ export const SemanticConfigSchema = z.object({
 });
 export type SemanticConfig = z.infer<typeof SemanticConfigSchema>;
 
+/** `intelligence:` settings block (SETTINGS "evidence plane / code
+ *  intelligence", D37, wp-111) — retrieval grounding, the RS quality
+ *  pass, and traceability-link verification knobs. */
+export const IntelligenceConfigSchema = z.object({
+  /** Commit-pinned code index; off → retrieval degrades honestly. */
+  code_index: z.boolean().default(true),
+  /** Master switch for stage evidence bundles ({{EVIDENCE_BUNDLE}});
+   *  off → stages render the explicit "grounding disabled" block. */
+  grounding: z.boolean().default(true),
+  index_on_project_connect: z.boolean().default(true),
+  reindex_on_default_branch_change: z.boolean().default(true),
+  parser: z.string().default('tree-sitter'),
+  incremental: z.boolean().default(true),
+  /** Hard per-request result cap for stage evidence bundles. */
+  max_results: z.number().int().positive().default(20),
+  /** Hard token budget for a stage's evidence bundle. */
+  context_tokens: z.number().int().positive().default(8000),
+  /** false = `commit_policy: current` — only the current index head is
+   *  served; true = `allow-stale` — a superseded head may be served,
+   *  labeled `stale` (never silently current). */
+  allow_stale: z.boolean().default(false),
+  structural_depth: z.number().int().positive().default(2),
+  /** The cited AI RS-quality pass (INTELLIGENCE §5); false → the prd
+   *  stage skips the rs-quality.json contract. spec_score is never
+   *  replaced or altered either way. */
+  prd_quality: z.boolean().default(true),
+  /** `block` = unresolved critical findings hold the `rs-quality` gate
+   *  until a human resolves/waives them; `advisory` = surfaced for
+   *  information only. Never auto-approves either way. */
+  critical_prd_findings: z.enum(['block', 'advisory']).default('block'),
+  /** Model-proposed relation links at confidence ≥ this land
+   *  `auto-verified` (visibly labeled automated); below it they need a
+   *  human `verified` decision (INTELLIGENCE §1, §12). */
+  auto_verify_confidence: z.number().min(0).max(1).default(0.9),
+  /** Phase B continuous-alignment mode (wp-112). */
+  alignment: z.enum(['off', 'manual', 'on-merge']).default('off'),
+  /** Path/ref to the versioned retrieval golden set. */
+  evaluation_suite: z.string().nullish(),
+  /** Extra generated/vendor/forbidden globs for the indexer. */
+  exclude: z.array(z.string()).default([]),
+});
+export type IntelligenceConfig = z.infer<typeof IntelligenceConfigSchema>;
+
 export const ImportersConfigSchema = z.object({
   github: z.object({ token_env: z.string().optional() }).optional(),
   jira: z
@@ -210,6 +253,8 @@ export const ConfigSchema = z.object({
   budgets: BudgetsSchema.default({}),
   prior_art_recall: z.boolean().default(true),
   semantic: SemanticConfigSchema.default({}),
+  /** Evidence plane / code intelligence (SETTINGS, D37, wp-111). */
+  intelligence: IntelligenceConfigSchema.default({}),
   /** Postgres only (D29); PGlite powers tests. */
   storage_url: z.string().default('postgres://localhost:5432/sprint-runner'),
   importers: ImportersConfigSchema.default({}),

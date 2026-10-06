@@ -14,7 +14,7 @@
 import { execFile } from 'node:child_process';
 import { constants } from 'node:fs';
 import { access, cp, mkdir, readdir, rename, rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 export const SCRATCH_DIR = '.sprint-runner';
 
@@ -115,10 +115,17 @@ export async function collectArtifacts(
     moved.push(...(await moveContents(scratch, runDir)));
     await rm(scratch, { recursive: true, force: true });
   }
-  // Remove the scratch parent if now empty.
+  // Run ids are multi-segment (`<ws>/<subject>/<attempt>-<stage>`), so
+  // removing the leaf leaves `.sprint-runner/<ws>/<subject>/` shells —
+  // prune every emptied ancestor up to (and incl.) `.sprint-runner/`.
   const parent = join(worktree, SCRATCH_DIR);
-  if ((await exists(parent)) && (await readdir(parent)).length === 0) {
-    await rm(parent, { recursive: true, force: true });
+  for (
+    let dir = dirname(scratch);
+    dir.startsWith(parent) && dir !== worktree;
+    dir = dirname(dir)
+  ) {
+    if (!(await exists(dir)) || (await readdir(dir)).length > 0) break;
+    await rm(dir, { recursive: true, force: true });
   }
 
   const residue: string[] = [];

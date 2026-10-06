@@ -320,6 +320,11 @@ export const EVENT_NAMES = [
    *  revalidated after one of its `depends_on` tickets merged —
    *  `data` carries the recomputed readiness/safety + any drift. */
   'dependent_revalidated',
+  /** Traceability-link decisions (D37, wp-111) — a human verifying or
+   *  rejecting a suggested/auto-verified relation edge; both carry the
+   *  edge key (subject/predicate/object) + prior verification state. */
+  'link_verified',
+  'link_rejected',
 ] as const;
 export type EventName = (typeof EVENT_NAMES)[number];
 
@@ -1433,6 +1438,37 @@ export type CommitPolicy = (typeof COMMIT_POLICIES)[number];
  */
 export const EVIDENCE_FRESHNESS = ['current', 'stale'] as const;
 export type EvidenceFreshness = (typeof EVIDENCE_FRESHNESS)[number];
+
+/**
+ * RS quality-pass dimensions (INTELLIGENCE §5, wp-111). The cited AI
+ * quality pass evaluates the drafted RS across every dimension — a
+ * dimension with no finding is asserted empty, never silently skipped.
+ */
+export const RS_QUALITY_DIMENSIONS = [
+  'ambiguity',
+  'contradiction',
+  'failure-paths',
+  'accessibility',
+  'abuse-security',
+  'privacy-data',
+  'performance',
+  'operability',
+  'observability',
+  'rollout',
+  'rollback',
+  'success-measurement',
+] as const;
+export type RsQualityDimension = (typeof RS_QUALITY_DIMENSIONS)[number];
+
+/**
+ * RS quality-finding severities (INTELLIGENCE §5): `critical` blocks
+ * RS approval until resolved or explicitly waived (SETTINGS
+ * `intelligence.critical_prd_findings: block|advisory`); `moderate`
+ * and `minor` are advisory. Deliberately NOT the review-finding
+ * severity enum — a spec-quality finding is a different contract.
+ */
+export const RS_QUALITY_SEVERITIES = ['critical', 'moderate', 'minor'] as const;
+export type RsQualitySeverity = (typeof RS_QUALITY_SEVERITIES)[number];
 
 /**
  * Retrieval strategies that contribute candidates (INTELLIGENCE §4.2) —

@@ -2,7 +2,7 @@
 schema: 1
 id: wp-134
 title: Release Center core — entities, lifecycle, manifest freeze, approvals
-status: todo
+status: done
 priority: high
 depth: deep
 repos: []
@@ -30,11 +30,11 @@ open correction blocks its item's release gate.
 `packages/conductor/src/release/**` (new), `packages/lints` gate checks
 
 ## Acceptance criteria
-- [ ] Full lifecycle + manifest immutability enforced fail-closed
-- [ ] `release_released` transactionally updates member tickets + events
-- [ ] Partial-release approval rule enforced
-- [ ] Correction-ticket blocking rule verified by test
-- [ ] Store tests green (PGlite)
+- [x] Full lifecycle + manifest immutability enforced fail-closed
+- [x] `release_released` transactionally updates member tickets + events
+- [x] Partial-release approval rule enforced
+- [x] Correction-ticket blocking rule verified by test
+- [x] Store tests green (PGlite)
 
 ## Contract change
 None beyond wp-131.

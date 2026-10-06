@@ -16,6 +16,7 @@ export * from './semantics/index.js';
 export * from './import/index.js';
 export * from './claim/index.js';
 export * from './merge/index.js';
+export * from './release/index.js';
 export * from './shepherd/index.js';
 export * from './launch/index.js';
 export * from './launch/caps-action.js';

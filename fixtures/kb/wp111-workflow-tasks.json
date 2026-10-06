@@ -1,0 +1,48 @@
+{
+  "suite_version": "wp111-workflow-tasks-v1",
+  "task": "implement",
+  "k": 10,
+  "comment": "wp-111 integrated-task golden set — one case per workflow task (SCHEMAS §17 `task` enum). Relevance is declared against the kb test fixture repo (src/prefs.ts savePreferences/resetPreferences, src/store.ts persist, src/notify.ts notifyUser, src/audit.ts auditLog, tests/prefs.test.ts exercisePrefs). Queries are exact-identifier hits so the suite is deterministic. `zero-result` contributes only authorization/citation/latency measurements — an explicit empty bundle is a VALID outcome (INTELLIGENCE §4).",
+  "cases": [
+    {
+      "id": "prd-grounding",
+      "task": "prd",
+      "query": "savePreferences",
+      "relevant_symbols": ["savePreferences"],
+      "relevant_paths": ["src/prefs.ts"]
+    },
+    {
+      "id": "impact-analysis",
+      "task": "impact",
+      "query": "persist",
+      "relevant_symbols": ["persist"],
+      "relevant_paths": ["src/store.ts"]
+    },
+    {
+      "id": "testplan-coverage",
+      "task": "testplan",
+      "query": "exercisePrefs",
+      "relevant_symbols": ["exercisePrefs"],
+      "relevant_paths": ["tests/prefs.test.ts"]
+    },
+    {
+      "id": "implement-target",
+      "task": "implement",
+      "query": "resetPreferences",
+      "relevant_symbols": ["resetPreferences"],
+      "relevant_paths": ["src/prefs.ts"]
+    },
+    {
+      "id": "review-diff",
+      "task": "review",
+      "query": "auditLog",
+      "relevant_symbols": ["auditLog"],
+      "relevant_paths": ["src/audit.ts"]
+    },
+    {
+      "id": "zero-result",
+      "task": "implement",
+      "query": "qqqzzz-nomatch"
+    }
+  ]
+}

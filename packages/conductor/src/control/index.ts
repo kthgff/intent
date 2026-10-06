@@ -18,6 +18,7 @@ import {
   nowIso,
 } from '../loop/deps.js';
 import type { LeaseManager } from '../loop/lease.js';
+import { applyRetryLadder } from '../reconcile/index.js';
 
 const EVENT_BY_OP: Record<ControlOp, EventName> = {
   kill: 'run_killed',
@@ -96,6 +97,16 @@ export async function controlRun(
         stage: run.stage,
         attempt: run.attempt,
       },
+    );
+    // Killed = transient (CONDUCTOR "Retry ladder") — re-enter the
+    // same ladder the timeout kill uses or the run dies silent.
+    const ws = deps.workspaces.find((w) => w.name === run.workspace) ?? {
+      name: run.workspace,
+      rootPath: '',
+    };
+    await applyRetryLadder(
+      { deps, ws, leases, handles, killedForCap: new Set() },
+      { ...run, status: 'killed' },
     );
   }
 }

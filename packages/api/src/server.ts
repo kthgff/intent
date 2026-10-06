@@ -86,6 +86,7 @@ import {
   parseUnifiedDiff,
 } from './diff.js';
 import { registerEvidenceRoutes } from './evidence.js';
+import { registerLinkRoutes } from './links.js';
 import { deviationMetrics, gateDwell } from './metrics.js';
 import { registerReviewRoutes } from './review.js';
 import { StreamHub } from './sse.js';
@@ -528,12 +529,23 @@ function dropTargetsFor(
   return targets;
 }
 
-/** Candidate gate names for a doc approval, in probe order. */
+/** Candidate gate names for a doc approval, in probe order. Keyed by
+ *  the post-rename doc name; stage/gate ids stay pre-rename. */
 const DOC_GATES: Record<string, string[]> = {
-  prd: ['plan-package', 'prd-review'],
+  rs: ['plan-package', 'prd-review'],
   tdd: ['plan-package', 'tdd-review'],
-  test: ['plan-package', 'test-review', 'test-approved'],
+  vs: ['plan-package', 'test-review', 'test-approved'],
 };
+
+/** wp-132 renamed doc kinds (rs.md/vs.md) but stage/gate ids kept the
+ *  old vocabulary — accept both at the doc routes. */
+const DOC_NAME_ALIASES: Record<string, string> = {
+  prd: 'rs',
+  'prd.md': 'rs.md',
+  test: 'vs',
+  'test.md': 'vs.md',
+};
+const docNameFor = (name: string): string => DOC_NAME_ALIASES[name] ?? name;
 
 // ---------------------------------------------------------------------------
 // createServer
@@ -1427,8 +1439,10 @@ export function createServer(opts: ServerOptions): ApiServer {
    * the latest producing run.
    */
   function docKindFor(name: string): DocKind | null {
-    if ((DOC_KINDS as readonly string[]).includes(name)) return name as DocKind;
-    const md = `${name}.md`;
+    const resolved = docNameFor(name);
+    if ((DOC_KINDS as readonly string[]).includes(resolved))
+      return resolved as DocKind;
+    const md = `${resolved}.md`;
     if ((DOC_KINDS as readonly string[]).includes(md)) return md as DocKind;
     return null;
   }
@@ -1548,6 +1562,34 @@ export function createServer(opts: ServerOptions): ApiServer {
       );
     }
     return { run_id: art.runId, name: art.name, review };
+  });
+
+  // ---- S-06 rs-quality.json — latest prd run_artifact (wp-111) ----
+
+  app.get('/api/v1/tickets/:workspace/:ticket/rs-quality', async (req) => {
+    const { workspace: wsName, ticket } = req.params as {
+      workspace: string;
+      ticket: string;
+    };
+    workspace(wsName);
+    await getTicketOr404(wsName, ticket);
+    // rs-quality.json is a run_artifact under D29 — the cited AI
+    // quality pass rendered next to rs.md (S-06 doc review).
+    const art = await latestArtifact(wsName, ticket, 'rs-quality.json');
+    if (art === null) {
+      throw notFound(`no rs-quality.json for ${wsName}/${ticket}`);
+    }
+    let quality: unknown;
+    try {
+      quality = JSON.parse(art.content);
+    } catch {
+      throw new ApiError(
+        502,
+        'artifact_corrupt',
+        `rs-quality.json on run ${art.runId} is not valid JSON`,
+      );
+    }
+    return { run_id: art.runId, name: art.name, quality };
   });
 
   // ---- S-04 wizard answers → commit → re-run ----
@@ -1670,9 +1712,9 @@ export function createServer(opts: ServerOptions): ApiServer {
   // ---- S-06 doc feedback → doc_feedback → revision run ----
 
   const DOC_STAGE: Record<string, string> = {
-    prd: 'prd',
+    rs: 'prd',
     tdd: 'design',
-    test: 'testplan',
+    vs: 'testplan',
   };
 
   app.post(
@@ -1687,7 +1729,7 @@ export function createServer(opts: ServerOptions): ApiServer {
         ticket: string;
         name: string;
       };
-      const stage = DOC_STAGE[name];
+      const stage = DOC_STAGE[docNameFor(name)];
       if (!stage) throw badRequest(`unknown doc '${name}'`);
       const body = parseBody(FeedbackBodySchema, req.body, 'feedback');
       const ws = workspace(wsName);
@@ -1736,7 +1778,7 @@ export function createServer(opts: ServerOptions): ApiServer {
         ticket: string;
         name: string;
       };
-      const candidates = DOC_GATES[name];
+      const candidates = DOC_GATES[docNameFor(name)];
       if (!candidates) throw badRequest(`unknown doc '${name}'`);
       const body = req.body as { expected_status?: string } | null;
       const ws = workspace(wsName);
@@ -2060,6 +2102,27 @@ export function createServer(opts: ServerOptions): ApiServer {
           ticketId: ticket,
         });
         return reply.status(202).send({ action, run, retry_of: last.id });
+      }
+      // wp-111: the rs-quality gate is cleared by the human waiving the
+      // cited critical findings — an honest gate_overridden ledger
+      // entry, not a doc approval (rs.md is read-only; the findings
+      // stay recorded). Idempotent: an already-cleared gate is a noop.
+      case 'waive_quality': {
+        const gate = await store.getGateItem({
+          workspace: wsName,
+          subject: ticket,
+          gate: 'rs-quality',
+        });
+        if (gate === null || gate.cleared_at !== null) {
+          return { action, gate_cleared: null };
+        }
+        await emitEvent(ws, {
+          ticketId: ticket,
+          event: 'gate_overridden',
+          data: { gate: 'rs-quality' },
+        });
+        const cleared = await clear('rs-quality');
+        return { action, gate_cleared: cleared.gate };
       }
       // Known but not wired to a transition path — honest 501, never
       // faked (wp-060 ticket).
@@ -3253,6 +3316,19 @@ export function createServer(opts: ServerOptions): ApiServer {
         payload: e.payload,
       }),
     now,
+  });
+
+  // /links — wp-111 traceability edges (D37): propose/record +
+  // idempotent evented human verify/reject (OCC → 409 stale writes).
+  registerLinkRoutes(app, {
+    store,
+    config,
+    actor,
+    notify: (e) =>
+      conductor.deps.notify?.({
+        type: 'link_decided',
+        payload: e.payload,
+      }),
   });
 
   return app;
