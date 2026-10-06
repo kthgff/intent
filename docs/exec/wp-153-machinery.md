@@ -2,7 +2,7 @@
 schema: 1
 id: wp-153
 title: Process machinery — DoR/DoD engines, Assumption Register, Quality Debt, Delivery Commitments
-status: todo
+status: done
 priority: medium
 depth: deep
 repos: []
@@ -35,10 +35,10 @@ success criteria, exclusions, assumptions, accountable owner — planned
 `packages/core` schemas
 
 ## Acceptance criteria
-- [ ] DoR blocks `ready` with named missing checks
-- [ ] Assumptions surface in ticket/RS context; high-impact ones gate
-- [ ] Debt items carry owner + expiry; exceptions expire loudly
-- [ ] Commitments versioned; drift vs plan is visible on radar
+- [x] DoR blocks `ready` with named missing checks
+- [x] Assumptions surface in ticket/RS context; high-impact ones gate
+- [x] Debt items carry owner + expiry; exceptions expire loudly
+- [x] Commitments versioned; drift vs plan is visible on radar
 
 ## Contract change
 None beyond wp-131.

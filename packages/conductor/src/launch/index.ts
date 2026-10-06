@@ -54,6 +54,7 @@ import {
   stageTimeout,
 } from '../loop/deps.js';
 import type { LeaseManager } from '../loop/lease.js';
+import { formatAssumptionContext } from '../registers/assumptions.js';
 import { buildReleaseBundle } from '../release/index.js';
 import {
   gitHead,
@@ -366,6 +367,16 @@ async function buildTokens(
   tokens.PRIOR_ART = 'none';
   tokens.SPEC_LINT = 'not computed (wp-032)';
   tokens.CONTEXT_MD = '';
+  // wp-153: open Assumption Register rows surface in ticket/RS context
+  // (PRD §15.10 — unverified dependencies are visible to the stage
+  // that consumes them, with provenance).
+  if (ticket) {
+    const assumptions = await ctx.deps.store.listAssumptions({
+      workspace: ws.name,
+      subject: ticket.ticket_id,
+    });
+    tokens.CONTEXT_MD = formatAssumptionContext(assumptions);
+  }
   tokens.SPLIT_MAX_CHILDREN = String(
     ctx.deps.config.budgets.split_max_children,
   );

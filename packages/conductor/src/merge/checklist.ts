@@ -31,7 +31,7 @@ import type {
   TicketRow,
 } from '@sprint-runner/core';
 import { checksGreen } from '../shepherd/checks.js';
-import { parseDodRows } from '../shepherd/dod.js';
+import { dodCheckStatuses, parseDodRows } from '../shepherd/dod.js';
 import type { PrCheck, PrInfo } from '../shepherd/gh.js';
 import { type GitRunner, probeConflict } from './exec.js';
 import type { ChecklistItem, MergeCtx, MergeReadiness } from './types.js';
@@ -352,9 +352,10 @@ export async function evaluateReadiness(
     detail: conflict ? conflictDetails.join('; ') : 'merge-tree clean',
   });
 
-  // ---- DoD merge flag ----
+  // ---- DoD merge flag + per-check detail (wp-153 DoD engine) ----
   const dodRows = vsDoc ? parseDodRows(vsDoc.content) : [];
   let dodOk = dodRows.length === 0;
+  let dodDetail = 'no DoD rows';
   if (dodRows.length > 0) {
     const flagDoc = await store.getDoc({
       workspace: ws.name,
@@ -362,26 +363,69 @@ export async function evaluateReadiness(
       doc: MERGE_FLAG,
     });
     dodOk = false;
+    let flagDod: { criterion: string; status?: string }[] = [];
     if (flagDoc) {
       try {
-        dodOk =
-          (JSON.parse(flagDoc.content) as { enabled?: boolean }).enabled ===
-          true;
+        const flag = JSON.parse(flagDoc.content) as {
+          enabled?: boolean;
+          dod?: { criterion: string; status?: string }[];
+        };
+        dodOk = flag.enabled === true;
+        flagDod = flag.dod ?? [];
       } catch {
         dodOk = false;
       }
+    }
+    if (dodOk) {
+      dodDetail = 'DoD verified/attested';
+    } else {
+      // Per-check readiness from the attestations doc + the flag's
+      // recorded cmd verdicts — unmet checks are NAMED, never a bare
+      // "not done" (fail-closed: unattested manual + unverified cmd +
+      // unknown verified_by all count as unmet).
+      const attestations = await store.getDoc({
+        workspace: ws.name,
+        subject: id,
+        doc: 'dod-attestations.json',
+      });
+      let attestedCriteria = new Set<string>();
+      if (attestations) {
+        try {
+          const parsed = JSON.parse(attestations.content) as {
+            attested?: { criterion?: string }[];
+          };
+          attestedCriteria = new Set(
+            (parsed.attested ?? [])
+              .map((a) => a.criterion)
+              .filter((c): c is string => typeof c === 'string'),
+          );
+        } catch {
+          attestedCriteria = new Set(); // malformed → nobody attested
+        }
+      }
+      const cmdStatus = new Map(
+        flagDod.map((d) => [d.criterion, d.status ?? 'unverified']),
+      );
+      const checks = dodCheckStatuses(dodRows, {}, []);
+      const unmet = checks
+        .filter((c) => {
+          if (c.kind === 'manual') return !attestedCriteria.has(c.criterion);
+          if (c.kind === 'cmd')
+            return cmdStatus.get(c.criterion) !== 'verified';
+          return true; // unknown verified_by — fail-closed unmet
+        })
+        .map((c) => c.criterion);
+      dodDetail =
+        unmet.length === 0
+          ? 'checks clear — merge flag not yet enabled'
+          : `unmet: ${unmet.slice(0, 4).join(', ')}${unmet.length > 4 ? ` (+${unmet.length - 4})` : ''}`;
     }
   }
   items.push({
     id: 'dod',
     label: 'Definition of Done',
     ok: dodOk,
-    detail:
-      dodRows.length === 0
-        ? 'no DoD rows'
-        : dodOk
-          ? 'DoD verified/attested'
-          : 'DoD not yet verified/attested',
+    detail: dodDetail,
   });
 
   const blockers = items.filter((i) => !i.ok);
