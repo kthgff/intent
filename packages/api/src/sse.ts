@@ -19,6 +19,11 @@ interface Client {
 export class StreamHub {
   readonly #clients = new Set<Client>();
 
+  /** Slow-consumer cap (bytes). A client that never drains would
+   *  buffer frames in memory forever — past this we drop it; the
+   *  stream is a latency optimization, never the only copy. */
+  static readonly MAX_BUFFERED = 1024 * 1024;
+
   get size(): number {
     return this.#clients.size;
   }
@@ -27,7 +32,9 @@ export class StreamHub {
   add(reply: FastifyReply): void {
     const client: Client = { reply };
     this.#clients.add(client);
-    reply.raw.on('close', () => this.#clients.delete(client));
+    const drop = () => this.#clients.delete(client);
+    reply.raw.on('close', drop);
+    reply.raw.on('error', drop);
   }
 
   /** Broadcast one event to every connected client. */
@@ -37,7 +44,16 @@ export class StreamHub {
     )}\n\n`;
     for (const client of this.#clients) {
       try {
-        client.reply.raw.write(frame);
+        const flushed = client.reply.raw.write(frame);
+        if (
+          !flushed &&
+          client.reply.raw.writableLength > StreamHub.MAX_BUFFERED
+        ) {
+          // Backpressure: over the cap → cut the client loose so its
+          // buffer can't grow unbounded.
+          this.#clients.delete(client);
+          client.reply.raw.destroy();
+        }
       } catch {
         this.#clients.delete(client);
       }

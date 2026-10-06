@@ -38,7 +38,7 @@ import {
 } from '@veto/core';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { ApiError } from './server.js';
+import { ApiError, parseBody } from './server.js';
 
 const DecideBody = z.object({
   workspace: z.string().min(1),
@@ -97,15 +97,30 @@ export function registerAlignmentRoutes(
 
   app.get('/api/v1/alignment/:scope', async (req) => {
     const { scope } = req.params as { scope: string };
-    const q = z.object({ workspace: z.string().min(1) }).parse(req.query ?? {});
+    const q = parseBody(
+      z.object({ workspace: z.string().min(1) }),
+      req.query,
+      'alignment query',
+    );
     const runs = await deps.store.listAlignmentRuns({
       workspace: q.workspace,
       scope,
     });
     const latest = runs[0] ?? null;
-    const artifact = latest?.artifact
-      ? validateAlignmentFindings(JSON.parse(latest.artifact))
-      : null;
+    let artifact = null;
+    if (latest?.artifact) {
+      try {
+        artifact = validateAlignmentFindings(JSON.parse(latest.artifact));
+      } catch (e) {
+        // Fail-closed: a stored artifact that no longer parses is
+        // corruption, never a silently empty report.
+        throw new ApiError(
+          502,
+          'corrupt_artifact',
+          `alignment-findings for '${scope}': ${(e as Error).message}`,
+        );
+      }
+    }
     const findings = await deps.store.listAlignmentFindings({
       workspace: q.workspace,
       scope,
@@ -122,7 +137,11 @@ export function registerAlignmentRoutes(
         'readiness is defined for release:<id> scopes',
       );
     }
-    const q = z.object({ workspace: z.string().min(1) }).parse(req.query ?? {});
+    const q = parseBody(
+      z.object({ workspace: z.string().min(1) }),
+      req.query,
+      'alignment readiness query',
+    );
     try {
       return await releaseReadiness(
         {
@@ -143,7 +162,7 @@ export function registerAlignmentRoutes(
 
   app.post('/api/v1/alignment/:scope', async (req, reply) => {
     const { scope } = req.params as { scope: string };
-    const body = RunBody.parse(req.body ?? {});
+    const body = parseBody(RunBody, req.body, 'alignment run');
     try {
       const res = await runAlignment(ctx(body.workspace), deps.config, {
         scope,
@@ -161,7 +180,7 @@ export function registerAlignmentRoutes(
   });
 
   app.post('/api/v1/alignment/decide', async (req) => {
-    const body = DecideBody.parse(req.body ?? {});
+    const body = parseBody(DecideBody, req.body, 'alignment decide');
     try {
       const finding = await decideAlignmentFinding(ctx(body.workspace), {
         id: body.id,
@@ -178,7 +197,7 @@ export function registerAlignmentRoutes(
   });
 
   app.post('/api/v1/feedback/clusters', async (req) => {
-    const body = ClusterBody.parse(req.body ?? {});
+    const body = parseBody(ClusterBody, req.body, 'feedback clusters');
     const proposals = await clusterFeedback(ctx(body.workspace), {
       ...(body.board ? { board: body.board } : {}),
     });

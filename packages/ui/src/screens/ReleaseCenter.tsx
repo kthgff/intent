@@ -423,6 +423,7 @@ function ScopeTab({
       await client.removeReleaseItem(ws, r.release_id, {
         item_kind: itemKind as 'feature' | 'ticket',
         item_id: itemIdv,
+        expected_status: r.status,
       });
       onDone();
     } catch (e) {
@@ -838,12 +839,18 @@ function DeployTab({
                 <td>
                   {dep.evidence.type}: {dep.evidence.note}
                   {dep.evidence.url ? (
-                    <>
-                      {' '}
-                      <a href={dep.evidence.url} rel="noreferrer">
-                        link
-                      </a>
-                    </>
+                    /^https?:/i.test(dep.evidence.url) ? (
+                      <>
+                        {' '}
+                        <a href={dep.evidence.url} rel="noreferrer">
+                          link
+                        </a>
+                      </>
+                    ) : (
+                      // Same policy as renderMarkdown links — only
+                      // http(s) URLs become anchors (no javascript:).
+                      <span className="muted"> {dep.evidence.url}</span>
+                    )
                   ) : null}
                 </td>
                 <td className="muted">

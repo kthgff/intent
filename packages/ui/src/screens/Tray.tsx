@@ -10,7 +10,7 @@ import { Link } from 'react-router-dom';
 import { type IdeaBoardRow, client } from '../api';
 import { Empty, ErrorBox, Loading, fmtAge } from '../components';
 import { noteKindMeta } from '../discovery';
-import { useStreamRefresh } from '../hooks';
+import { useBoardItemRefresh, useStreamRefresh } from '../hooks';
 
 const NOTE_KIND_KEYS = [
   'idea',
@@ -75,6 +75,7 @@ export default function Tray() {
   }, [workspace]);
 
   useStreamRefresh(load, ['interview_updated']);
+  useBoardItemRefresh(load);
 
   useEffect(() => {
     if (!toast) return;
@@ -107,7 +108,11 @@ export default function Tray() {
     try {
       await client.patchBoardItem(item.id, {
         workspace,
-        expected_updated_at: item.updated_at ?? '',
+        // Send the fence only when we actually have a timestamp —
+        // `''` is ambiguous, never a wildcard.
+        ...(item.updated_at != null
+          ? { expected_updated_at: item.updated_at }
+          : {}),
         ...p,
       });
       load();

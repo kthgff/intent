@@ -217,36 +217,40 @@ export function ReadinessCard({
             Merge now
           </button>
         )}
-        {!confirmRevert ? (
-          <button
-            type="button"
-            className="small"
-            disabled={busy}
-            onClick={() => setConfirmRevert(true)}
-          >
-            Revert…
-          </button>
-        ) : (
-          <>
-            <span className="muted">Revert this merge?</span>
-            <button
-              type="button"
-              className="danger"
-              disabled={busy}
-              onClick={() => void act('revert')}
-            >
-              Confirm revert
-            </button>
+        {/* Revert is a merged-work action — on a not-yet-merged ticket
+            it would queue a revert run for a merge that never landed. */}
+        {['merged', 'verifying', 'released'].includes(r.status ?? '') ? (
+          !confirmRevert ? (
             <button
               type="button"
               className="small"
               disabled={busy}
-              onClick={() => setConfirmRevert(false)}
+              onClick={() => setConfirmRevert(true)}
             >
-              cancel
+              Revert…
             </button>
-          </>
-        )}
+          ) : (
+            <>
+              <span className="muted">Revert this merge?</span>
+              <button
+                type="button"
+                className="danger"
+                disabled={busy}
+                onClick={() => void act('revert')}
+              >
+                Confirm revert
+              </button>
+              <button
+                type="button"
+                className="small"
+                disabled={busy}
+                onClick={() => setConfirmRevert(false)}
+              >
+                cancel
+              </button>
+            </>
+          )
+        ) : null}
         <Link
           className="btn small"
           to={`/tickets/${encodeURIComponent(ws)}/${encodeURIComponent(r.ticket_id)}/pr`}

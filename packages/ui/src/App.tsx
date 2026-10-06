@@ -194,7 +194,12 @@ function ProductionApp() {
             className="modal"
             aria-label="quick capture"
             onClick={(e) => e.stopPropagation()}
-            onKeyDown={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              // Escape must still dismiss — swallowing every keydown
+              // here blocked the backdrop's handler.
+              e.stopPropagation();
+              if (e.key === 'Escape') setCaptureOpen(false);
+            }}
           >
             <strong>Quick capture</strong>
             {captureData ? (

@@ -19,7 +19,7 @@ import { git } from '@veto/gitops';
 import { createEmbedder, indexRepo, queryEvidence } from '@veto/kb';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { ApiError } from './server.js';
+import { ApiError, parseBody } from './server.js';
 
 const SourceQuery = z.object({
   workspace: z.string().min(1),
@@ -144,7 +144,7 @@ export function registerEvidenceRoutes(
   // the pin to the current index head — a stale citation renders as
   // such in the UI, never as current evidence (INTELLIGENCE §4.1).
   app.get('/api/v1/evidence/source', async (req) => {
-    const q = SourceQuery.parse(req.query ?? {});
+    const q = parseBody(SourceQuery, req.query, 'evidence source');
     const m = CODE_REF.exec(q.ref);
     if (!m?.[1] || !m[2] || !m[3] || !m[4]) {
       throw new ApiError(
@@ -212,7 +212,7 @@ export function registerEvidenceRoutes(
   // ---- hybrid evidence search -------------------------------------------
 
   app.post('/api/v1/evidence/search', async (req) => {
-    const body = SearchBody.parse(req.body ?? {});
+    const body = parseBody(SearchBody, req.body, 'evidence search');
     const configured = new Set(Object.keys(deps.config.repos ?? {}));
 
     // Authorized scope: the configured repos, narrowed to the subject

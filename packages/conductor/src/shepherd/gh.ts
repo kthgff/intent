@@ -200,6 +200,11 @@ export class ShellGhClient implements GhClient {
       parsed.host === 'github.com' ? [] : ['--hostname', parsed.host];
     try {
       const info = await this.prView(prUrl);
+      // Cheapest signal first: a queued/auto-merge-armed PR proves the
+      // repo runs a merge queue — no ruleset probing needed.
+      if (info.mergeQueueEntry != null || info.autoMergeRequest != null) {
+        return true;
+      }
       const base = info.baseRefName;
       if (!base) return false;
       const protection = (await this.#api(
@@ -210,14 +215,26 @@ export class ShellGhClient implements GhClient {
         merge_queue?: unknown;
       } | null;
       if (protection && protection.merge_queue != null) return true;
-      // Rulesets (newer API) carry `merge_queue` as a rule type.
+      // Rulesets (newer API): the list endpoint returns SUMMARIES —
+      // `rules` only materializes on the detail fetch, so detection
+      // must GET each ruleset by id.
       const rulesets = (await this.#api(
         `repos/${parsed.owner}/${parsed.repo}/rulesets?targets=branch`,
         hostArgs,
-      )) as { rules?: { type?: string }[] }[];
-      return rulesets.some((r) =>
-        (r.rules ?? []).some((rule) => rule.type === 'merge_queue'),
-      );
+      )) as { id?: number; rules?: { type?: string }[] }[];
+      for (const r of rulesets) {
+        let detail = r;
+        if (r.rules === undefined && r.id !== undefined) {
+          detail = (await this.#api(
+            `repos/${parsed.owner}/${parsed.repo}/rulesets/${r.id}`,
+            hostArgs,
+          )) as typeof r;
+        }
+        if ((detail.rules ?? []).some((rule) => rule.type === 'merge_queue')) {
+          return true;
+        }
+      }
+      return false;
     } catch {
       return false;
     }
