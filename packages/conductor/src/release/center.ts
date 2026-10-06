@@ -22,6 +22,8 @@
  */
 import type {
   ActorType,
+  DeploymentRow,
+  DocVersion,
   EventName,
   ReleaseApprovalRow,
   ReleaseItemKind,
@@ -31,6 +33,7 @@ import type {
   ReleaseRow,
   ReleaseStatus,
 } from '@sprint-runner/core';
+import { RELEASE_NOTE_AUDIENCES } from '@sprint-runner/core';
 import { releaseGatesGreen, releaseManifestDigest } from '@sprint-runner/lints';
 import { applyTicketStatusTx } from '../contracts.js';
 import { evaluateRelease, recordReleaseGates } from './gates.js';
@@ -284,6 +287,15 @@ export async function addReleaseItem(
       throw new ReleaseError(
         'not-found',
         `item feature ${args.itemId} not found`,
+      );
+    }
+    // PRD §15.7 / wp-152: release assignment requires the human
+    // acceptance gate — `done` is reachable ONLY via explicit
+    // acceptance (features/acceptFeature), never by ticket rollup.
+    if (feature.status !== 'done') {
+      throw new ReleaseError(
+        'not-approved',
+        `item feature ${args.itemId} is '${feature.status}' — the Feature Acceptance Package must be human-accepted (POST /features/<ref>/accept) before release assignment`,
       );
     }
   }
@@ -620,6 +632,17 @@ export interface ReleaseDetail {
   /** Latest recorded verdict per gate id. */
   gates: Record<string, { result: string; checked_at: string }>;
   notes: ReleaseNoteRow[];
+  /** Confirmed deployments recorded against this release (DELIVERY §3;
+   *  wp-137 — the Release Center UI needs them for the evidence ledger
+   *  and the exposure `deployment_id` picker). */
+  deployments: DeploymentRow[];
+  /** Latest draft `doc_version` per audience — a draft newer than the
+   *  pinned approved `doc_version` renders as unapproved (invariant 6;
+   *  wp-137 — lets the UI show draft-vs-approved without extra reads). */
+  noteDrafts: Record<
+    string,
+    { version: number; created_at: string | null } | null
+  >;
 }
 
 export async function getReleaseDetail(
@@ -627,7 +650,7 @@ export async function getReleaseDetail(
   releaseId: string,
 ): Promise<ReleaseDetail> {
   const release = await requireRelease(ctx, releaseId);
-  const [items, manifests, approvalHistory, gateRows, notes] =
+  const [items, manifests, approvalHistory, gateRows, notes, deployments] =
     await Promise.all([
       ctx.store.listReleaseItems({
         workspace: ctx.workspace,
@@ -649,7 +672,22 @@ export async function getReleaseDetail(
         workspace: ctx.workspace,
         release_id: releaseId,
       }),
+      ctx.store.listDeployments({
+        workspace: ctx.workspace,
+        release_id: releaseId,
+      }),
     ]);
+  const noteDrafts: ReleaseDetail['noteDrafts'] = {};
+  for (const audience of RELEASE_NOTE_AUDIENCES) {
+    const draft = await ctx.store.getDoc({
+      workspace: ctx.workspace,
+      subject: releaseId,
+      doc: `notes-${audience}.md` as DocVersion['doc'],
+    });
+    noteDrafts[audience] = draft
+      ? { version: draft.version, created_at: draft.created_at ?? null }
+      : null;
+  }
   const manifest = manifests[manifests.length - 1] ?? null;
   const gates: ReleaseDetail['gates'] = {};
   for (const row of gateRows) {
@@ -666,5 +704,7 @@ export async function getReleaseDetail(
     approvalHistory,
     gates,
     notes,
+    deployments,
+    noteDrafts,
   };
 }

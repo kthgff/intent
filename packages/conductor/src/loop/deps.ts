@@ -76,7 +76,23 @@ export interface StreamEvent {
     | 'alignment_status'
     /** Feedback-cluster proposals emitted (wp-112 — proposals only,
      *  never auto-created work). */
-    | 'feedback_clustered';
+    | 'feedback_clustered'
+    /** DELIVERY §5 durable event names mirrored onto the stream
+     *  (wp-136 — merge center + release center lifecycle). */
+    | 'merge_ready'
+    | 'merge_attempted'
+    | 'merge_conflict'
+    | 'release_created'
+    | 'release_items_changed'
+    | 'manifest_cut'
+    | 'release_approved'
+    | 'release_released'
+    | 'deployment_confirmed'
+    | 'feature_exposed'
+    | 'release_note_approved'
+    | 'retro_completed'
+    | 'correction_filed'
+    | 'dependent_revalidated';
   payload: unknown;
 }
 

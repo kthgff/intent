@@ -10,12 +10,15 @@ import CodeReview from './screens/CodeReview';
 import CreateImport from './screens/CreateImport';
 import DocReview from './screens/DocReview';
 import Escalations from './screens/Escalations';
+import FeatureWorkspace from './screens/FeatureWorkspace';
 import Home from './screens/Home';
 import Inbox from './screens/Inbox';
 import KnowledgeBase from './screens/KnowledgeBase';
 import Ledger from './screens/Ledger';
+import MergeCenter from './screens/MergeCenter';
 import Metrics from './screens/Metrics';
 import PrPanel from './screens/PrPanel';
+import ReleaseCenter from './screens/ReleaseCenter';
 import RunMonitor, { RunsList } from './screens/RunMonitor';
 import Settings from './screens/Settings';
 import TicketFocus from './screens/TicketFocus';
@@ -85,6 +88,8 @@ function ProductionApp() {
         <NavLink to="/new">Create / Import</NavLink>
         <NavLink to="/runs">Runs</NavLink>
         <NavLink to="/queue">Failures</NavLink>
+        <NavLink to="/merge-center">Merge</NavLink>
+        <NavLink to="/releases">Releases</NavLink>
         <NavLink to="/workspaces">Workspaces</NavLink>
         <NavLink to="/kb">Knowledge base</NavLink>
         <NavLink to="/metrics">Metrics</NavLink>
@@ -96,6 +101,7 @@ function ProductionApp() {
           <Route path="/" element={<Home />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/new" element={<CreateImport />} />
+          <Route path="/features/:ws/:id" element={<FeatureWorkspace />} />
           <Route path="/tickets/:ws/:id" element={<TicketFocus />} />
           <Route path="/tickets/:ws/:id/wizard" element={<Wizard />} />
           <Route path="/tickets/:ws/:id/docs/:name" element={<DocReview />} />
@@ -105,6 +111,9 @@ function ProductionApp() {
           <Route path="/runs" element={<RunsList />} />
           <Route path="/runs/:id" element={<RunMonitor />} />
           <Route path="/queue" element={<Escalations />} />
+          <Route path="/merge-center" element={<MergeCenter />} />
+          <Route path="/releases" element={<ReleaseCenter />} />
+          <Route path="/releases/:ws/:rel" element={<ReleaseCenter />} />
           <Route path="/ledger" element={<Ledger />} />
           <Route path="/metrics" element={<Metrics />} />
           <Route path="/workspaces" element={<Workspaces />} />

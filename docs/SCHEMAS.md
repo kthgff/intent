@@ -253,7 +253,11 @@ split_proposed, split_approved, split_materialized, survey_started,
 survey_completed, dossier_updated, dossier_edited, gap_reported,
 provenance_amended, item_captured, board_synthesized,
 initiative_planned, replanned, reparented, released, verify_failed,
-discarded, import_reconciled, import_drift_detected`
+discarded, import_reconciled, import_drift_detected,
+dependent_revalidated, link_verified, link_rejected,
+assumption_confirmed, assumption_stale, quality_debt_recorded,
+quality_debt_expired, commitment_recorded, commitment_status,
+commitment_drift`
 
 (The last nine are the D27/D29 additions — emitters for the capture,
 synthesis, re-plan, verify, and discard flows land with the wp-09x+

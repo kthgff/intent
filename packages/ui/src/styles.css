@@ -699,3 +699,51 @@ th {
   margin-bottom: 8px;
   font-size: 12.5px;
 }
+
+/* ---- wp-137 Merge Center + Release Center (DELIVERY §8) ---- */
+.merge-queue {
+  list-style: none;
+  padding: 0;
+}
+.merge-card.merge-ready {
+  border-color: var(--green);
+}
+.checklist {
+  list-style: none;
+  padding: 0;
+  margin: 6px 0;
+}
+.checklist li {
+  font-size: 13px;
+  padding: 2px 0;
+}
+.checklist li.check-ok {
+  color: var(--green);
+}
+.checklist li.check-blocked {
+  color: var(--red);
+}
+.checklist .muted {
+  color: var(--text-dim);
+}
+.conflict-card {
+  border-color: var(--red);
+}
+/* Two-dimension display (DELIVERY §8): dev status chip + delivery chip. */
+.badge.delivery-planned {
+  color: var(--text-dim);
+  border-color: var(--text-dim);
+}
+.badge.delivery-released {
+  color: var(--yellow);
+  border-color: var(--yellow);
+}
+.badge.delivery-deployed {
+  color: var(--green);
+  border-color: var(--green);
+}
+.badge.delivery-exposed {
+  color: var(--green);
+  border-color: var(--green);
+  font-weight: 600;
+}

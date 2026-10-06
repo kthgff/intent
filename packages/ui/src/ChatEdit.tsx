@@ -13,13 +13,21 @@ import { type InterviewSession, client } from './api';
 import { DiffView, ErrorBox } from './components';
 import { useStreamRefresh } from './hooks';
 
-export type ChatEditTarget = 'ticket' | 'rs' | 'tdd' | 'vs';
+export type ChatEditTarget =
+  | 'ticket'
+  | 'rs'
+  | 'tdd'
+  | 'vs'
+  | 'feature'
+  | 'ac'
+  | 'notes';
 
 const POLL_MS = 2500;
 
 export default function ChatEdit({
   ws,
   ticketRef,
+  subjectRef,
   target,
   expectedStatus,
   resume,
@@ -27,8 +35,11 @@ export default function ChatEdit({
   onClose,
 }: {
   ws: string;
-  /** ticket_id (subject ref) the session edits. */
-  ticketRef: string;
+  /** ticket_id the session edits (ticket subjects). */
+  ticketRef?: string;
+  /** Non-ticket subject the session edits — a feature id (F-NNNN)
+   *  scopes the assistant to the feature's own docs (wp-152). */
+  subjectRef?: string;
   target: ChatEditTarget;
   /** Fence for the approve write (409 on drift). */
   expectedStatus?: string;
@@ -82,7 +93,11 @@ export default function ChatEdit({
     try {
       const r = await client.interviewEdit({
         workspace: ws,
-        ticket_ref: ticketRef,
+        ...(subjectRef
+          ? { subject_ref: subjectRef }
+          : ticketRef
+            ? { ticket_ref: ticketRef }
+            : {}),
         message,
         target,
         ...(sessionId ? { session_id: sessionId } : {}),

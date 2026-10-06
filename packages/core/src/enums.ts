@@ -332,6 +332,16 @@ export const EVENT_NAMES = [
   'alignment_run_completed',
   'alignment_finding_decided',
   'feedback_cluster_proposed',
+  /** Process machinery registers (PRD §15.10, wp-153): assumption
+   *  confirmation/stale revalidation, quality-debt record + loud
+   *  expiry, commitment record/status/drift. */
+  'assumption_confirmed',
+  'assumption_stale',
+  'quality_debt_recorded',
+  'quality_debt_expired',
+  'commitment_recorded',
+  'commitment_status',
+  'commitment_drift',
 ] as const;
 export type EventName = (typeof EVENT_NAMES)[number];
 

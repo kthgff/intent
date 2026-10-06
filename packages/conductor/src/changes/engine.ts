@@ -54,6 +54,7 @@ import {
   type DocKind,
   type EventName,
   type ReviewCommentRow,
+  type ScopeBudgets,
   type Store,
 } from '@sprint-runner/core';
 import type { StreamEvent } from '../loop/deps.js';
@@ -66,6 +67,7 @@ import {
   detectConflicts,
   itemFootprint,
 } from './analysis.js';
+import { enforceScopeBudgets, scopeBudgetGateOpen } from './radar.js';
 
 // ---------------------------------------------------------------------------
 // Context + errors
@@ -80,6 +82,10 @@ export interface ChangesCtx {
   now: () => Date;
   /** Live-channel hook (API.md SSE) — fired AFTER the durable write. */
   notify?: ((event: StreamEvent) => void) | undefined;
+  /** `scope_budgets:` config (wp-142) — set thresholds escalate a
+   *  breached set to the `scope-budget` gate; absent = radar observes
+   *  only, nothing escalates. */
+  scope_budgets?: ScopeBudgets | null;
 }
 
 export type ChangesetErrorCode =
@@ -583,6 +589,18 @@ export async function analyzeChangeset(
   );
   await surfaceDecisionGate(ctx, next);
   await notifyOwners(ctx, next, 'changeset:awaiting-decision', analysis);
+  // wp-142: scope budgets — a breached set additionally escalates to
+  // the `scope-budget` gate (higher approval); approving decisions
+  // refuse while it's open.
+  await enforceScopeBudgets(ctx, next, (cs2, kind, extra) =>
+    notifyOwners(
+      ctx,
+      cs2,
+      kind,
+      (cs2.analysis as ChangesetAnalysis | null) ?? null,
+      extra,
+    ),
+  );
   return next;
 }
 
@@ -626,6 +644,18 @@ export async function decideChangeset(
   }
   if (!(CHANGESET_DECISIONS as readonly string[]).includes(args.decision)) {
     throw invalid(`unknown decision '${args.decision}'`);
+  }
+  // wp-142 fail-closed: an open scope-budget escalation blocks the
+  // approving options until a human clears it (that IS the higher
+  // approval). decline/next-release stay available — they reduce
+  // scope, never grow it.
+  if (
+    APPROVING_DECISIONS.has(args.decision) &&
+    (await scopeBudgetGateOpen(ctx.store, ctx.workspace, cs.changeset_id))
+  ) {
+    throw badState(
+      `changeset ${cs.changeset_id} breached scope_budgets — the 'scope-budget' escalation gate must be cleared (higher approval) before '${args.decision}'`,
+    );
   }
   if (
     (args.decision === 'decline' || args.decision === 'swap-scope') &&
@@ -846,6 +876,25 @@ export async function applyChangeset(
   }
 
   await assertApplySerialized(ctx, cs);
+
+  // wp-142: budgets can be crossed between approval and apply
+  // (emergency route decides pre-analysis; upstream apply moves the
+  // numbers). Re-evaluate and refuse while an escalation is open.
+  await enforceScopeBudgets(ctx, cs, (cs2, kind, extra) =>
+    notifyOwners(
+      ctx,
+      cs2,
+      kind,
+      (cs2.analysis as ChangesetAnalysis | null) ?? null,
+      extra,
+    ),
+  );
+  if (await scopeBudgetGateOpen(ctx.store, ctx.workspace, cs.changeset_id)) {
+    throw badState(
+      `changeset ${cs.changeset_id} has an open 'scope-budget' escalation — clear it (higher approval) before apply`,
+    );
+  }
+
   await writeState(ctx, cs, { status: 'applying' });
 
   const ts = nowIso(ctx);

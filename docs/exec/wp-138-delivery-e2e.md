@@ -2,7 +2,7 @@
 schema: 1
 id: wp-138
 title: Delivery E2E — merge → release → deployment → retro vertical on mock adapter
-status: todo
+status: done
 priority: high
 depth: standard
 repos: []
@@ -24,9 +24,9 @@ Single-agent package (E2E thrashes across contributors).
 `packages/conductor/test/**`, `packages/api/test/**`, `fixtures/**`
 
 ## Acceptance criteria
-- [ ] Full merge→released vertical green on PGlite
-- [ ] Every §4 invariant has a failing-path test
-- [ ] `pnpm typecheck && pnpm test && pnpm lint` green
+- [x] Full merge→released vertical green on PGlite
+- [x] Every §4 invariant has a failing-path test
+- [x] `pnpm typecheck && pnpm test && pnpm lint` green
 
 ## Contract change
 None.
