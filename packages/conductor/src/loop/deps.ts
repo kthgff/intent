@@ -69,7 +69,23 @@ export interface StreamEvent {
     | 'changeset'
     /** Traceability-link verify/reject landed (wp-111 — mirrors the
      *  link_verified/link_rejected events row; payload is the edge). */
-    | 'link_decided';
+    | 'link_decided'
+    /** DELIVERY §5 durable event names mirrored onto the stream
+     *  (wp-136 — merge center + release center lifecycle). */
+    | 'merge_ready'
+    | 'merge_attempted'
+    | 'merge_conflict'
+    | 'release_created'
+    | 'release_items_changed'
+    | 'manifest_cut'
+    | 'release_approved'
+    | 'release_released'
+    | 'deployment_confirmed'
+    | 'feature_exposed'
+    | 'release_note_approved'
+    | 'retro_completed'
+    | 'correction_filed'
+    | 'dependent_revalidated';
   payload: unknown;
 }
 

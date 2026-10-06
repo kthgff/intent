@@ -24,6 +24,7 @@ import {
   type ConductorWorkspace,
   DEFAULT_IMPORT_BOARD,
   type RunnerTask,
+  ShellGhClient,
   type ToolCtx,
   applyTicketStatus,
   convertImportBoard,
@@ -88,6 +89,7 @@ import {
 import { registerEvidenceRoutes } from './evidence.js';
 import { registerLinkRoutes } from './links.js';
 import { deviationMetrics, gateDwell } from './metrics.js';
+import { registerReleaseRoutes } from './releases.js';
 import { registerReviewRoutes } from './review.js';
 import { StreamHub } from './sse.js';
 
@@ -316,7 +318,11 @@ const notImplemented = (m: string) => new ApiError(501, 'not_implemented', m);
 
 /** Zod-parse a JSON body → the typed shape, or a 400 naming the
  *  issues (fail-closed — a malformed body never reaches a write). */
-function parseBody<T>(schema: z.ZodType<T>, body: unknown, what: string): T {
+export function parseBody<T>(
+  schema: z.ZodType<T>,
+  body: unknown,
+  what: string,
+): T {
   const r = schema.safeParse(body ?? {});
   if (!r.success) {
     throw badRequest(
@@ -3329,6 +3335,26 @@ export function createServer(opts: ServerOptions): ApiServer {
         type: 'link_decided',
         payload: e.payload,
       }),
+  });
+
+  // ------------------------------------------------------------------
+  // /releases, /merge-center, /features…/exposure, /tickets…/corrections
+  // — the Delivery API (DELIVERY §6, wp-136). Durable DELIVERY §5 event
+  //  names mirror onto the SSE stream via the store wrapper inside.
+  // ------------------------------------------------------------------
+  registerReleaseRoutes(app, {
+    store,
+    actor,
+    workspace,
+    toolCtx,
+    gh: conductor.deps.gh ?? new ShellGhClient(),
+    requestRun: (wsName, req) =>
+      requestRun(wsName, {
+        subject: req.subject,
+        stage: req.stage,
+        ...(req.ticketId ? { ticketId: req.ticketId } : {}),
+      }),
+    notify: (e) => hub.notify(e),
   });
 
   return app;

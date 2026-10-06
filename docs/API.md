@@ -74,6 +74,19 @@ payload shapes come from `SCHEMAS.md`/`DB-SCHEMA.md`.
 | `/metrics` | GET | S-12 — dashboard aggregates from `events`/`usage_calls`; includes `accepted_outcomes` + `cost_per_accepted_outcome` (wp-155, PRD §15.12: total inference+retry+execution+remediation spend over outcomes that reached `merged`/`released` — never per-call price; `null` when no outcome has landed) |
 | `/gate-items/<id>/claim` `/release` | POST, DELETE | shared-queue claiming |
 | `/gate-items/<ws>/<subject>/<gate>/snooze` | POST | D20 snooze — `{until}` ISO (or `{for_minutes}`) → `snoozed_until`; hidden from `/inbox` + badge until then (`?include_snoozed=1` reveals) |
+| `/releases/<ws>` | GET, POST | DELIVERY §3 (wp-136). GET lists `releases` rows (`?status=` filter). POST `{title, target?}` → 201 draft `REL-NNNN` + `release_created`. 400 malformed |
+| `/releases/<ws>/<rel>` | GET | Release detail (wp-136): `{release, items, manifests, manifest, approvals, approvalHistory, gates, notes}` — approvals/gates bind to the latest manifest cut. 404 unknown release |
+| `/releases/<ws>/<rel>/items` | POST, DELETE | Scope membership (wp-136). POST `{item_kind: feature\|ticket, item_id, partial_ac?, approved_by?}` — `partial_ac` REQUIRES `approved_by` (invariant 5); a post-freeze add/remove cuts a NEW `release_manifests` version and reverts `approved`→`ready` (§4.1). DELETE `{item_kind, item_id}` soft-removes (audit row stays). 400 bad item/partial-unapproved · 403 agent-approved partial · 404 unknown ticket/feature · 409 non-editable status |
+| `/releases/<ws>/<rel>/freeze` | POST | Cut an immutable manifest + `draft→ready` (wp-136). Idempotent on unchanged digest. `expected_status` OCC → 409 stale. 400 empty scope |
+| `/releases/<ws>/<rel>/approve` | POST | `{decision: approved\|rejected, rationale?, approver?, actor_kind?, expected_status?}` (wp-136) — human-only, binds the LATEST manifest digest; `rejected` → `draft`. `actor_kind: 'agent'` → **403** (invariant 6). OCC → 409 |
+| `/releases/<ws>/<rel>/release` | POST | The ship write (wp-136 — §6 omits it; resolved gap, TRACKER D46): `approved→released`, evaluates all five release gates (`manifest, approved, merged, partial-ac, corrections`), appends `release_gate_results` audit, then flips member tickets `merged→released` transactionally. Any gate `fail` → **409**, release stays `approved`. `expected_status` OCC → 409 |
+| `/releases/<ws>/<rel>/deployments` | POST | `{env, sha, evidence}` → 201 confirmed deployment + `deployment_confirmed` (wp-136). **Manual evidence required** (invariant 4): `evidence` must be `{type:'manual', by, note, url}`, all non-empty — `webhook`/`probe` are reserved slots, not accepted inputs. 400 invalid/absent evidence · 409 release not `released\|closed` |
+| `/features/<ws>/<f>/exposure` | POST | `{env, state: hidden\|limited\|available, audience?, evidence?, deployment_id?}` (wp-136). `available` requires `deployment_id` linking a CONFIRMED deployment of a release carrying the feature to the same env (invariant 4, every clause fail-closed → 409). 404 unknown feature |
+| `/merge-center/<ws>` | GET | Per-ticket merge readiness (wp-136): deterministic `evaluateMergeCenter` checklist per `ci-watch` ticket — `{ticket_id, ready, items[], blockers[], heads}` (approval/scope/ac-evidence/checks/security/depends-on/conflict/branch-protection/dod). Read-only; no merge execution over HTTP |
+| `/tickets/<ws>/<t>/corrections` | POST | `{title, severity?, priority?, repos?, feature?, description?}` → 201 `origin:'correction'`, `work_type:'bug'` ticket with `parent:` the merged ticket + `correction_filed` on the parent (wp-136). 404 unknown parent · 409 parent not `merged\|released` |
+| `/releases/<ws>/<rel>/notes/<audience>/approve` | POST | Human-only approval of the current `notes-<audience>.md` draft (`customer\|stakeholder\|technical`) — pins `doc_version` + `release_note_approved` (wp-136). `actor_kind:'agent'` → 403 · 409 no draft · 400 bad audience |
+| `/releases/<ws>/<rel>/notes/<audience>/publish` | POST | `published_at` on an approved note (wp-136) — requires a human-approved `doc_version` (409 otherwise); the pinned approved revision is what ships, newer drafts don't launder in |
+| `/releases/<ws>/<rel>/retro` | POST | Queues a `retro` run on a `released\|closed` release (wp-136) → `{run}` pending row; a live run fences a duplicate → 409. 409 on a non-shipped release |
 
 ## Live channel — `GET /api/v1/stream` (SSE)
 
@@ -88,6 +101,7 @@ One event source per client:
 | `index_status` | `{workspace, repo, commit_sha, status, stats?}` | D37 repository intelligence freshness and background-index progress |
 | `alignment_status` | `{scope, run_id, status, finding_count?}` | Phase B alignment run progress; final artifact is durable |
 | `notification` | notification row | desktop toasts |
+| `merge_ready` / `merge_attempted` / `merge_conflict` / `release_created` / `release_items_changed` / `manifest_cut` / `release_approved` / `release_released` / `deployment_confirmed` / `feature_exposed` / `release_note_approved` / `retro_completed` / `correction_filed` / `dependent_revalidated` | the appended `events` row | DELIVERY §5 (wp-136) — the durable delivery/merge lifecycle events mirrored onto the stream; Merge Center + Release Center live updates |
 
 Every streamed fact is also written durably (`events` rows, other DB
 rows, run_dir log files) — the stream is a latency optimization, never
