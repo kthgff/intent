@@ -32,9 +32,21 @@ const readiness = (over: Partial<MergeReadiness> = {}): MergeReadiness => ({
 
 describe('Merge Center queue order (wp-137)', () => {
   it('puts ready tickets first, FIFO by evaluation time', () => {
-    const blocked = readiness({ ticket_id: 'SR-1', ready: false, at: '2026-10-05T09:00:00Z' });
-    const late = readiness({ ticket_id: 'SR-2', ready: true, at: '2026-10-05T11:00:00Z' });
-    const early = readiness({ ticket_id: 'SR-3', ready: true, at: '2026-10-05T08:00:00Z' });
+    const blocked = readiness({
+      ticket_id: 'SR-1',
+      ready: false,
+      at: '2026-10-05T09:00:00Z',
+    });
+    const late = readiness({
+      ticket_id: 'SR-2',
+      ready: true,
+      at: '2026-10-05T11:00:00Z',
+    });
+    const early = readiness({
+      ticket_id: 'SR-3',
+      ready: true,
+      at: '2026-10-05T08:00:00Z',
+    });
     expect(queueOrder([blocked, late, early]).map((r) => r.ticket_id)).toEqual([
       'SR-3',
       'SR-2',
@@ -68,11 +80,23 @@ describe('Merge Center readiness card (wp-137)', () => {
           r={readiness({
             ready: false,
             items: [
-              { id: 'conflict', label: 'No git conflict', ok: false, detail: 'app: rebase needed', gate: 'merge_conflict' },
+              {
+                id: 'conflict',
+                label: 'No git conflict',
+                ok: false,
+                detail: 'app: rebase needed',
+                gate: 'merge_conflict',
+              },
               { id: 'branch-protection', label: 'Branch protection', ok: true },
             ],
             blockers: [
-              { id: 'conflict', label: 'No git conflict', ok: false, detail: 'app: rebase needed', gate: 'merge_conflict' },
+              {
+                id: 'conflict',
+                label: 'No git conflict',
+                ok: false,
+                detail: 'app: rebase needed',
+                gate: 'merge_conflict',
+              },
             ],
           })}
         />
