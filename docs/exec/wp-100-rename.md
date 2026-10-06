@@ -2,7 +2,7 @@
 schema: 1
 id: wp-100
 title: Rename — sprint-runner → veto across binary, config, packages, containers, docs
-status: todo
+status: done
 priority: medium
 depth: light
 repos: []
@@ -40,10 +40,10 @@ Everything mechanical: `package.json`, `pnpm-workspace.yaml`,
 `docs/**`, `AGENTS.md`, `fixtures/**`, `.github/**`
 
 ## Acceptance criteria
-- [ ] `rg -i "sprint.?runner"` returns only v0-prototype/changelog-history hits
-- [ ] `veto daemon` boots + serves UI; `pnpm typecheck` + `pnpm test` green after rename
-- [ ] Container/image/label names updated in code AND docs (grep both)
-- [ ] TRACKER wave table + this row updated
+- [x] `rg -i "sprint.?runner"` returns only v0-prototype/changelog-history hits
+- [x] `veto daemon` boots + serves UI; `pnpm typecheck` + `pnpm test` green after rename
+- [x] Container/image/label names updated in code AND docs (grep both)
+- [x] TRACKER wave table + this row updated
 
 ## Blocker
 None — ordered after wp-095 + wp-099 so container naming and the binary

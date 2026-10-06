@@ -2,7 +2,7 @@
  * REST client for the conductor surface (API.md).
  *
  * Auth: bearer token on EVERY request. Browser bootstrap is the
- * loopback `GET /?token=` flow — the server sets a `sr_session`
+ * loopback `GET /?token=` flow — the server sets a `veto_session`
  * cookie; we also keep the token in sessionStorage so fetch calls and
  * the SSE stream authenticate through either channel (EventSource
  * cannot set headers; it sends the cookie same-origin).
@@ -39,9 +39,11 @@ import type {
   TicketRepoRow,
   TicketRow,
   Triage,
-} from '@sprint-runner/core';
+} from '@veto/core';
 
-const TOKEN_KEY = 'sr_ui_token';
+const TOKEN_KEY = 'veto_ui_token';
+/** wp-100 rename — one-time migration from the pre-rename key. */
+const LEGACY_TOKEN_KEY = 'sr_ui_token';
 
 export class ApiError extends Error {
   readonly status: number;
@@ -58,7 +60,13 @@ export class ApiError extends Error {
 
 export function getToken(): string | null {
   try {
-    return sessionStorage.getItem(TOKEN_KEY) ?? localStorage.getItem(TOKEN_KEY);
+    const token =
+      sessionStorage.getItem(TOKEN_KEY) ??
+      localStorage.getItem(TOKEN_KEY) ??
+      sessionStorage.getItem(LEGACY_TOKEN_KEY) ??
+      localStorage.getItem(LEGACY_TOKEN_KEY);
+    if (token) setToken(token); // migrate legacy key forward
+    return token;
   } catch {
     return null;
   }
@@ -69,9 +77,13 @@ export function setToken(token: string | null): void {
     if (token) {
       sessionStorage.setItem(TOKEN_KEY, token);
       localStorage.setItem(TOKEN_KEY, token);
+      sessionStorage.removeItem(LEGACY_TOKEN_KEY);
+      localStorage.removeItem(LEGACY_TOKEN_KEY);
     } else {
       sessionStorage.removeItem(TOKEN_KEY);
       localStorage.removeItem(TOKEN_KEY);
+      sessionStorage.removeItem(LEGACY_TOKEN_KEY);
+      localStorage.removeItem(LEGACY_TOKEN_KEY);
     }
   } catch {
     /* storage unavailable */
@@ -91,7 +103,7 @@ export async function bootstrapAuth(
   const token = params.get('token');
   if (!token) return getToken();
   try {
-    // Sets sr_session cookie (HttpOnly, SameSite=Strict). Loopback only.
+    // Sets veto_session cookie (HttpOnly, SameSite=Strict). Loopback only.
     await fetch(`/?token=${encodeURIComponent(token)}`, {
       credentials: 'same-origin',
     });

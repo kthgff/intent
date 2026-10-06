@@ -9,11 +9,18 @@ import { ErrorBox } from '../components';
 import Board from './Board';
 import Inbox from './Inbox';
 
-const TAB_KEY = 'sr_home_tab';
+const TAB_KEY = 'veto_home_tab';
+/** wp-100 rename — one-time migration from the pre-rename key. */
+const LEGACY_TAB_KEY = 'sr_home_tab';
 type HomeTab = 'board' | 'inbox';
 
 function savedTab(): HomeTab {
   try {
+    const legacy = localStorage.getItem(LEGACY_TAB_KEY);
+    if (legacy != null && localStorage.getItem(TAB_KEY) == null) {
+      localStorage.setItem(TAB_KEY, legacy);
+    }
+    localStorage.removeItem(LEGACY_TAB_KEY);
     return localStorage.getItem(TAB_KEY) === 'inbox' ? 'inbox' : 'board';
   } catch {
     return 'board';
