@@ -43,8 +43,8 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { MockAdapter } from '@sprint-runner/adapters';
-import { resolveConfig } from '@sprint-runner/config';
+import { MockAdapter } from '@veto/adapters';
+import { resolveConfig } from '@veto/config';
 import type {
   FeatureRow,
   RenderedPrompt,
@@ -52,8 +52,8 @@ import type {
   TicketRepoRow,
   TicketRow,
   TicketStatus,
-} from '@sprint-runner/core';
-import { PostgresStore } from '@sprint-runner/store';
+} from '@veto/core';
+import { PostgresStore } from '@veto/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ConductorDeps, ToolCtx } from '../../src/index.js';
 import {
@@ -457,7 +457,7 @@ const goodEvidence = {
 };
 
 beforeEach(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'sr-delivery-'));
+  dir = mkdtempSync(join(tmpdir(), 'veto-delivery-'));
   wsRoot = join(dir, 'ws');
   codeRepo = join(dir, 'code-repo');
   runsDir = join(dir, 'runs');

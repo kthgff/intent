@@ -9,7 +9,7 @@
  * `run_killed` events + run status either way. A paused run's lease and
  * timeout keep ticking — pause freezes work, not the clock.
  */
-import type { ControlOp, EventName, RunRow } from '@sprint-runner/core';
+import type { ControlOp, EventName, RunRow } from '@veto/core';
 import {
   type ConductorDeps,
   actorOf,
@@ -35,7 +35,7 @@ const STATUS_BY_OP: Record<ControlOp, RunRow['status']> = {
 export async function controlRun(
   deps: ConductorDeps,
   leases: LeaseManager,
-  handles: Map<string, import('@sprint-runner/core').RunHandle>,
+  handles: Map<string, import('@veto/core').RunHandle>,
   runId: string,
   op: ControlOp,
 ): Promise<void> {

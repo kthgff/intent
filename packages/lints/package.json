@@ -1,5 +1,5 @@
 {
-  "name": "@sprint-runner/lints",
+  "name": "@veto/lints",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -11,8 +11,8 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@sprint-runner/config": "workspace:*",
-    "@sprint-runner/core": "workspace:*",
+    "@veto/config": "workspace:*",
+    "@veto/core": "workspace:*",
     "yaml": "^2.5.0"
   },
   "devDependencies": {

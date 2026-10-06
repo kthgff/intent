@@ -11,7 +11,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { CollectContext, PrepareContext } from '@sprint-runner/core';
+import type { CollectContext, PrepareContext } from '@veto/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { MockAdapter, parseArtifactDir } from '../src/mock/index.js';
 
@@ -56,7 +56,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 beforeAll(() => {
-  root = mkdtempSync(join(tmpdir(), 'sr-mock-test-'));
+  root = mkdtempSync(join(tmpdir(), 'veto-mock-test-'));
   worktree = join(root, 'worktree');
   runDir = join(root, 'runs', RUN_ID);
   mkdirSync(worktree, { recursive: true });
@@ -76,7 +76,7 @@ describe('MockAdapter', () => {
     expect(a.capabilities.has_gh).toBe(false);
   });
 
-  it('prepare() renders the stage template via @sprint-runner/prompts', () => {
+  it('prepare() renders the stage template via @veto/prompts', () => {
     const a = new MockAdapter();
     const { prepare } = makeCtx();
     const rendered = a.prepare('SR-0001', 'implement', prepare);
@@ -261,10 +261,10 @@ describe('MockAdapter', () => {
     const a = new MockAdapter({
       capabilities: { can_write_outside_tree: false },
     });
-    const scratch = join(worktree, '.sprint-runner', RUN_ID);
+    const scratch = join(worktree, '.veto', RUN_ID);
     const rendered = {
       template: 'mock',
-      text: `.sprint-runner/${RUN_ID}/ (worktree-relative scratch dir — write all\nrun artifacts under it.)`,
+      text: `.veto/${RUN_ID}/ (worktree-relative scratch dir — write all\nrun artifacts under it.)`,
       tokens: {},
     };
     const { collect } = makeCtx();

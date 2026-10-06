@@ -1,5 +1,5 @@
-import type { DossierEntry } from '@sprint-runner/core';
-import { DOSSIER_SECTIONS } from '@sprint-runner/core';
+import type { DossierEntry } from '@veto/core';
+import { DOSSIER_SECTIONS } from '@veto/core';
 /**
  * S-14 — knowledge base browser. Repo/product tabs; dossier sections;
  * gap report; per-section edit → PUT /kb/<scope>; manual Sync.

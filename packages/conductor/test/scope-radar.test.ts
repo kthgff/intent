@@ -13,8 +13,8 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { ScopeBudgets } from '@sprint-runner/core';
-import { PostgresStore } from '@sprint-runner/store';
+import type { ScopeBudgets } from '@veto/core';
+import { PostgresStore } from '@veto/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   ChangesetError,
@@ -54,7 +54,7 @@ const tick = (ms = 60_000) => {
 };
 
 beforeEach(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'sr-radar-'));
+  dir = mkdtempSync(join(tmpdir(), 'veto-radar-'));
   store = await PostgresStore.connect('pglite:');
   clock = T0;
   budgets = null;

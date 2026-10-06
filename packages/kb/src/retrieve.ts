@@ -41,7 +41,7 @@ import {
   type RetrievalScores,
   type Store,
   validateRetrievalEvidence,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import { resolveCodeHeads } from './code-index.js';
 import type { Embedder } from './embeddings.js';
 

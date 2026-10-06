@@ -11,7 +11,7 @@
  * `/pull/<n>` (issues are `/issues/<n>`); {@link issueKind} classifies
  * from the URL when the fetcher didn't already mark the kind.
  */
-import type { SourceRef } from '@sprint-runner/core';
+import type { SourceRef } from '@veto/core';
 import type { RawIssue } from './types.js';
 
 /** `issue | pull-request` for a raw tracker row. Explicit `kind` wins;

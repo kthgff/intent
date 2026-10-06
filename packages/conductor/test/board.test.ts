@@ -14,8 +14,8 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { BoardItem } from '@sprint-runner/core';
-import { PostgresStore } from '@sprint-runner/store';
+import type { BoardItem } from '@veto/core';
+import { PostgresStore } from '@veto/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   BOARD_TYPE_CONFIG,

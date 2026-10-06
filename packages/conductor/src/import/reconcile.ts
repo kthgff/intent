@@ -34,7 +34,7 @@ import {
   TERMINAL_STATUSES,
   type TicketRow,
   provenanceAllowsAutoApproval,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import {
   type Cluster,
   type ClusterItem,

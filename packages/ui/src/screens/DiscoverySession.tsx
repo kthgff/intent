@@ -1,4 +1,4 @@
-import type { InterviewSessionRow } from '@sprint-runner/core';
+import type { InterviewSessionRow } from '@veto/core';
 /**
  * Discovery session — the §15.9 wizard surface (wp-147).
  *

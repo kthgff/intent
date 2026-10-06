@@ -13,7 +13,7 @@
  * Conservative default (ticket text): one AI execution per ticket —
  * the verdict only ever RESTRICTS parallel claims, never widens them.
  */
-import type { ParallelSafety } from '@sprint-runner/core';
+import type { ParallelSafety } from '@veto/core';
 import type { DecompositionRow, SplitChild } from './plan.js';
 
 export function computeParallelSafety(args: {

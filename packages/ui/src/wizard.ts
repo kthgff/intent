@@ -6,7 +6,7 @@
  * fills every remaining open question with its default. Pure module —
  * screens render it, tests drive it directly.
  */
-import type { TriageQuestion } from '@sprint-runner/core';
+import type { TriageQuestion } from '@veto/core';
 
 export interface WizardState {
   questions: TriageQuestion[];

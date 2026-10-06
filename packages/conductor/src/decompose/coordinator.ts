@@ -34,8 +34,8 @@ import {
   REPO_EXECUTING_STAGES,
   type RunRow,
   type TicketRow,
-} from '@sprint-runner/core';
-import { filePlanRows } from '@sprint-runner/lints';
+} from '@veto/core';
+import { filePlanRows } from '@veto/lints';
 import type { TransitionContext } from '../contracts.js';
 import { firstDocHead, pinnedBaselineOf } from '../launch/baseline.js';
 import type { StreamEvent } from '../loop/deps.js';

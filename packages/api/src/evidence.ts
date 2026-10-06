@@ -13,10 +13,10 @@ import { isAbsolute, resolve } from 'node:path';
  *        subject is given); a client repo outside the ACL is a 403,
  *        never a silent drop.
  */
-import type { EffectiveConfig } from '@sprint-runner/config';
-import type { Store } from '@sprint-runner/core';
-import { git } from '@sprint-runner/gitops';
-import { createEmbedder, indexRepo, queryEvidence } from '@sprint-runner/kb';
+import type { EffectiveConfig } from '@veto/config';
+import type { Store } from '@veto/core';
+import { git } from '@veto/gitops';
+import { createEmbedder, indexRepo, queryEvidence } from '@veto/kb';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { ApiError } from './server.js';

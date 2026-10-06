@@ -36,15 +36,15 @@ import type {
   NoteStatus,
   StatementRow,
   Store,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import {
   BOARD_STATUSES,
   BOARD_TYPES,
   NOTE_IMPORTANCES,
   NOTE_KINDS,
   NOTE_STATUSES,
-} from '@sprint-runner/core';
-import type { ChangesetRow } from '@sprint-runner/core';
+} from '@veto/core';
+import type { ChangesetRow } from '@veto/core';
 import { createChangeset } from '../changes/engine.js';
 import type { ChangesCtx } from '../changes/engine.js';
 import {

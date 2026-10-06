@@ -15,8 +15,8 @@ import {
   type TicketPriority,
   type TicketRow,
   type TicketSeverity,
-} from '@sprint-runner/core';
-import { isMaterialCorrection } from '@sprint-runner/lints';
+} from '@veto/core';
+import { isMaterialCorrection } from '@veto/lints';
 import { type ReleaseCtx, ReleaseError } from './types.js';
 
 const TERMINAL = new Set<string>(TERMINAL_STATUSES);

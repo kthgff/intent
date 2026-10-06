@@ -9,8 +9,8 @@ export interface Actor {
 }
 
 export const DEFAULT_ACTOR: Actor = {
-  name: 'sprint-runner',
-  email: 'sprint-runner@localhost',
+  name: 'veto',
+  email: 'veto@localhost',
 };
 
 /**
@@ -94,8 +94,8 @@ export function worktreePath(repo: string, id: string): string {
 
 /**
  * Create `<repo>.worktrees/<id>` on `branch` (created via -b if missing),
- * then inject `.sprint-runner/` into the worktree's .gitignore
- * (ADAPTERS: scratch dir `.sprint-runner/<run-id>/` must be gitignored).
+ * then inject `.veto/` into the worktree's .gitignore
+ * (ADAPTERS: scratch dir `.veto/<run-id>/` must be gitignored).
  */
 export async function createWorktree(
   repo: string,
@@ -125,10 +125,10 @@ export async function createWorktree(
     : '';
   const hasEntry = existing
     .split('\n')
-    .some((line) => line.trim() === '.sprint-runner/');
+    .some((line) => line.trim() === '.veto/');
   if (!hasEntry) {
     const prefix = existing.length > 0 && !existing.endsWith('\n') ? '\n' : '';
-    await appendFile(gitignorePath, `${prefix}.sprint-runner/\n`, 'utf8');
+    await appendFile(gitignorePath, `${prefix}.veto/\n`, 'utf8');
   }
   return dir;
 }

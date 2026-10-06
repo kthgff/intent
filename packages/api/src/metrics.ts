@@ -23,7 +23,7 @@
  * `status_changed → <post-merge>` event ts, and bounds gate dwell to
  * items surfaced at/after it.
  */
-import type { GateItem, Store } from '@sprint-runner/core';
+import type { GateItem, Store } from '@veto/core';
 
 /** Ticket statuses that mean "reached merge" (DB-SCHEMA post-merge
  *  lifecycle + revert tail). */

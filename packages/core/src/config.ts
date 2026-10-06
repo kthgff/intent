@@ -254,7 +254,7 @@ export const ConfigSchema = z.object({
    *  AI interaction kind → a ModelRoute entry. Values are SPARSE —
    *  unset fields inherit `models.default`, then the legacy
    *  `main_model`/`review_model`/`escalation_model` knobs, at
-   *  resolution time (@sprint-runner/prompts routing). Reserved keys:
+   *  resolution time (@veto/prompts routing). Reserved keys:
    *  `default` (base layer for every kind) and `escalation` (the
    *  retry-ladder step-up tier). Stage names resolve as kinds. */
   models: z.record(ModelRouteEntrySchema).default({}),
@@ -282,7 +282,7 @@ export const ConfigSchema = z.object({
   /** Evidence plane / code intelligence (SETTINGS, D37, wp-111). */
   intelligence: IntelligenceConfigSchema.default({}),
   /** Postgres only (D29); PGlite powers tests. */
-  storage_url: z.string().default('postgres://localhost:5432/sprint-runner'),
+  storage_url: z.string().default('postgres://localhost:5432/veto'),
   importers: ImportersConfigSchema.default({}),
   security: SecurityConfigSchema.default({}),
   ui: UiConfigSchema.default({}),

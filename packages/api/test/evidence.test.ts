@@ -11,9 +11,9 @@ import {
   Conductor,
   type ConductorDeps,
   StubTransitionHandler,
-} from '@sprint-runner/conductor';
-import { resolveConfig } from '@sprint-runner/config';
-import { PostgresStore } from '@sprint-runner/store';
+} from '@veto/conductor';
+import { resolveConfig } from '@veto/config';
+import { PostgresStore } from '@veto/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   type ApiServer,
@@ -63,7 +63,7 @@ function makeServer(opts: Partial<ServerOptions> = {}): ApiServer {
 }
 
 beforeEach(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'sr-evidence-'));
+  dir = mkdtempSync(join(tmpdir(), 'veto-evidence-'));
   repoDir = join(dir, 'api-repo');
   mkdirSync(repoDir, { recursive: true });
   execFileSync('git', ['init', '-qb', 'main'], { cwd: repoDir });

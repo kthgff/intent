@@ -3,17 +3,12 @@
  *
  * ONE EventSource per client — a module-level singleton shared by the
  * app shell and every screen. EventSource cannot set headers — auth
- * rides the `sr_session` cookie established by the `?token=` bootstrap
+ * rides the `veto_session` cookie established by the `?token=` bootstrap
  * (same-origin, sent by default). The stream is a latency
  * optimization: every fact is also durable, so subscribers re-read
  * state on (re)connect — no replay protocol.
  */
-import type {
-  EventRow,
-  GateItem,
-  Notification,
-  RunRow,
-} from '@sprint-runner/core';
+import type { EventRow, GateItem, Notification, RunRow } from '@veto/core';
 import { getToken } from './api';
 
 export type StreamEventMap = {
@@ -98,7 +93,7 @@ function ensureSource(): void {
   // bootstrap semantics; cookie auth remains the primary path.
   const token = getToken();
   const hasCookie =
-    typeof document === 'undefined' || document.cookie.includes('sr_session');
+    typeof document === 'undefined' || document.cookie.includes('veto_session');
   const url =
     !hasCookie && token
       ? `${STREAM_URL}?token=${encodeURIComponent(token)}`

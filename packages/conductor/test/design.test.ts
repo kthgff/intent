@@ -15,8 +15,8 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Mockup } from '@sprint-runner/core';
-import { PostgresStore } from '@sprint-runner/store';
+import type { Mockup } from '@veto/core';
+import { PostgresStore } from '@veto/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   affectedAcs,
@@ -65,7 +65,7 @@ async function openStore(): Promise<PostgresStore> {
 }
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'sr-design-'));
+  dir = mkdtempSync(join(tmpdir(), 'veto-design-'));
   clock = T0;
 });
 

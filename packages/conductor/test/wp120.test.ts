@@ -15,8 +15,8 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { DeploymentRow, ReleaseRow } from '@sprint-runner/core';
-import { PostgresStore } from '@sprint-runner/store';
+import type { DeploymentRow, ReleaseRow } from '@veto/core';
+import { PostgresStore } from '@veto/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   TelemetryServiceError,
@@ -45,7 +45,7 @@ const ctx = (workspace = WS) => ({
 });
 
 beforeEach(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'sr-wp120-'));
+  dir = mkdtempSync(join(tmpdir(), 'veto-wp120-'));
   store = await PostgresStore.connect('pglite:');
   await store.upsertProject({ workspace: WS, created_at: NOW });
 });

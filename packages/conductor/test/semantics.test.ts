@@ -17,7 +17,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { PostgresStore } from '@sprint-runner/store';
+import { PostgresStore } from '@veto/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   StatementError,
@@ -56,7 +56,7 @@ const tick = (ms = 60_000) => {
 };
 
 beforeEach(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'sr-semantics-'));
+  dir = mkdtempSync(join(tmpdir(), 'veto-semantics-'));
   store = await PostgresStore.connect('pglite:');
   clock = T0;
 });

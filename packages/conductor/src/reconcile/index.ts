@@ -29,8 +29,8 @@ import {
   type Stage,
   TERMINAL_STATUSES,
   type TicketStatus,
-} from '@sprint-runner/core';
-import { escalationModelFor } from '@sprint-runner/prompts';
+} from '@veto/core';
+import { escalationModelFor } from '@veto/prompts';
 import type { RunOutcome, RunnerTask } from '../contracts.js';
 import { applyTicketStatus } from '../contracts.js';
 import {
@@ -74,7 +74,7 @@ interface ReconcileCtx {
   deps: ConductorDeps;
   ws: ConductorWorkspace;
   leases: LeaseManager;
-  handles: Map<string, import('@sprint-runner/core').RunHandle>;
+  handles: Map<string, import('@veto/core').RunHandle>;
   killedForCap: Set<string>;
   report: ReconcileReport;
 }

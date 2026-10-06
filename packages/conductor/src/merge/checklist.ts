@@ -29,7 +29,7 @@ import type {
   ReviewFindingRow,
   TicketRepoRow,
   TicketRow,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import { checksGreen } from '../shepherd/checks.js';
 import { dodCheckStatuses, parseDodRows } from '../shepherd/dod.js';
 import type { PrCheck, PrInfo } from '../shepherd/gh.js';

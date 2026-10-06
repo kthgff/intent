@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * sprint-runner mock agent — the scripted backend child process (wp-021).
+ * veto mock agent — the scripted backend child process (wp-021).
  *
  * Pure Node, no dependencies; spawned DETACHED by MockAdapter.run() as
  *   node agent.mjs

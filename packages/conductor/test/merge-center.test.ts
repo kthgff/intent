@@ -14,9 +14,9 @@ import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { resolveConfig } from '@sprint-runner/config';
-import type { TicketRepoRow, TicketRow } from '@sprint-runner/core';
-import { PostgresStore } from '@sprint-runner/store';
+import { resolveConfig } from '@veto/config';
+import type { TicketRepoRow, TicketRow } from '@veto/core';
+import { PostgresStore } from '@veto/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ConductorDeps } from '../src/index.js';
 import {
@@ -248,7 +248,7 @@ async function eventsFor(id: string): Promise<string[]> {
 }
 
 beforeEach(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'sr-merge-'));
+  dir = mkdtempSync(join(tmpdir(), 'veto-merge-'));
   wsRoot = join(dir, 'ws');
   codeRepo = join(dir, 'code-repo');
   const remote = join(dir, 'code-remote.git');

@@ -20,7 +20,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { resolveConfig } from '@sprint-runner/config';
+import { resolveConfig } from '@veto/config';
 import {
   type GateItem,
   REVIEW_PASSES,
@@ -29,9 +29,9 @@ import {
   type RunRow,
   type Stage,
   type TicketRow,
-} from '@sprint-runner/core';
-import { indexRepo } from '@sprint-runner/kb';
-import { PostgresStore } from '@sprint-runner/store';
+} from '@veto/core';
+import { indexRepo } from '@veto/kb';
+import { PostgresStore } from '@veto/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   type ApplyStatusOptions,
@@ -627,7 +627,7 @@ const CRITICAL = {
 };
 
 beforeEach(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'sr-wp111-'));
+  dir = mkdtempSync(join(tmpdir(), 'veto-wp111-'));
   store = await PostgresStore.connect('pglite:');
   requestedRuns = [];
   handler = new RealTransitionHandler(makeConfig());

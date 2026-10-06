@@ -16,7 +16,7 @@
  * onward; this engine only performs the handoff (+ a
  * `changeset_created` event so the lifecycle can pick it up).
  */
-import type { ReviewCommentRow, ReviewCommentType } from '@sprint-runner/core';
+import type { ReviewCommentRow, ReviewCommentType } from '@veto/core';
 import { requireSession } from './session.js';
 import {
   type StudioCtx,

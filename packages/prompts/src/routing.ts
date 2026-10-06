@@ -32,11 +32,7 @@
  * and enforce `providers` allowlists; per-run pinning lands on
  * `runs.model` + `runs.request.route`.
  */
-import type {
-  LatencyClass,
-  ModelRouteEntry,
-  RouteDecision,
-} from '@sprint-runner/core';
+import type { LatencyClass, ModelRouteEntry, RouteDecision } from '@veto/core';
 
 /** The base-layer registry key every kind inherits. */
 export const ROUTE_KIND_DEFAULT = 'default';

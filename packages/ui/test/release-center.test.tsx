@@ -1,4 +1,4 @@
-import type { ReleaseNoteRow } from '@sprint-runner/core';
+import type { ReleaseNoteRow } from '@veto/core';
 // @vitest-environment jsdom
 /**
  * wp-137 Release Center — gate verdicts and note states are honest:

@@ -36,13 +36,13 @@ import type {
   StatementRelationRow,
   StatementRow,
   Store,
-} from '@sprint-runner/core';
-import { ExtractionOutputSchema } from '@sprint-runner/core';
+} from '@veto/core';
+import { ExtractionOutputSchema } from '@veto/core';
 import {
   type PreservationViolation,
   extractionPreservationLint,
   locateQuote,
-} from '@sprint-runner/lints';
+} from '@veto/lints';
 import { EXTRACT_PROMPT_VERSION, buildExtractionPrompt } from './prompt.js';
 import { type ExtractionSource, StatementError } from './types.js';
 

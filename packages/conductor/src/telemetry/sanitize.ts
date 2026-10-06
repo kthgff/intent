@@ -10,7 +10,7 @@
  * never passes through partially scrubbed.
  */
 import { createHash } from 'node:crypto';
-import { FINGERPRINT_VERSION } from '@sprint-runner/core';
+import { FINGERPRINT_VERSION } from '@veto/core';
 
 /** The redaction-policy version recorded on telemetry_sources rows and
  *  stamped into `incident-investigation.json.sanitization_policy` —

@@ -1,5 +1,5 @@
 {
-  "name": "sprint-runner",
+  "name": "veto",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -12,7 +12,7 @@
     "typecheck": "pnpm -r typecheck",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
-    "test:e2e": "pnpm -F @sprint-runner/conductor test:e2e"
+    "test:e2e": "pnpm -F @veto/conductor test:e2e"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",

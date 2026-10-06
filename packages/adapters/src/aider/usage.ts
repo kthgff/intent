@@ -14,7 +14,7 @@
  * yields `null` — the caller simply doesn't call back; usage
  * extraction NEVER fails the run (ADAPTERS failure-mapping).
  */
-import type { UsagePartial } from '@sprint-runner/core';
+import type { UsagePartial } from '@veto/core';
 
 /** Parsed per-message usage; `cost`/`sessionCost` are parsed for the
  *  ledger but never trusted over the local price table (§13 — cost is

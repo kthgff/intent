@@ -16,7 +16,7 @@
  * `TransitionHandler` then; `StubTransitionHandler` (contracts.ts)
  * drives it until then.
  */
-import type { ControlOp, RunHandle } from '@sprint-runner/core';
+import type { ControlOp, RunHandle } from '@veto/core';
 import {
   type ChangesetSweepReport,
   sweepChangesetExpiry,

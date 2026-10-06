@@ -1,5 +1,5 @@
 {
-  "name": "@sprint-runner/api",
+  "name": "@veto/api",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -11,12 +11,12 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@sprint-runner/conductor": "workspace:*",
-    "@sprint-runner/config": "workspace:*",
-    "@sprint-runner/core": "workspace:*",
-    "@sprint-runner/gitops": "workspace:*",
-    "@sprint-runner/kb": "workspace:*",
-    "@sprint-runner/store": "workspace:*",
+    "@veto/conductor": "workspace:*",
+    "@veto/config": "workspace:*",
+    "@veto/core": "workspace:*",
+    "@veto/gitops": "workspace:*",
+    "@veto/kb": "workspace:*",
+    "@veto/store": "workspace:*",
     "fastify": "^4.28.0",
     "yaml": "^2.5.0",
     "zod": "^3.25.76"

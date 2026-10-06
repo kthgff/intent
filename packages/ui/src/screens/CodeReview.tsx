@@ -1,4 +1,4 @@
-import type { Finding, FindingSeverity } from '@sprint-runner/core';
+import type { Finding, FindingSeverity } from '@veto/core';
 /**
  * S-08 — code review page: findings list w/ severity filter, verdict
  * buttons (accept/dismiss/wontfix), approve→open PR / send back.

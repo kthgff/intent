@@ -13,7 +13,7 @@
  * `IMPORT-FAILED` so the conductor lands a `failure` gate item instead
  * of a bare `run_failed`.
  */
-import type { GateItem, Store } from '@sprint-runner/core';
+import type { GateItem, Store } from '@veto/core';
 import type { StreamEvent } from '../loop/deps.js';
 import { fetchIssues } from './github.js';
 import type { FetchIssuesOptions } from './github.js';

@@ -43,13 +43,13 @@ import {
   proposeStatement,
   rejectStatement,
   supersedeStatement,
-} from '@sprint-runner/conductor';
+} from '@veto/conductor';
 import type {
   BoardItem,
   StatementRow,
   StatementStatus,
   Store,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import {
   BOARD_ITEM_KINDS,
   BOARD_ITEM_STATUSES,
@@ -58,7 +58,7 @@ import {
   NOTE_IMPORTANCES,
   NOTE_KINDS,
   NOTE_STATUSES,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { ApiError } from './server.js';

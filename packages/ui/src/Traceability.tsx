@@ -11,7 +11,7 @@
  * state the human saw (OCC): a racing write surfaces a visible 409 and
  * the panel reloads. Decisions are idempotent + evented server-side.
  */
-import type { Relation, RelationVerification } from '@sprint-runner/core';
+import type { Relation, RelationVerification } from '@veto/core';
 import { useState } from 'react';
 import { Citation, isCodeRef } from './Evidence';
 import { client } from './api';

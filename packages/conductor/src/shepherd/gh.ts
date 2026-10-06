@@ -9,7 +9,7 @@
  * auth, matching the importer (import/github.ts).
  */
 import { execFile } from 'node:child_process';
-import type { MergeStrategy } from '@sprint-runner/core';
+import type { MergeStrategy } from '@veto/core';
 
 /** One check row from `gh pr checks --json`. `bucket` is gh's rollup
  *  (pass|fail|pending|skipping|cancel); `state` is the raw check state

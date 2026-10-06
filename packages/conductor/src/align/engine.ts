@@ -24,7 +24,7 @@
  * run rather than forking history.
  */
 import { createHash } from 'node:crypto';
-import type { EffectiveConfig } from '@sprint-runner/config';
+import type { EffectiveConfig } from '@veto/config';
 import {
   type AlignmentFinding,
   type AlignmentFindingRow,
@@ -36,7 +36,7 @@ import {
   type Store,
   type TicketRow,
   validateAlignmentFindings,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import { resolveManifestMembers } from '../release/manifest.js';
 import { ReleaseError } from '../release/types.js';
 

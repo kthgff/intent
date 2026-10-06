@@ -10,7 +10,7 @@
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
-import type { EffectiveConfig } from '@sprint-runner/config';
+import type { EffectiveConfig } from '@veto/config';
 import type {
   Adapter,
   RunHandle,
@@ -18,7 +18,7 @@ import type {
   Runtime,
   Stage,
   Store,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import type { TransitionHandler } from '../contracts.js';
 import {
   CliDockerClient,
@@ -180,13 +180,13 @@ export function nowIso(deps: ConductorDeps): string {
 }
 
 export function actorOf(deps: ConductorDeps): string {
-  return deps.config.actor ?? 'sprint-runner';
+  return deps.config.actor ?? 'veto';
 }
 
 /** Git commit identity derived from `actor:` (SETTINGS). */
 export function gitActor(deps: ConductorDeps): { name: string; email: string } {
   const name = actorOf(deps);
-  return { name, email: `${name}@sprint-runner.local` };
+  return { name, email: `${name}@veto.local` };
 }
 
 /** `timeouts.<stage>` lookup — keys use underscores (`ci_fix`). */

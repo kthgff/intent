@@ -7,7 +7,7 @@
  * wp-092 (D29): tools are DB-only — doc_versions for docs,
  * run_artifacts for structured output, projects.next_*_seq for ids.
  */
-import type { ActorType, EventName } from '@sprint-runner/core';
+import type { ActorType, EventName } from '@veto/core';
 import {
   type ApplyStatusResult,
   type TransitionContext,
@@ -24,7 +24,7 @@ export interface ToolCtx {
   deps: ConductorDeps;
   ws: ConductorWorkspace;
   leases: LeaseManager;
-  handles: Map<string, import('@sprint-runner/core').RunHandle>;
+  handles: Map<string, import('@veto/core').RunHandle>;
   killedForCap: Set<string>;
 }
 

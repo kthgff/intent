@@ -24,9 +24,9 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { MockAdapter } from '@sprint-runner/adapters';
-import { type EffectiveConfig, resolveConfig } from '@sprint-runner/config';
-import { RS_QUALITY_DIMENSIONS } from '@sprint-runner/core';
+import { MockAdapter } from '@veto/adapters';
+import { type EffectiveConfig, resolveConfig } from '@veto/config';
+import { RS_QUALITY_DIMENSIONS } from '@veto/core';
 import type {
   Adapter,
   CollectContext,
@@ -41,8 +41,8 @@ import type {
   Store,
   TicketRow,
   UsageCallback,
-} from '@sprint-runner/core';
-import { PostgresStore } from '@sprint-runner/store';
+} from '@veto/core';
+import { PostgresStore } from '@veto/store';
 import { parseTicketMd } from '../../src/import/parse.js';
 import { Conductor, RealTransitionHandler } from '../../src/index.js';
 import type { ConductorDeps, TickReport } from '../../src/index.js';
@@ -333,7 +333,7 @@ export interface FixtureWorld {
   /** `status:` line from the ticket.md `doc_versions` content. */
   docStatus(id: string): Promise<string>;
   eventsFor(id: string): Promise<EventRow[]>;
-  runsFor(subject: string): Promise<import('@sprint-runner/core').RunRow[]>;
+  runsFor(subject: string): Promise<import('@veto/core').RunRow[]>;
   gateItems(open?: boolean): Promise<GateItem[]>;
   dispose(): Promise<void>;
 }
@@ -424,7 +424,7 @@ async function seedTicket(
 export async function makeFixtureWorld(
   opts: WorldOptions,
 ): Promise<FixtureWorld> {
-  const dir = mkdtempSync(join(tmpdir(), 'sr-e2e-'));
+  const dir = mkdtempSync(join(tmpdir(), 'veto-e2e-'));
   const codeRepo = join(dir, 'code-repo');
   const runsDir = join(dir, 'runs');
   mkdirSync(runsDir, { recursive: true });

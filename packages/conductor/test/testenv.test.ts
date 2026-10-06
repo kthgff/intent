@@ -19,9 +19,9 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { resolveConfig } from '@sprint-runner/config';
-import type { TestEnvSpec, TicketRow } from '@sprint-runner/core';
-import { PostgresStore } from '@sprint-runner/store';
+import { resolveConfig } from '@veto/config';
+import type { TestEnvSpec, TicketRow } from '@veto/core';
+import { PostgresStore } from '@veto/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { TransitionContext } from '../src/contracts.js';
 import {
@@ -139,7 +139,7 @@ async function seedTicket(
 }
 
 beforeEach(async () => {
-  root = mkdtempSync(join(tmpdir(), 'sr-testenv-'));
+  root = mkdtempSync(join(tmpdir(), 'veto-testenv-'));
   store = await PostgresStore.connect('pglite:');
   clock = T0;
   await store.upsertProject({ workspace: WS, name: 'Team A' });

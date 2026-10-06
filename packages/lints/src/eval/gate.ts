@@ -1,4 +1,4 @@
-import { effectiveEvalThreshold } from '@sprint-runner/config';
+import { effectiveEvalThreshold } from '@veto/config';
 /**
  * AI Evaluation Lab — promotion gate (PRD §15.12, wp-156).
  *
@@ -13,7 +13,7 @@ import { effectiveEvalThreshold } from '@sprint-runner/config';
  * provider, or policy change forces a re-run even when the last run
  * passed — the passing evidence is for the *previous* candidate.
  */
-import type { EvalRunRow, ModelRoute } from '@sprint-runner/core';
+import type { EvalRunRow, ModelRoute } from '@veto/core';
 import { passRateOf } from './engine.js';
 import type { EvalSummary } from './types.js';
 

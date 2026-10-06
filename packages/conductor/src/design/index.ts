@@ -7,7 +7,7 @@
  * on material change, the deterministic screen-state generator,
  * design-system ingestion, and advisory post-merge `design-drift`
  * findings. The prompt stages (`mockup`, `design-ingest`) render through
- * `@sprint-runner/prompts`; this engine owns the rules over the rows.
+ * `@veto/prompts`; this engine owns the rules over the rows.
  */
 export {
   checklistComplete,

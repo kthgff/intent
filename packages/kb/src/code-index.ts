@@ -29,7 +29,7 @@ import type {
   EvidenceFreshness,
   RepoIndexRow,
   Store,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import type { Embedder } from './embeddings.js';
 
 /** Parser identity stamped on each index head. */

@@ -1,12 +1,12 @@
-# @sprint-runner/config
+# @veto/config
 
 Layered configuration loader implementing `docs/SETTINGS.md`.
 
 ## Precedence (highest wins)
 
 1. ticket frontmatter overrides (`resolveConfig` first arg)
-2. `<tickets-repo>/.sprint-runner/config.yaml`
-3. `~/.config/sprint-runner/config.yaml`
+2. `<tickets-repo>/.veto/config.yaml`
+3. `~/.config/veto/config.yaml`
 4. defaults (zod schema + SETTINGS-literal tables: `DEFAULT_TIMEOUTS`,
    `DEFAULT_CAPABILITIES`, `ui.token_file`, importer `token_env`s)
 
@@ -34,6 +34,6 @@ is a direct override. Ticket metadata keys are ignored.
 ## Secrets
 
 `.env` files sit next to each `config.yaml` (global dir and
-`<tickets-repo>/.sprint-runner/`). Parsed dotenv-style: `KEY=value`,
+`<tickets-repo>/.veto/`). Parsed dotenv-style: `KEY=value`,
 `export` prefix, single/double quotes, `#` comments. Repo secrets
 override global ones.

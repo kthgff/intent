@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url';
-import type { RouteDecision } from '@sprint-runner/core';
+import type { RouteDecision } from '@veto/core';
 
 /** Absolute path to the seed golden-set corpus. */
 export const FIXTURE_DIR = fileURLToPath(

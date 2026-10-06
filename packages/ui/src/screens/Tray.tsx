@@ -1,4 +1,4 @@
-import type { BoardItem } from '@sprint-runner/core';
+import type { BoardItem } from '@veto/core';
 /**
  * S-20 — Project Tray (s-19-capture-tray.md). The untriaged
  * (`board: null`) inbox: search/filter, an inspector with type

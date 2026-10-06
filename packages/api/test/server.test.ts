@@ -24,10 +24,10 @@ import {
   type ConductorDeps,
   StubTransitionHandler,
   makeTransitionTools,
-} from '@sprint-runner/conductor';
-import { resolveConfig } from '@sprint-runner/config';
-import type { GateItem, TicketRow } from '@sprint-runner/core';
-import { PostgresStore } from '@sprint-runner/store';
+} from '@veto/conductor';
+import { resolveConfig } from '@veto/config';
+import type { GateItem, TicketRow } from '@veto/core';
+import { PostgresStore } from '@veto/store';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   type ApiServer,
@@ -121,7 +121,7 @@ const ticketRow = (over: Partial<TicketRow> = {}): TicketRow => ({
 });
 
 beforeEach(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'sr-api-'));
+  dir = mkdtempSync(join(tmpdir(), 'veto-api-'));
   store = await PostgresStore.connect('pglite:');
   await store.getSchemaVersion();
 });
@@ -244,7 +244,7 @@ describe('token bootstrap', () => {
     const res = await app.inject({ method: 'GET', url: `/?token=${TOKEN}` });
     expect(res.statusCode).toBe(200);
     const cookie = res.headers['set-cookie'] as string;
-    expect(cookie).toContain('sr_session=');
+    expect(cookie).toContain('veto_session=');
     // cookie works on subsequent requests
     const res2 = await app.inject({
       method: 'GET',

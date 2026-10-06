@@ -1,4 +1,4 @@
-import type { BoardItem } from '@sprint-runner/core';
+import type { BoardItem } from '@veto/core';
 /**
  * S-19 — Quick Capture (s-19-capture-tray.md). Minimal, mobile-safe
  * ingress: one input, guessed type with one-tap correction, project,

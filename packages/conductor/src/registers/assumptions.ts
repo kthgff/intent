@@ -22,11 +22,7 @@
  *     per row so the drift lands in the ledger (and the gate payload)
  *     instead of silently rotting.
  */
-import type {
-  AssumptionRow,
-  AssumptionStatus,
-  Store,
-} from '@sprint-runner/core';
+import type { AssumptionRow, AssumptionStatus, Store } from '@veto/core';
 
 /** Impact levels that block `ready` while unverified (TICKET_PRIORITIES
  *  enum — 'high' is the top tier). */

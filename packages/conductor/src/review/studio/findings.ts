@@ -25,7 +25,7 @@ import type {
   FindingResolutionRow,
   ReviewFindingRow,
   ReviewFindingStatus,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import { type StudioCtx, forbidden, invalid, notFound } from './types.js';
 
 /** Main lifecycle path, in order. */

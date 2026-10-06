@@ -14,12 +14,8 @@
  *      The rebase run is the ONLY path that rewrites the branch (it
  *      owns the force-push policy); the Merge Center never force-pushes.
  */
-import type {
-  MergeStrategy,
-  TicketRepoRow,
-  TicketRow,
-} from '@sprint-runner/core';
-import { type GitError, git } from '@sprint-runner/gitops';
+import type { MergeStrategy, TicketRepoRow, TicketRow } from '@veto/core';
+import { type GitError, git } from '@veto/gitops';
 import type { TransitionTools } from '../contracts.js';
 import type { MergeCtx, MergeRowOutcome } from './types.js';
 

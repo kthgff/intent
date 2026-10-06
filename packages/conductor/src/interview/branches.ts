@@ -15,7 +15,7 @@ import type {
   InterviewBranchRow,
   StatementPolarity,
   StatementRow,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import { appendMessage, requireSession, transcript } from './session.js';
 import { listSlots, polarityConflicts, refreshSlot } from './slots.js';
 import {

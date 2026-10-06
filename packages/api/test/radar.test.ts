@@ -13,9 +13,9 @@ import {
   Conductor,
   type ConductorDeps,
   StubTransitionHandler,
-} from '@sprint-runner/conductor';
-import { resolveConfig } from '@sprint-runner/config';
-import { PostgresStore } from '@sprint-runner/store';
+} from '@veto/conductor';
+import { resolveConfig } from '@veto/config';
+import { PostgresStore } from '@veto/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { type ApiServer, createServer } from '../src/index.js';
 
@@ -53,7 +53,7 @@ function makeServer(): ApiServer {
 }
 
 beforeEach(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'sr-radar-api-'));
+  dir = mkdtempSync(join(tmpdir(), 'veto-radar-api-'));
   store = await PostgresStore.connect('pglite:');
   await store.getSchemaVersion();
   await store.upsertProject({ workspace: WS, name: 'Team A' });

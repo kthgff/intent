@@ -1,8 +1,4 @@
-import type {
-  EvalCaseRow,
-  EvalResultRow,
-  EvalRunRow,
-} from '@sprint-runner/core';
+import type { EvalCaseRow, EvalResultRow, EvalRunRow } from '@veto/core';
 import { describe, expect, it } from 'vitest';
 import {
   createEvalRun,

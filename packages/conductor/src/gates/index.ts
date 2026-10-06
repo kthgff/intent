@@ -21,7 +21,7 @@
  * silently strand a ticket; CONDUCTOR lets repair "land on any
  * status").
  */
-import type { GateKind, GateMode, TicketStatus } from '@sprint-runner/core';
+import type { GateKind, GateMode, TicketStatus } from '@veto/core';
 
 /** Every gate named in CONDUCTOR "Auto-advance rules" (+ `repair`,
  *  which can land on any status, and `merge`/`ci-watch` tail gates),

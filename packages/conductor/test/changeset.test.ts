@@ -15,7 +15,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { PostgresStore } from '@sprint-runner/store';
+import { PostgresStore } from '@veto/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   ChangesetError,
@@ -53,7 +53,7 @@ const tick = (ms = 60_000) => {
 };
 
 beforeEach(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'sr-changeset-'));
+  dir = mkdtempSync(join(tmpdir(), 'veto-changeset-'));
   store = await PostgresStore.connect('pglite:');
   clock = T0;
   await store.upsertProject({ workspace: WS, name: 'Team A' });

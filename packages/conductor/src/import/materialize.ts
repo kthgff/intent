@@ -30,7 +30,7 @@ import {
   type Store,
   type TicketFrontmatter,
   TicketFrontmatterSchema,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import YAML from 'yaml';
 import {
   flagsFor,
@@ -157,7 +157,7 @@ export async function materialize(
   opts: MaterializeOptions,
 ): Promise<MaterializeResult> {
   const { workspace, store } = opts;
-  const actor = opts.actor ?? 'sprint-runner';
+  const actor = opts.actor ?? 'veto';
   const now = new Date().toISOString();
   const result: MaterializeResult = { imported: [], collisions: [] };
 

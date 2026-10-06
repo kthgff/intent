@@ -6,7 +6,7 @@
  * statement keeps its verbatim source (`source_text` + `source_ref`
  * span) — never paraphrased away.
  */
-import type { ActorType, StatementSourceRef } from '@sprint-runner/core';
+import type { ActorType, StatementSourceRef } from '@veto/core';
 
 /** One evidence document an extraction pass reads — the verbatim text
  *  plus the ref stored on every statement it yields. */

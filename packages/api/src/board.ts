@@ -16,7 +16,7 @@
  * this file owns HTTP: zod-fail-closed bodies, workspace-qualified ids,
  * and `BoardError` → 4xx mapping.
  */
-import type { ConductorWorkspace } from '@sprint-runner/conductor';
+import type { ConductorWorkspace } from '@veto/conductor';
 import {
   BoardError,
   acceptResurface,
@@ -33,14 +33,14 @@ import {
   spawnWorkspaceFromBoard,
   statementsByItem,
   statementsForItem,
-} from '@sprint-runner/conductor';
-import type { BoardItem, BoardType, Store } from '@sprint-runner/core';
+} from '@veto/conductor';
+import type { BoardItem, BoardType, Store } from '@veto/core';
 import {
   BOARD_TYPES,
   NOTE_IMPORTANCES,
   NOTE_KINDS,
   NOTE_STATUSES,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { ApiError } from './server.js';

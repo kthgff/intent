@@ -8,7 +8,7 @@
  * file to regenerate. `renderLogMd`/`renderEventLine` remain as pure
  * renderers for the API/UI (LOG.md is a derived render, DB-SCHEMA).
  */
-import type { ActorType, EventName, EventRow } from '@sprint-runner/core';
+import type { ActorType, EventName, EventRow } from '@veto/core';
 
 /** Narrow emit surface — works with either a TransitionContext (claim
  *  path) or the richer TransitionTools (reconcile path). */

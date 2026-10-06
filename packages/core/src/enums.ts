@@ -1,5 +1,5 @@
 /**
- * Enums / string unions — the vocabulary of sprint-runner contracts.
+ * Enums / string unions — the vocabulary of veto contracts.
  * Sources: SCHEMAS.md §1/§5-§7/§11-§13, CONDUCTOR.md sentinel table +
  * run lifecycle, DB-SCHEMA.md column comments, SETTINGS.md enums.
  */

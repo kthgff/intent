@@ -25,15 +25,15 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
-import { MockAdapter } from '@sprint-runner/adapters';
+import { MockAdapter } from '@veto/adapters';
 import type {
   EventName,
   RenderedPrompt,
   RunResult,
   StatementRow,
-} from '@sprint-runner/core';
-import { specLint } from '@sprint-runner/lints';
-import { PostgresStore } from '@sprint-runner/store';
+} from '@veto/core';
+import { specLint } from '@veto/lints';
+import { PostgresStore } from '@veto/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   type ChangesCtx,
@@ -137,7 +137,7 @@ async function emit(
 }
 
 beforeEach(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'sr-discovery-'));
+  dir = mkdtempSync(join(tmpdir(), 'veto-discovery-'));
   runsDir = join(dir, 'runs');
   mkdirSync(runsDir, { recursive: true });
   store = await PostgresStore.connect('pglite:');

@@ -24,7 +24,7 @@ import type {
   ExternalReviewMappingRow,
   Relation,
   ReviewEvidenceLinkRow,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import { requireSession } from './session.js';
 import { type StudioCtx, notFound } from './types.js';
 

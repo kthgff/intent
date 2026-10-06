@@ -14,11 +14,7 @@
  * Ids are deterministic: the same screen + state always yields the same
  * ids, so a re-run is a structural no-op.
  */
-import type {
-  Mockup,
-  MockupBreakpoint,
-  MockupState,
-} from '@sprint-runner/core';
+import type { Mockup, MockupBreakpoint, MockupState } from '@veto/core';
 import { lintMockup } from './mockup.js';
 import { badRequest } from './types.js';
 

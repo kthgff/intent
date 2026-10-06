@@ -34,7 +34,7 @@ import type {
   TicketPriority,
   TicketRow,
   TicketStatus,
-} from '@sprint-runner/core';
+} from '@veto/core';
 
 // ---------------------------------------------------------------------------
 // Context handed to the handler

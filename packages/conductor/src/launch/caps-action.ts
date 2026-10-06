@@ -9,7 +9,7 @@
  * cap name as `blocked_reason`. Idempotent — the usage stream may fire
  * several partials before the kill lands.
  */
-import type { RunRow } from '@sprint-runner/core';
+import type { RunRow } from '@veto/core';
 import { applyTicketStatus } from '../contracts.js';
 import type { CapKind } from '../loop/caps.js';
 import { actorOf, loadHandle, nowIso } from '../loop/deps.js';

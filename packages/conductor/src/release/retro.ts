@@ -20,7 +20,7 @@ import {
   type BoardItem,
   RELEASE_NOTE_AUDIENCES,
   type ReleaseRow,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import { z } from 'zod';
 import type { RunRequest } from '../contracts.js';
 import { resolveManifestMembers } from './manifest.js';

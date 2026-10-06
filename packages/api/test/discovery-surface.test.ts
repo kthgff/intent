@@ -22,10 +22,10 @@ import {
   Conductor,
   type ConductorDeps,
   StubTransitionHandler,
-} from '@sprint-runner/conductor';
-import { resolveConfig } from '@sprint-runner/config';
-import type { StatementRow } from '@sprint-runner/core';
-import { PostgresStore } from '@sprint-runner/store';
+} from '@veto/conductor';
+import { resolveConfig } from '@veto/config';
+import type { StatementRow } from '@veto/core';
+import { PostgresStore } from '@veto/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { type ApiServer, createServer } from '../src/index.js';
 
@@ -82,7 +82,7 @@ async function startSession(app: ApiServer) {
 }
 
 beforeEach(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'sr-api-discovery-ui-'));
+  dir = mkdtempSync(join(tmpdir(), 'veto-api-discovery-ui-'));
   store = await PostgresStore.connect('pglite:');
   await store.getSchemaVersion();
 });

@@ -35,8 +35,8 @@
 import { createHash } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { RunRow, TicketRepoRow, TicketRow } from '@sprint-runner/core';
-import { git } from '@sprint-runner/gitops';
+import type { RunRow, TicketRepoRow, TicketRow } from '@veto/core';
+import { git } from '@veto/gitops';
 import type { TransitionTools } from '../contracts.js';
 import { revalidateDependents } from '../decompose/coordinator.js';
 import { runVerifyTask } from '../envops/index.js';

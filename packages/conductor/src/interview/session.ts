@@ -19,7 +19,7 @@ import type {
   InterviewSessionRow,
   KnowledgeSlotRow,
   SessionSnapshotRow,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import { listSlots, openDecisionsForSlots } from './slots.js';
 import {
   type InterviewCtx,

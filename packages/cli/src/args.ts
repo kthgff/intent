@@ -1,5 +1,5 @@
 /**
- * args.ts — argv parsing for the `sprint-runner` CLI (wp-099).
+ * args.ts — argv parsing for the `veto` CLI (wp-099).
  *
  * Deliberately tiny — no dependency. `--flag value` and `--flag=value`
  * forms are both accepted; `-h`/`-v` are the only short aliases.

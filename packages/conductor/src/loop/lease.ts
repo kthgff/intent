@@ -8,7 +8,7 @@
  *   - Heartbeats ride alongside runs.heartbeat_at.
  *   - Release is best-effort — a stale lease expires via its TTL.
  */
-import type { LeaseKey } from '@sprint-runner/core';
+import type { LeaseKey } from '@veto/core';
 import {
   type ConductorDeps,
   type ConductorWorkspace,

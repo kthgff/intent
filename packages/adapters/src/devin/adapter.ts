@@ -35,8 +35,8 @@ import {
   SentinelSchema,
   type Stage,
   type UsageCallback,
-} from '@sprint-runner/core';
-import { STAGE_TEMPLATES, renderPrompt } from '@sprint-runner/prompts';
+} from '@veto/core';
+import { STAGE_TEMPLATES, renderPrompt } from '@veto/prompts';
 import { findDevinBinary } from './binary.js';
 import { usageFromExport } from './usage.js';
 

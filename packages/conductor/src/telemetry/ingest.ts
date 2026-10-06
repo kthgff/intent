@@ -15,11 +15,8 @@ import type {
   IncidentRow,
   Store,
   TelemetrySourceRow,
-} from '@sprint-runner/core';
-import {
-  FINGERPRINT_VERSION,
-  TELEMETRY_SOURCE_KINDS,
-} from '@sprint-runner/core';
+} from '@veto/core';
+import { FINGERPRINT_VERSION, TELEMETRY_SOURCE_KINDS } from '@veto/core';
 import {
   TELEMETRY_REDACTION_POLICY,
   type TelemetryEvent,

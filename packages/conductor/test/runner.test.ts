@@ -13,7 +13,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { RunRow } from '@sprint-runner/core';
+import type { RunRow } from '@veto/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { FetchIssuesResult } from '../src/import/types.js';
 import { launch, queuePendingRun } from '../src/launch/index.js';
@@ -299,7 +299,7 @@ describe('stranded collectable statuses (R1-F7)', () => {
       // Register an exited adapter run, then flip it to `validated`
       // (crash between collect steps) — the sweep must collect it, not
       // strand it in listLiveRuns forever.
-      const dir = mkdtempSync(join(tmpdir(), 'sr-stranded-'));
+      const dir = mkdtempSync(join(tmpdir(), 'veto-stranded-'));
       const run: RunRow = {
         id: `${WS}/SR-0001/009-triage`,
         workspace: WS,

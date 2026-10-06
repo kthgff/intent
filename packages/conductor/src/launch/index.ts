@@ -29,14 +29,14 @@ import {
   type TicketRow,
   type TokenValues,
   validateRetrievalEvidence,
-} from '@sprint-runner/core';
-import { createWorktree } from '@sprint-runner/gitops';
-import { createEmbedder, queryEvidence } from '@sprint-runner/kb';
+} from '@veto/core';
+import { createWorktree } from '@veto/gitops';
+import { createEmbedder, queryEvidence } from '@veto/kb';
 import {
   assertRouteProvider,
   renderEvidenceBundle,
   resolveRunRoute,
-} from '@sprint-runner/prompts';
+} from '@veto/prompts';
 import type { RunRequest } from '../contracts.js';
 import { ensureSubjectContainer } from '../envops/index.js';
 import { materializeTestEnvForRun } from '../envops/testenv.js';
@@ -70,7 +70,7 @@ export interface LaunchContext {
   ws: ConductorWorkspace;
   leases: LeaseManager;
   /** In-memory run-handle registry (persisted to handle.json too). */
-  handles: Map<string, import('@sprint-runner/core').RunHandle>;
+  handles: Map<string, import('@veto/core').RunHandle>;
   /** Run ids already killed for a cap hit (stream may refire). */
   killedForCap: Set<string>;
   /** Called when a mid-run usage stream trips a cap. */
@@ -390,7 +390,7 @@ async function buildTokens(
     tokens.REPO_NAMES = repo;
     const path = resolveRepoPath(ctx.deps, ws, repo);
     tokens.REPO_PATH = path;
-    tokens.CARD_PATH = join(path, '.sprint-runner', 'card.json');
+    tokens.CARD_PATH = join(path, '.veto', 'card.json');
   }
   if (req.stage === 'retro' || req.stage === 'release-notes') {
     // wp-135: RELEASE_MD is the frozen manifest + delivery/outcome

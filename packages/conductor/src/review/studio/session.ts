@@ -19,7 +19,7 @@ import type {
   ReviewSessionRow,
   ReviewSessionStatus,
   RunBaseline,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import {
   type StudioCtx,
   baselineKey,

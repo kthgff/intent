@@ -21,7 +21,7 @@ import type {
   ReviewFindingRow,
   ReviewRevisionRow,
   RunBaseline,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import { requireSession } from './session.js';
 import { type StudioCtx, badRequest, baselineKey, notFound } from './types.js';
 

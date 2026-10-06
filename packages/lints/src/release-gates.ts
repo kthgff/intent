@@ -14,7 +14,7 @@ import type {
   ReleaseItemRow,
   ReleaseManifestItem,
   ReleaseManifestRow,
-} from '@sprint-runner/core';
+} from '@veto/core';
 
 /** The release-readiness gate set (DELIVERY §4 invariants 2, 3, 5 +
  *  the correction rule). `release_gate_results.gate` carries these

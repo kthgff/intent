@@ -1,5 +1,5 @@
 /**
- * @sprint-runner/lints — AI Evaluation Lab (PRD §15.12, wp-156).
+ * @veto/lints — AI Evaluation Lab (PRD §15.12, wp-156).
  *
  * Golden sets, the offline bake-off runner, scoring, and the promotion
  * gate that lets a model/prompt change ship only after passing its eval

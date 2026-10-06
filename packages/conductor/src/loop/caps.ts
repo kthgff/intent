@@ -14,7 +14,7 @@
  * the same truth (runs is coordination data, not rebuildable). See
  * wp-030 ticket notes.
  */
-import type { Store, TicketRow } from '@sprint-runner/core';
+import type { Store, TicketRow } from '@veto/core';
 import type { ConductorDeps } from './deps.js';
 
 export type CapKind = 'spend_cap_usd_per_ticket' | 'tokens_cap_per_ticket';

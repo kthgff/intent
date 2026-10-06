@@ -5,7 +5,7 @@
  * artifact carries no score and no approval — this panel renders the
  * findings and their citations; it never approves anything itself.
  */
-import type { RsQualityFinding } from '@sprint-runner/core';
+import type { RsQualityFinding } from '@veto/core';
 import { Citation, isCodeRef } from './Evidence';
 import { ApiError, client } from './api';
 import { Empty, ErrorBox, Loading } from './components';

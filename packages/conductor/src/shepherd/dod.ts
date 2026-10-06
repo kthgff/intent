@@ -13,7 +13,7 @@
  * attestation writer appends a new doc version via putDoc). Schema:
  *   { "schema": 1, "attested": [{ "criterion", "attested_by", "at" }] }
  */
-import type { DocKind, DodRow } from '@sprint-runner/core';
+import type { DocKind, DodRow } from '@veto/core';
 import type { TransitionTools } from '../contracts.js';
 
 export type { DodRow };

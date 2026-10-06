@@ -25,7 +25,7 @@ import {
   DECOMPOSE_SECURITY,
   type DecomposeComplexity,
   type DecomposeSecurity,
-} from '@sprint-runner/core';
+} from '@veto/core';
 
 /** One `## Children` row — sibling labels resolve to real ids at
  *  materialization (SCHEMAS §14). */

@@ -110,7 +110,7 @@ import type {
   UsageCallRow,
   WizardDefinitionRow,
   WizardVersionRow,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import { type PgClient, createClient } from './client.js';
 
 /** Live (non-terminal) run statuses for the reconcile pass —

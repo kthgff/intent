@@ -1,9 +1,9 @@
 /**
- * @sprint-runner/config — layered config loading per SETTINGS.md.
+ * @veto/config — layered config loading per SETTINGS.md.
  *
  * Precedence (highest wins):
- *   ticket frontmatter > <tickets-repo>/.sprint-runner/config.yaml
- *   > ~/.config/sprint-runner/config.yaml > defaults.
+ *   ticket frontmatter > <tickets-repo>/.veto/config.yaml
+ *   > ~/.config/veto/config.yaml > defaults.
  *
  * Secrets live ONLY in .env files / env vars — parsed into a secrets
  * map and never surfaced in warnings or error messages.
@@ -11,7 +11,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { type Config, ConfigSchema } from '@sprint-runner/core';
+import { type Config, ConfigSchema } from '@veto/core';
 import YAML from 'yaml';
 import { parseEnv } from './env.js';
 import { type PlainObject, deepMerge, isPlainObject } from './merge.js';
@@ -64,11 +64,11 @@ export type EffectiveConfig = Config & {
 };
 
 export function defaultGlobalConfigPath(): string {
-  return join(homedir(), '.config', 'sprint-runner', 'config.yaml');
+  return join(homedir(), '.config', 'veto', 'config.yaml');
 }
 
 export function workspaceConfigPath(rootPath: string): string {
-  return join(rootPath, '.sprint-runner', 'config.yaml');
+  return join(rootPath, '.veto', 'config.yaml');
 }
 
 function readYamlFile(path: string): PlainObject {
@@ -112,7 +112,7 @@ export function loadGlobalConfig(
 
 /**
  * Load the workspace layer on top of the global layer:
- * `<rootPath>/.sprint-runner/config.yaml` + sibling `.env`. Workspace
+ * `<rootPath>/.veto/config.yaml` + sibling `.env`. Workspace
  * values override global values (deep merge); workspace secrets win.
  * (D29: the workspace root is a plain dir — there is no tickets repo.)
  */
@@ -137,7 +137,7 @@ export function loadWorkspaceConfig(
   }
 
   const secrets = { ...global.secrets };
-  const envPath = join(rootPath, '.sprint-runner', '.env');
+  const envPath = join(rootPath, '.veto', '.env');
   if (existsSync(envPath)) {
     Object.assign(secrets, readEnvFile(envPath));
     files.push(envPath);
@@ -228,8 +228,8 @@ export const DEFAULT_CAPABILITIES: Record<
 export const ACTOR_HELP =
   "config.actor is required — this install's identity for machine " +
   'commits, claims, and event attribution (SETTINGS.md). Set it via ' +
-  "'actor: <name>' in ~/.config/sprint-runner/config.yaml, in the " +
-  "tickets-repo's .sprint-runner/config.yaml, or per ticket in " +
+  "'actor: <name>' in ~/.config/veto/config.yaml, in the " +
+  "tickets-repo's .veto/config.yaml, or per ticket in " +
   'frontmatter.';
 
 /**
@@ -269,12 +269,7 @@ export function resolveConfig(
     DEFAULT_CAPABILITIES as PlainObject,
     config.capabilities as PlainObject,
   ) as Config['capabilities'];
-  config.ui.token_file ??= join(
-    homedir(),
-    '.config',
-    'sprint-runner',
-    'ui-token',
-  );
+  config.ui.token_file ??= join(homedir(), '.config', 'veto', 'ui-token');
   if (config.importers.github)
     config.importers.github.token_env ??= 'GITHUB_TOKEN';
   else config.importers.github = { token_env: 'GITHUB_TOKEN' };

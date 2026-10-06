@@ -12,7 +12,7 @@ import type {
   ReleaseItemRow,
   ReleaseManifestItem,
   TicketRow,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import { type ReleaseCtx, ReleaseError } from './types.js';
 
 /** Member statuses excluded from a feature's membership — the ticket

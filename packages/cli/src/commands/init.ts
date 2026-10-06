@@ -1,7 +1,7 @@
 /**
  * `init` — onboard this install (wp-099):
  *
- *   1. scaffold `~/.config/sprint-runner/` — config.yaml, .env (0600),
+ *   1. scaffold `~/.config/veto/` — config.yaml, .env (0600),
  *      ui-token (0600, auto-generated per API.md);
  *   2. detect PATH deps (git, gitleaks, gh, docker, backend CLIs) and
  *      print a readable report — a missing REQUIRED dep is a nonzero
@@ -19,16 +19,16 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { userInfo } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
-import { loadOrCreateToken } from '@sprint-runner/api';
+import { loadOrCreateToken } from '@veto/api';
 import {
   ConfigError,
   type LoadedConfig,
   defaultGlobalConfigPath,
   loadGlobalConfig,
-} from '@sprint-runner/config';
-import type { PartialConfig } from '@sprint-runner/config';
-import { ConfigSchema } from '@sprint-runner/core';
-import { PostgresStore } from '@sprint-runner/store';
+} from '@veto/config';
+import type { PartialConfig } from '@veto/config';
+import { ConfigSchema } from '@veto/core';
+import { PostgresStore } from '@veto/store';
 import YAML from 'yaml';
 import { formatDepsReport, missingRequired, probeDeps } from '../deps.js';
 import { defaultWorkspaceRoot } from '../paths.js';
@@ -59,12 +59,12 @@ function defaultActor(): string {
   try {
     return userInfo().username;
   } catch {
-    return process.env.USER ?? process.env.LOGNAME ?? 'sprint-runner';
+    return process.env.USER ?? process.env.LOGNAME ?? 'veto';
   }
 }
 
 function configTemplate(actor: string): string {
-  return `# sprint-runner configuration — spec: docs/SETTINGS.md
+  return `# veto configuration — spec: docs/SETTINGS.md
 schema: 1
 actor: ${actor}          # REQUIRED — this install's identity (machine commits,
                        # claims, event attribution)

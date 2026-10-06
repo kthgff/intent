@@ -2,7 +2,7 @@
  * wp-147 — discovery surface helpers: canvas lane grouping, capture
  * type guessing, bulk-paste splitting, provenance/briefing lines.
  */
-import type { BoardItem } from '@sprint-runner/core';
+import type { BoardItem } from '@veto/core';
 import { describe, expect, it } from 'vitest';
 import {
   briefingLines,

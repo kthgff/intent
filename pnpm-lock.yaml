@@ -23,10 +23,10 @@ importers:
 
   packages/adapters:
     dependencies:
-      '@sprint-runner/core':
+      '@veto/core':
         specifier: workspace:*
         version: link:../core
-      '@sprint-runner/prompts':
+      '@veto/prompts':
         specifier: workspace:*
         version: link:../prompts
     devDependencies:
@@ -42,22 +42,22 @@ importers:
 
   packages/api:
     dependencies:
-      '@sprint-runner/conductor':
+      '@veto/conductor':
         specifier: workspace:*
         version: link:../conductor
-      '@sprint-runner/config':
+      '@veto/config':
         specifier: workspace:*
         version: link:../config
-      '@sprint-runner/core':
+      '@veto/core':
         specifier: workspace:*
         version: link:../core
-      '@sprint-runner/gitops':
+      '@veto/gitops':
         specifier: workspace:*
         version: link:../gitops
-      '@sprint-runner/kb':
+      '@veto/kb':
         specifier: workspace:*
         version: link:../kb
-      '@sprint-runner/store':
+      '@veto/store':
         specifier: workspace:*
         version: link:../store
       fastify:
@@ -82,25 +82,25 @@ importers:
 
   packages/cli:
     dependencies:
-      '@sprint-runner/adapters':
+      '@veto/adapters':
         specifier: workspace:*
         version: link:../adapters
-      '@sprint-runner/api':
+      '@veto/api':
         specifier: workspace:*
         version: link:../api
-      '@sprint-runner/conductor':
+      '@veto/conductor':
         specifier: workspace:*
         version: link:../conductor
-      '@sprint-runner/config':
+      '@veto/config':
         specifier: workspace:*
         version: link:../config
-      '@sprint-runner/core':
+      '@veto/core':
         specifier: workspace:*
         version: link:../core
-      '@sprint-runner/prompts':
+      '@veto/prompts':
         specifier: workspace:*
         version: link:../prompts
-      '@sprint-runner/store':
+      '@veto/store':
         specifier: workspace:*
         version: link:../store
       yaml:
@@ -119,25 +119,25 @@ importers:
 
   packages/conductor:
     dependencies:
-      '@sprint-runner/config':
+      '@veto/config':
         specifier: workspace:*
         version: link:../config
-      '@sprint-runner/core':
+      '@veto/core':
         specifier: workspace:*
         version: link:../core
-      '@sprint-runner/gitops':
+      '@veto/gitops':
         specifier: workspace:*
         version: link:../gitops
-      '@sprint-runner/kb':
+      '@veto/kb':
         specifier: workspace:*
         version: link:../kb
-      '@sprint-runner/lints':
+      '@veto/lints':
         specifier: workspace:*
         version: link:../lints
-      '@sprint-runner/prompts':
+      '@veto/prompts':
         specifier: workspace:*
         version: link:../prompts
-      '@sprint-runner/store':
+      '@veto/store':
         specifier: workspace:*
         version: link:../store
       yaml:
@@ -147,7 +147,7 @@ importers:
         specifier: ^3.23.8
         version: 3.25.76
     devDependencies:
-      '@sprint-runner/adapters':
+      '@veto/adapters':
         specifier: workspace:*
         version: link:../adapters
       '@types/node':
@@ -162,7 +162,7 @@ importers:
 
   packages/config:
     dependencies:
-      '@sprint-runner/core':
+      '@veto/core':
         specifier: workspace:*
         version: link:../core
       yaml:
@@ -215,10 +215,10 @@ importers:
       '@huggingface/transformers':
         specifier: ^4.3.0
         version: 4.3.0(@types/node@22.20.5)
-      '@sprint-runner/core':
+      '@veto/core':
         specifier: workspace:*
         version: link:../core
-      '@sprint-runner/store':
+      '@veto/store':
         specifier: workspace:*
         version: link:../store
       zod:
@@ -237,10 +237,10 @@ importers:
 
   packages/lints:
     dependencies:
-      '@sprint-runner/config':
+      '@veto/config':
         specifier: workspace:*
         version: link:../config
-      '@sprint-runner/core':
+      '@veto/core':
         specifier: workspace:*
         version: link:../core
       yaml:
@@ -259,7 +259,7 @@ importers:
 
   packages/prompts:
     dependencies:
-      '@sprint-runner/core':
+      '@veto/core':
         specifier: workspace:*
         version: link:../core
     devDependencies:
@@ -275,7 +275,7 @@ importers:
 
   packages/store:
     dependencies:
-      '@sprint-runner/core':
+      '@veto/core':
         specifier: workspace:*
         version: link:../core
       postgres:
@@ -303,7 +303,7 @@ importers:
       '@fontsource/jetbrains-mono':
         specifier: ^5.3.0
         version: 5.3.0
-      '@sprint-runner/core':
+      '@veto/core':
         specifier: workspace:*
         version: link:../core
       lucide-react:

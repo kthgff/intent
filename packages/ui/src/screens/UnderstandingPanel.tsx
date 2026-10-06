@@ -1,4 +1,4 @@
-import type { KnowledgeSlotRow, StatementRow } from '@sprint-runner/core';
+import type { KnowledgeSlotRow, StatementRow } from '@veto/core';
 /**
  * Understanding Panel (PRD §15.9, wp-146 contract / wp-147 surface).
  *

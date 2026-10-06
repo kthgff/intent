@@ -16,7 +16,7 @@
  * D29: docs live in `doc_versions`, structured stage output in
  * `run_artifacts`, ids come from `projects.next_ticket_seq` — there is
  * no tickets repo and no ticket.md files on disk. The only filesystem
- * read left is the live `.sprint-runner/card.json` inside a CODE repo
+ * read left is the live `.veto/card.json` inside a CODE repo
  * (git-for-code is still real).
  */
 import { createHash } from 'node:crypto';
@@ -26,9 +26,9 @@ import {
   type FindingSeverity,
   REVIEW_PASSES,
   type TicketRow,
-} from '@sprint-runner/core';
-import { git, push } from '@sprint-runner/gitops';
-import { fingerprint, matchThread, threadIdFor } from '@sprint-runner/lints';
+} from '@veto/core';
+import { git, push } from '@veto/gitops';
+import { fingerprint, matchThread, threadIdFor } from '@veto/lints';
 import type { TransitionContext } from '../contracts.js';
 import { promoteContracts } from '../decompose/contracts.js';
 import type { DecompositionRow, PlanContract } from '../decompose/plan.js';
@@ -39,7 +39,7 @@ export const FRONTMATTER_RE =
   /^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
 
 /** Read a file, or null when absent. Used ONLY for files inside code
- *  repos (e.g. `.sprint-runner/card.json`) — ticket docs/artifacts are
+ *  repos (e.g. `.veto/card.json`) — ticket docs/artifacts are
  *  DB rows now. */
 export async function readOrNull(path: string): Promise<string | null> {
   try {
@@ -415,7 +415,7 @@ export function parseSplitPlan(md: string): SplitChild[] | null {
 
 /**
  * Transactional `SR-NNNN` allocation (DB-SCHEMA `projects.next_ticket_seq`
- * — D29; replaces the git-ref CAS + `.sprint-runner/next-id` file).
+ * — D29; replaces the git-ref CAS + `.veto/next-id` file).
  */
 export async function reserveId(ctx: TransitionContext): Promise<string> {
   return ctx.store.allocTicketId(ctx.workspace);

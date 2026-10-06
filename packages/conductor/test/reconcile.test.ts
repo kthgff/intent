@@ -7,12 +7,12 @@
  * PostgresStore through the real import pipeline (materialize → tickets
  * rows + ticket.md doc_versions).
  */
-import type { TicketRow } from '@sprint-runner/core';
+import type { TicketRow } from '@veto/core';
 import {
   PROVENANCE_AUTO_APPROVABLE,
   provenanceAllowsAutoApproval,
-} from '@sprint-runner/core';
-import { PostgresStore } from '@sprint-runner/store';
+} from '@veto/core';
+import { PostgresStore } from '@veto/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   DEFAULT_IMPORT_BOARD,

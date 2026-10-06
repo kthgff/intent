@@ -18,10 +18,7 @@
  * unknown status/depth/priority or wrong types stay parse errors.
  */
 import { readFile } from 'node:fs/promises';
-import {
-  type TicketFrontmatter,
-  TicketFrontmatterSchema,
-} from '@sprint-runner/core';
+import { type TicketFrontmatter, TicketFrontmatterSchema } from '@veto/core';
 import YAML from 'yaml';
 
 export interface ParsedTicketFile {

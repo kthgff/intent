@@ -9,10 +9,10 @@
  * conductor-side effect a new mockup revision legitimately drives
  * (re-checking bound approvals for invalidation).
  */
-import { design } from '@sprint-runner/conductor';
-import type { ConductorWorkspace } from '@sprint-runner/conductor';
-import type { MockupState, Store } from '@sprint-runner/core';
-import { MOCKUP_STATES } from '@sprint-runner/core';
+import { design } from '@veto/conductor';
+import type { ConductorWorkspace } from '@veto/conductor';
+import type { MockupState, Store } from '@veto/core';
+import { MOCKUP_STATES } from '@veto/core';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { ApiError } from './server.js';

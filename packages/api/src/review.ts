@@ -17,16 +17,16 @@
  *     rows record correspondences only.
  */
 import { randomUUID } from 'node:crypto';
-import { studio } from '@sprint-runner/conductor';
-import type { ConductorWorkspace } from '@sprint-runner/conductor';
+import { studio } from '@veto/conductor';
+import type { ConductorWorkspace } from '@veto/conductor';
 import type {
   ReviewFindingStatus,
   RunBaseline,
   Store,
   TicketRow,
-} from '@sprint-runner/core';
-import { REVIEW_ACTIONS } from '@sprint-runner/core';
-import { git } from '@sprint-runner/gitops';
+} from '@veto/core';
+import { REVIEW_ACTIONS } from '@veto/core';
+import { git } from '@veto/gitops';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { ApiError } from './server.js';

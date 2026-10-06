@@ -1,5 +1,5 @@
 {
-  "name": "@sprint-runner/prompts",
+  "name": "@veto/prompts",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -11,7 +11,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@sprint-runner/core": "workspace:*"
+    "@veto/core": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

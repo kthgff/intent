@@ -47,7 +47,7 @@ import type {
   GhClient,
   StreamEvent,
   ToolCtx,
-} from '@sprint-runner/conductor';
+} from '@veto/conductor';
 import {
   type ReleaseCtx,
   ReleaseError,
@@ -67,7 +67,7 @@ import {
   retroRunRequest,
   saveReleaseNoteDraft,
   setFeatureExposure,
-} from '@sprint-runner/conductor';
+} from '@veto/conductor';
 import {
   ACTOR_TYPES,
   type DocKind,
@@ -79,7 +79,7 @@ import {
   type Store,
   TICKET_PRIORITIES,
   TICKET_SEVERITIES,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { lineDiff } from './diff.js';

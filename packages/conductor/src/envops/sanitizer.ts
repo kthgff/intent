@@ -187,7 +187,7 @@ export async function scanArtifacts(
     return { ok: false, scanner, reason: 'scanner-missing', findings: [] };
   }
 
-  const reportDir = await mkdtemp(join(tmpdir(), 'sr-scan-'));
+  const reportDir = await mkdtemp(join(tmpdir(), 'veto-scan-'));
   const all: ScanFinding[] = [];
   try {
     for (const p of paths) {

@@ -18,8 +18,8 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { RunBaseline, RunRow } from '@sprint-runner/core';
-import { PostgresStore } from '@sprint-runner/store';
+import type { RunBaseline, RunRow } from '@veto/core';
+import { PostgresStore } from '@veto/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   pinnedBaselineOf,
@@ -163,7 +163,7 @@ describe('resolveRunBaseline (pin at launch)', () => {
   });
 
   it('records base_sha from the worktree HEAD when a checkout exists', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'sr-base-'));
+    const dir = mkdtempSync(join(tmpdir(), 'veto-base-'));
     try {
       execFileSync('git', ['init', '-qb', 'main'], { cwd: dir });
       execFileSync('git', ['config', 'user.name', 't'], { cwd: dir });

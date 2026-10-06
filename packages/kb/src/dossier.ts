@@ -23,7 +23,7 @@ import {
   RelationSchema,
   type Store,
   type TokenValues,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import { z } from 'zod';
 import { norm, upsertEntity } from './entities.js';
 

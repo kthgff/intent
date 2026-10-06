@@ -25,8 +25,8 @@ import type {
   StatementStatus,
   StatementStrength,
   Store,
-} from '@sprint-runner/core';
-import { locateQuote } from '@sprint-runner/lints';
+} from '@veto/core';
+import { locateQuote } from '@veto/lints';
 import { type StatementActor, StatementError } from './types.js';
 
 type HeadWrite = Omit<StatementRow, 'version'>;

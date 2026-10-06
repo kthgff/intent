@@ -13,8 +13,8 @@
  * clear writes `gate_items.cleared_at` + a durable `gate_approved`
  * event, and fans out `gate_cleared`/`notification` on SSE.
  */
-import { SCOPE_BUDGET_GATE, computeScopeRadar } from '@sprint-runner/conductor';
-import type { Store } from '@sprint-runner/core';
+import { SCOPE_BUDGET_GATE, computeScopeRadar } from '@veto/conductor';
+import type { Store } from '@veto/core';
 import type { FastifyInstance } from 'fastify';
 import { ApiError } from './server.js';
 

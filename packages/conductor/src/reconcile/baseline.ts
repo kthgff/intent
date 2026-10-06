@@ -21,12 +21,7 @@
  * human and a `baseline_reconciled` event recording old → new versions —
  * never a silent re-baseline. Detection is idempotent per open gate.
  */
-import type {
-  EventName,
-  RunBaseline,
-  RunRow,
-  Store,
-} from '@sprint-runner/core';
+import type { EventName, RunBaseline, RunRow, Store } from '@veto/core';
 import {
   CONTRACT_DOC,
   DESIGN_DOCS,

@@ -21,7 +21,7 @@ import {
   type DesignChecklistItem,
   DesignChecklistSchema,
   type Mockup,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import {
   MOCKUP_DOC,
   type MockupDiff,

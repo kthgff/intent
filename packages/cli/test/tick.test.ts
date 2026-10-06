@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { PostgresStore } from '@sprint-runner/store';
+import { PostgresStore } from '@veto/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { cmdTick, formatTickReport } from '../src/commands/tick.js';
 
@@ -17,7 +17,7 @@ const io = {
 };
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'sr-cli-tick-'));
+  root = mkdtempSync(join(tmpdir(), 'veto-cli-tick-'));
   configPath = join(root, 'config.yaml');
   dbUrl = `pglite://${join(root, 'db')}`;
   writeFileSync(

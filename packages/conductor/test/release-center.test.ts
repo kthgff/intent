@@ -19,8 +19,8 @@ import type {
   TicketRepoRow,
   TicketRow,
   TicketStatus,
-} from '@sprint-runner/core';
-import { PostgresStore } from '@sprint-runner/store';
+} from '@veto/core';
+import { PostgresStore } from '@veto/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ReleaseCtx } from '../src/release/index.js';
 import {
@@ -153,7 +153,7 @@ async function releaseEvents(id: string): Promise<string[]> {
 }
 
 beforeEach(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'sr-rel-'));
+  dir = mkdtempSync(join(tmpdir(), 'veto-rel-'));
   store = await PostgresStore.connect('pglite:');
   ctx = {
     workspace: WS,

@@ -48,7 +48,7 @@ import {
   type TestEnvSpec,
   TestEnvSpecSchema,
   type TicketRow,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import type { StreamEvent } from '../loop/deps.js';
 
 /** Gate instance name surfaced while a request awaits a human. */

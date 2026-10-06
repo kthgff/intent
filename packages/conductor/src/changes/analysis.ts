@@ -14,8 +14,8 @@
  * The result is recorded verbatim on `changesets.analysis` — it is the
  * evidence the decider sees, not an opaque score.
  */
-import type { Store } from '@sprint-runner/core';
-import type { ChangesetItemRow, ChangesetRow } from '@sprint-runner/core';
+import type { Store } from '@veto/core';
+import type { ChangesetItemRow, ChangesetRow } from '@veto/core';
 
 /** Open = still capable of landing — terminal/side states excluded. */
 export const OPEN_CHANGESET_STATUSES = new Set([

@@ -1,10 +1,10 @@
 {
-  "name": "@sprint-runner/cli",
+  "name": "@veto/cli",
   "version": "0.0.1",
   "private": true,
   "type": "module",
   "bin": {
-    "sprint-runner": "./dist/bin.js"
+    "veto": "./dist/bin.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -14,13 +14,13 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@sprint-runner/adapters": "workspace:*",
-    "@sprint-runner/api": "workspace:*",
-    "@sprint-runner/config": "workspace:*",
-    "@sprint-runner/conductor": "workspace:*",
-    "@sprint-runner/core": "workspace:*",
-    "@sprint-runner/prompts": "workspace:*",
-    "@sprint-runner/store": "workspace:*",
+    "@veto/adapters": "workspace:*",
+    "@veto/api": "workspace:*",
+    "@veto/config": "workspace:*",
+    "@veto/conductor": "workspace:*",
+    "@veto/core": "workspace:*",
+    "@veto/prompts": "workspace:*",
+    "@veto/store": "workspace:*",
     "yaml": "^2.5.0"
   },
   "devDependencies": {

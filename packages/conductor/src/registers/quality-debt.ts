@@ -15,11 +15,7 @@
  *     a notification per row, same expiry semantics as the security
  *     exception model (review/security.ts). Safe to call every tick.
  */
-import type {
-  QualityDebtKind,
-  QualityDebtRow,
-  Store,
-} from '@sprint-runner/core';
+import type { QualityDebtKind, QualityDebtRow, Store } from '@veto/core';
 
 export interface DebtCtx {
   store: Store;

@@ -9,7 +9,7 @@
  * scoped to the feature's own docs (answers/diffs from feature
  * evidence only).
  */
-import type { TicketRow } from '@sprint-runner/core';
+import type { TicketRow } from '@veto/core';
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import ChatEdit from '../ChatEdit';

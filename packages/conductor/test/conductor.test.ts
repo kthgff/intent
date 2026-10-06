@@ -20,9 +20,9 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { MockAdapter } from '@sprint-runner/adapters';
-import { resolveConfig } from '@sprint-runner/config';
-import { PostgresStore } from '@sprint-runner/store';
+import { MockAdapter } from '@veto/adapters';
+import { resolveConfig } from '@veto/config';
+import { PostgresStore } from '@veto/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { parseTicketMd } from '../src/import/parse.js';
 import {
@@ -178,7 +178,7 @@ async function ticketStatus(id: string): Promise<string> {
 }
 
 beforeEach(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'sr-conductor-'));
+  dir = mkdtempSync(join(tmpdir(), 'veto-conductor-'));
   runsDir = join(dir, 'runs');
   mkdirSync(runsDir, { recursive: true });
   codeRepo = join(dir, 'code-repo');

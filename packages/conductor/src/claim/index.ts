@@ -19,7 +19,7 @@ import {
   TERMINAL_STATUSES,
   type TicketPriority,
   type TicketRow,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import { z } from 'zod';
 import { applyTicketStatus } from '../contracts.js';
 import type { RunnerTask } from '../contracts.js';

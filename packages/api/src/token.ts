@@ -3,7 +3,7 @@
  *
  * The token is a 32-byte random hex string generated on first launch
  * and written to `ui.token_file` (default
- * `~/.config/sprint-runner/ui-token`, mode `0600`). It is never
+ * `~/.config/veto/ui-token`, mode `0600`). It is never
  * logged, never committed, never echoed by the API — callers treat the
  * return value as a secret.
  */

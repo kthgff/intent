@@ -3,7 +3,7 @@
  * summary (wp-099). Debug surface: exits nonzero on reconcile errors
  * (warnings collect into the report; a thrown tick is a hard error).
  */
-import type { TickReport } from '@sprint-runner/conductor';
+import type { TickReport } from '@veto/conductor';
 import { bootRuntime } from '../boot.js';
 
 export interface TickOptions {

@@ -15,7 +15,7 @@ describe('runCli dispatch', () => {
   it('--version prints the version and exits 0', async () => {
     const { io, out } = capture();
     expect(await runCli(['--version'], io)).toBe(0);
-    expect(out.join('\n')).toMatch(/sprint-runner \d+\.\d+\.\d+/);
+    expect(out.join('\n')).toMatch(/veto \d+\.\d+\.\d+/);
   });
 
   it('-v and `version` do the same', async () => {

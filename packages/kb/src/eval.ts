@@ -33,7 +33,7 @@ import type {
   RetrievalRequest,
   RetrievalTask,
   Store,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import type { Embedder } from './embeddings.js';
 import { queryEvidence } from './retrieve.js';
 

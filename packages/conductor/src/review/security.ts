@@ -35,7 +35,7 @@ import {
   type ReviewFindingRow,
   SECURITY_CATEGORIES,
   type SecurityCategory,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import type { FindingActorKind } from './studio/findings.js';
 import { requireSession } from './studio/session.js';
 import {

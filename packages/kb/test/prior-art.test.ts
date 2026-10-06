@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { PostgresStore } from '@sprint-runner/store';
+import { PostgresStore } from '@veto/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { indexTicket, priorArt, recordTicketFiles } from '../src/index.js';
 import type { Embedder } from '../src/index.js';
@@ -10,7 +10,7 @@ let dir: string;
 let store: PostgresStore;
 
 beforeEach(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'sr-kb-pa-'));
+  dir = mkdtempSync(join(tmpdir(), 'veto-kb-pa-'));
   store = await PostgresStore.connect('pglite:');
 });
 afterEach(async () => {

@@ -16,7 +16,7 @@
  *  guesses a repo (import.md rule 3's "best guess" is an agent-side
  *  behavior; the deterministic importer flags for triage instead).
  */
-import type { TicketPriority } from '@sprint-runner/core';
+import type { TicketPriority } from '@veto/core';
 import type { RawIssue } from './types.js';
 
 const HIGH_LABELS = new Set([

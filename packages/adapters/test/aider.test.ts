@@ -9,7 +9,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { RenderedPrompt } from '@sprint-runner/core';
+import type { RenderedPrompt } from '@veto/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   AiderAdapter,
@@ -244,14 +244,14 @@ describe('AiderAdapter.run + collect', () => {
     process.env.FAKE_LAST = 'DONE';
     // runId resolves to the run-dir basename ('run') when prepare()
     // didn't flow one through.
-    process.env.FAKE_SCRATCH_DIR = '.sprint-runner/run';
+    process.env.FAKE_SCRATCH_DIR = '.veto/run';
     process.env.FAKE_SCRATCH_FILE = 'deviations.md';
     const adapter = new AiderAdapter({ binary: bin });
     const handle = adapter.run(worktree, rendered, 60, { run_dir: runDir });
     const result = await adapter.collect(handle, collectCtx());
     expect(result.artifacts).toContain('deviations.md');
     expect(existsSync(join(runDir, 'deviations.md'))).toBe(true);
-    expect(existsSync(join(worktree, '.sprint-runner'))).toBe(false);
+    expect(existsSync(join(worktree, '.veto'))).toBe(false);
   });
 
   it('builds a per-call usage ledger with priced cost', async () => {

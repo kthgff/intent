@@ -11,7 +11,7 @@
  * (review merge) and the conductor security engine so both agree on
  * what "a well-formed security finding" means.
  */
-import { SECURITY_CATEGORIES } from '@sprint-runner/core';
+import { SECURITY_CATEGORIES } from '@veto/core';
 import type { LintViolation } from './coverage.js';
 
 /** Loose shape — findings arrive as parsed JSON, not trusted rows. */

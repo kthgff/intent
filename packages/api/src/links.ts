@@ -16,20 +16,15 @@
  *          superseded index head) and out-of-scope repos can never
  *          land `verified` (409 / 403).
  */
-import type { EffectiveConfig } from '@sprint-runner/config';
-import type { Store } from '@sprint-runner/core';
+import type { EffectiveConfig } from '@veto/config';
+import type { Store } from '@veto/core';
 import {
   RELATION_PREDICATES,
   RELATION_SOURCES,
   RELATION_VERIFICATIONS,
   RelationSchema,
-} from '@sprint-runner/core';
-import {
-  type LinkAction,
-  LinkError,
-  decideLink,
-  proposeLink,
-} from '@sprint-runner/kb';
+} from '@veto/core';
+import { type LinkAction, LinkError, decideLink, proposeLink } from '@veto/kb';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { ApiError } from './server.js';

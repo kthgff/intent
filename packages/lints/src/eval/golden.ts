@@ -12,7 +12,7 @@
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import type { EvalCaseRow } from '@sprint-runner/core';
+import type { EvalCaseRow } from '@veto/core';
 import type { GoldenCase, GoldenSet } from './types.js';
 
 /** Raised when a golden-set file cannot be parsed or is malformed. */

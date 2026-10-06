@@ -17,7 +17,7 @@ import type {
   RouteDecision,
   Store,
   TestResult,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import { goldenSetToCases } from './golden.js';
 import { scoreCase } from './scoring.js';
 import type {

@@ -16,7 +16,7 @@
  * `prior_art_recall: false` or `embeddings: off` degrade gracefully:
  * file-overlap needs no vectors at all.
  */
-import type { Store, TicketRow } from '@sprint-runner/core';
+import type { Store, TicketRow } from '@veto/core';
 import type { Embedder } from './embeddings.js';
 
 /** object_ref / relation-subject prefix for ticket rows. */

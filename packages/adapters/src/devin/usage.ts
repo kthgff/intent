@@ -9,7 +9,7 @@
  * extraction NEVER fails the run (ADAPTERS failure-mapping).
  */
 import { readFileSync } from 'node:fs';
-import type { Usage } from '@sprint-runner/core';
+import type { Usage } from '@veto/core';
 
 /** Rough chars-per-token for the estimation fallback (no tokenizer dep). */
 const CHARS_PER_TOKEN = 4;

@@ -13,8 +13,8 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { StreamEvent } from '@sprint-runner/core';
-import { PostgresStore } from '@sprint-runner/store';
+import type { StreamEvent } from '@veto/core';
+import { PostgresStore } from '@veto/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { IMPORT_FAILURE_GATE, runImport } from '../src/index.js';
 import type { ConductorDeps, ConductorWorkspace } from '../src/loop/deps.js';
@@ -95,7 +95,7 @@ function ctxWith(events: StreamEvent[]): {
 }
 
 beforeEach(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'sr-tail-'));
+  dir = mkdtempSync(join(tmpdir(), 'veto-tail-'));
   runsDir = join(dir, 'runs');
   store = await PostgresStore.connect('pglite:');
 });

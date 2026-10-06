@@ -13,7 +13,7 @@
  *     inside the subject's ensured container (run opts `container_id`).
  *     The aider binary lives in the agent image — NO host probe. The
  *     prompt file is delivered through the mounted worktree
- *     (`.sprint-runner/prompts/<run-id>.md` — run_dir isn't a mount),
+ *     (`.veto/prompts/<run-id>.md` — run_dir isn't a mount),
  *     still identical-path per D30. Secrets ride the exec env as bare
  *     `-e NAME` passthrough — values never in argv/logs. control()
  *     maps to docker verbs: kill = `docker kill -s TERM` → grace →
@@ -21,7 +21,7 @@
  *
  * Capability flags {can_exec: true, can_write_outside_tree: false,
  * has_gh: false} → ARTIFACT_TARGETS renders as the worktree-relative
- * `.sprint-runner/<run-id>/` scratch dir; collect() moves scratch
+ * `.veto/<run-id>/` scratch dir; collect() moves scratch
  * artifacts into ctx.run_dir and purges (the diff never sees them —
  * conductor's envops.collectArtifacts is the same seam and runs as a
  * belt-and-suspenders pass; adapters↔conductor dependency direction
@@ -68,8 +68,8 @@ import type {
   Usage,
   UsageCallback,
   UsagePartial,
-} from '@sprint-runner/core';
-import { STAGE_TEMPLATES, renderPrompt } from '@sprint-runner/prompts';
+} from '@veto/core';
+import { STAGE_TEMPLATES, renderPrompt } from '@veto/prompts';
 import { parseSentinel } from '../devin/adapter.js';
 import { type AiderInvocation, findAiderBinary } from './binary.js';
 import { CliDockerExec, type ContainerDockerClient } from './container.js';
@@ -143,7 +143,7 @@ interface TrackedRun {
   /** D30 exec target — set on container runs. */
   containerId?: string;
   /** Container-runtime prompt file inside the mounted worktree
-   *  (`.sprint-runner/prompts/<run-id>.md`) — purged at collect. */
+   *  (`.veto/prompts/<run-id>.md`) — purged at collect. */
   containerPrompt?: string;
   usageTimer: NodeJS.Timeout | null;
   usageOffset: number;
@@ -213,7 +213,7 @@ export class AiderAdapter implements Adapter {
       throw new AiderAdapterError(`unknown stage '${stage}'`);
     }
     // can_write_outside_tree false → renderPrompt emits the
-    // `.sprint-runner/<run-id>/` scratch ARTIFACT_TARGETS block.
+    // `.veto/<run-id>/` scratch ARTIFACT_TARGETS block.
     return renderPrompt(stage as Stage, {
       ...(ctx.tokens !== undefined ? { tokens: ctx.tokens } : {}),
       flags: this.capabilities,
@@ -269,7 +269,7 @@ export class AiderAdapter implements Adapter {
         // path inside and out).
         containerPrompt = join(
           worktree,
-          '.sprint-runner',
+          '.veto',
           'prompts',
           `${runId.replaceAll('/', '-')}.md`,
         );
@@ -472,7 +472,7 @@ export class AiderAdapter implements Adapter {
 
     // Scratch-dir artifact collection (can_write_outside_tree: false —
     // ADAPTERS ARTIFACT_TARGETS). Mirror of conductor envops
-    // collectArtifacts: move `.sprint-runner/<run-id>/` → run_dir,
+    // collectArtifacts: move `.veto/<run-id>/` → run_dir,
     // purge so the diff never sees it. The conductor's own envops pass
     // remains authoritative on the reconcile path; this is the seam.
     const artifacts = this.collectScratch(tracked, ctx);
@@ -497,7 +497,7 @@ export class AiderAdapter implements Adapter {
   ): string[] {
     const scratch =
       tracked !== undefined
-        ? join(tracked.worktree, '.sprint-runner', tracked.runId)
+        ? join(tracked.worktree, '.veto', tracked.runId)
         : null;
     if (scratch !== null && existsSync(scratch)) {
       mkdirSync(ctx.run_dir, { recursive: true });
@@ -509,7 +509,7 @@ export class AiderAdapter implements Adapter {
       }
       rmSync(scratch, { recursive: true, force: true });
     }
-    // Container-runtime prompt copy — `.sprint-runner/prompts/` sits
+    // Container-runtime prompt copy — `.veto/prompts/` sits
     // outside the artifact scratch so collect never ingests it; purge
     // best-effort (untracked post-restart runs leave gitignored
     // residue, same convention as the scratch parent).
@@ -528,7 +528,7 @@ export class AiderAdapter implements Adapter {
     }
     if (tracked !== undefined) {
       // Remove the scratch parent if now empty.
-      const parent = join(tracked.worktree, '.sprint-runner');
+      const parent = join(tracked.worktree, '.veto');
       try {
         if (readdirSync(parent).length === 0) {
           rmSync(parent, { recursive: true, force: true });

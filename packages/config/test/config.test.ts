@@ -16,11 +16,11 @@ let globalDir: string;
 let ticketsRepo: string;
 
 const globalConfigPath = () => join(globalDir, 'config.yaml');
-const repoConfigDir = () => join(ticketsRepo, '.sprint-runner');
+const repoConfigDir = () => join(ticketsRepo, '.veto');
 const repoConfigPath = () => join(repoConfigDir(), 'config.yaml');
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'sr-config-test-'));
+  root = mkdtempSync(join(tmpdir(), 'veto-config-test-'));
   globalDir = join(root, 'global');
   ticketsRepo = join(root, 'tickets');
   mkdirSync(globalDir, { recursive: true });
@@ -114,7 +114,7 @@ describe('precedence — frontmatter > repo > global > defaults', () => {
       entity_linking: true,
       dedupe: true,
     });
-    expect(eff.storage_url).toBe('postgres://localhost:5432/sprint-runner');
+    expect(eff.storage_url).toBe('postgres://localhost:5432/veto');
     expect(eff.security).toMatchObject({
       scanner: 'gitleaks',
       scan_on_commit: true,

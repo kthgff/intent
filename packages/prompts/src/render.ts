@@ -1,6 +1,6 @@
 /**
  * Prompt renderer (wp-020) — renders the shipped templates in
- * `@sprint-runner/core` against the ADAPTERS.md token table.
+ * `@veto/core` against the ADAPTERS.md token table.
  *
  * Fail-closed: every `{{TOKEN}}` in a template must resolve or the
  * render throws a RenderError naming the token, stage, and template.
@@ -16,7 +16,7 @@ import {
   type TokenValues,
   getPromptTemplate,
   validateRetrievalEvidence,
-} from '@sprint-runner/core';
+} from '@veto/core';
 
 /**
  * Stage → prompt template name. `review` executes per-pass through the
@@ -120,7 +120,7 @@ export function scanTokens(text: string): string[] {
 /**
  * ARTIFACT_TARGETS block per ADAPTERS.md:
  * `can_write_outside_tree` → absolute `runs/<id>/` paths; otherwise a
- * worktree-relative `.sprint-runner/<run-id>/` scratch dir the runner
+ * worktree-relative `.veto/<run-id>/` scratch dir the runner
  * collects post-exit and purges (the diff never sees it).
  */
 export function artifactTargets(
@@ -134,7 +134,7 @@ export function artifactTargets(
     ].join('\n');
   }
   return [
-    `.sprint-runner/${runId}/ (worktree-relative scratch dir — write all`,
+    `.veto/${runId}/ (worktree-relative scratch dir — write all`,
     `run artifacts under it. The runner collects them into runs/${runId}/`,
     'after your run exits and purges the scratch dir; the diff never sees',
     'them. Do NOT write artifacts anywhere else.)',

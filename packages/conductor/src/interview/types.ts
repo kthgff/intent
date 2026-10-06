@@ -17,7 +17,7 @@ import type {
   StatementPolarity,
   StatementScope,
   Store,
-} from '@sprint-runner/core';
+} from '@veto/core';
 
 /** Everything the orchestrator needs — a subset of TransitionContext. */
 export interface InterviewCtx {

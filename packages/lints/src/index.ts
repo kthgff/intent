@@ -1,5 +1,5 @@
 /**
- * @sprint-runner/lints — wp-032 doc lints.
+ * @veto/lints — wp-032 doc lints.
  * Cheap mechanical checks the conductor runs inline in the tick
  * (CONDUCTOR "Runner tasks"). All pure functions: doc text in →
  * violations/score out. Fail-closed: unparseable structured sections

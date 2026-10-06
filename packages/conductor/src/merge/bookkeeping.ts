@@ -15,11 +15,7 @@
  * feature-evidence recalc runs after the transaction (best-effort: a
  * missing feature row is not a merge failure).
  */
-import type {
-  FeatureStatus,
-  TicketRepoRow,
-  TicketRow,
-} from '@sprint-runner/core';
+import type { FeatureStatus, TicketRepoRow, TicketRow } from '@veto/core';
 import {
   type TransitionTools,
   rewriteFrontmatterStatus,
@@ -123,7 +119,7 @@ export async function recordMerged(
             await s.appendDocVersion(
               { workspace: ws.name, subject: id, doc: 'ticket.md' },
               next,
-              deps.config.actor ?? 'sprint-runner',
+              deps.config.actor ?? 'veto',
             );
           }
         } catch {
@@ -136,7 +132,7 @@ export async function recordMerged(
         ts,
         stage: null,
         actor_type: 'runner',
-        actor_id: deps.config.actor ?? 'sprint-runner',
+        actor_id: deps.config.actor ?? 'veto',
         event: 'status_changed',
         run: null,
         refs: [],
@@ -168,7 +164,7 @@ export async function recordMerged(
       ts,
       stage: null,
       actor_type: 'runner',
-      actor_id: deps.config.actor ?? 'sprint-runner',
+      actor_id: deps.config.actor ?? 'veto',
       event: status,
       run: null,
       refs: rows.map((r) => `repo:${r.repo}`),
@@ -190,7 +186,7 @@ export async function recordMerged(
       const v = await s.appendDocVersion(
         { workspace: ws.name, subject: id, doc: IMPLEMENTATION_NOTE_DOC },
         nextNote,
-        deps.config.actor ?? 'sprint-runner',
+        deps.config.actor ?? 'veto',
       );
       noteVersion = v.version;
     }

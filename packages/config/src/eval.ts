@@ -10,7 +10,7 @@
  *
  * Pure module: no fs, no env — safe to import from the lints engine.
  */
-import type { ModelRouteEntry } from '@sprint-runner/core';
+import type { ModelRouteEntry } from '@veto/core';
 
 /** Task families the lab scores (PRD §15.12). Storage keeps `family`
  *  free-form; these are the seeded corpus families. */

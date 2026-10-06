@@ -4,7 +4,7 @@
  * - `can_write_outside_tree: true`  → artifacts were written to the
  *   absolute `runs/<id>/` dir directly; nothing to move.
  * - `can_write_outside_tree: false` → artifacts live in the gitignored
- *   worktree scratch dir `.sprint-runner/<run-id>/`; the runner moves
+ *   worktree scratch dir `.veto/<run-id>/`; the runner moves
  *   them into `runs/<id>/` post-exit and purges the scratch dir so the
  *   diff never sees them.
  *
@@ -16,7 +16,7 @@ import { constants } from 'node:fs';
 import { access, cp, mkdir, readdir, rename, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
-export const SCRATCH_DIR = '.sprint-runner';
+export const SCRATCH_DIR = '.veto';
 
 export interface CollectOptions {
   /** Worktree the run executed in. */
@@ -116,8 +116,8 @@ export async function collectArtifacts(
     await rm(scratch, { recursive: true, force: true });
   }
   // Run ids are multi-segment (`<ws>/<subject>/<attempt>-<stage>`), so
-  // removing the leaf leaves `.sprint-runner/<ws>/<subject>/` shells —
-  // prune every emptied ancestor up to (and incl.) `.sprint-runner/`.
+  // removing the leaf leaves `.veto/<ws>/<subject>/` shells —
+  // prune every emptied ancestor up to (and incl.) `.veto/`.
   const parent = join(worktree, SCRATCH_DIR);
   for (
     let dir = dirname(scratch);
@@ -133,7 +133,7 @@ export async function collectArtifacts(
   if ((await exists(parent)) && (await readdir(parent)).length > 0) {
     residue.push(...(await readdir(parent)).map((e) => join(parent, e)));
   }
-  // `.sprint-runner/` is gitignored, so a clean check is belt-and-
+  // `.veto/` is gitignored, so a clean check is belt-and-
   // suspenders: any porcelain line under it means untracked residue
   // (e.g. an ignore rule was lost) that WILL land in the diff.
   try {

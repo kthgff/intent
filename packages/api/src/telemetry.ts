@@ -39,15 +39,15 @@ import {
   investigateIncident,
   proposeDraftTicket,
   registerTelemetrySource,
-} from '@sprint-runner/conductor';
-import type { Store } from '@sprint-runner/core';
+} from '@veto/conductor';
+import type { Store } from '@veto/core';
 import {
   DRAFT_TICKET_ACTIONS,
   DRAFT_TICKET_STATUSES,
   INCIDENT_ACTIONS,
   INCIDENT_STATUSES,
   validateIncidentInvestigation,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { ApiError, parseBody } from './server.js';

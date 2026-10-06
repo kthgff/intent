@@ -1,8 +1,8 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ConfigSchema } from '@sprint-runner/core';
-import { PostgresStore } from '@sprint-runner/store';
+import { ConfigSchema } from '@veto/core';
+import { PostgresStore } from '@veto/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   dossierToken,
@@ -17,7 +17,7 @@ let dir: string;
 let store: PostgresStore;
 
 beforeEach(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'sr-kb-'));
+  dir = mkdtempSync(join(tmpdir(), 'veto-kb-'));
   store = await PostgresStore.connect('pglite:');
 });
 afterEach(async () => {

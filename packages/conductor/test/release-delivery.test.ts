@@ -14,7 +14,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { resolveConfig } from '@sprint-runner/config';
+import { resolveConfig } from '@veto/config';
 import type {
   FeatureRow,
   RunResult,
@@ -23,8 +23,8 @@ import type {
   TicketRepoRow,
   TicketRow,
   TicketStatus,
-} from '@sprint-runner/core';
-import { PostgresStore } from '@sprint-runner/store';
+} from '@veto/core';
+import { PostgresStore } from '@veto/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type {
   ApplyStatusOptions,
@@ -276,7 +276,7 @@ async function fakeRun(subject: string, stage: Stage): Promise<RunOutcome> {
 }
 
 beforeEach(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'sr-rel135-'));
+  dir = mkdtempSync(join(tmpdir(), 'veto-rel135-'));
   store = await PostgresStore.connect('pglite:');
   ctx = {
     workspace: WS,

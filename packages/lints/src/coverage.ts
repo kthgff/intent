@@ -5,7 +5,7 @@
  * vs.md cases table (fake coverage can't be manufactured).
  * Fail-closed: unparseable tables are violations, never skipped.
  */
-import { COVERAGE_KINDS } from '@sprint-runner/core';
+import { COVERAGE_KINDS } from '@veto/core';
 import {
   type MdTable,
   headerMatches,

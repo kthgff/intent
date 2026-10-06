@@ -4,7 +4,7 @@ import {
   PROMPT_TOKENS,
   STAGES,
   type TokenValues,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import { describe, expect, it } from 'vitest';
 import {
   NO_EVIDENCE_TEXT,
@@ -110,7 +110,7 @@ describe('missing token → named error', () => {
 describe('capability matrix (ADAPTERS)', () => {
   it('aider flags → worktree-relative scratch paths', () => {
     const r = renderPrompt('implement', maximalCtx(AIDER_FLAGS));
-    expect(r.text).toContain(`.sprint-runner/${RUN_ID}/`);
+    expect(r.text).toContain(`.veto/${RUN_ID}/`);
     expect(r.text).not.toContain(RUN_DIR);
     expect(r.text).toContain('runner collects');
   });
@@ -118,14 +118,14 @@ describe('capability matrix (ADAPTERS)', () => {
   it('devin flags → absolute runDir paths, no capability notes', () => {
     const r = renderPrompt('implement', maximalCtx(FULL_FLAGS));
     expect(r.text).toContain(`${RUN_DIR}/`);
-    expect(r.text).not.toContain('.sprint-runner/');
+    expect(r.text).not.toContain('.veto/');
     expect(capabilityNotes(FULL_FLAGS)).toBe('');
   });
 
   it('artifactTargets switches on can_write_outside_tree', () => {
     expect(artifactTargets(FULL_FLAGS, RUN_ID, RUN_DIR)).toContain(RUN_DIR);
     expect(artifactTargets(AIDER_FLAGS, RUN_ID, RUN_DIR)).toContain(
-      `.sprint-runner/${RUN_ID}/`,
+      `.veto/${RUN_ID}/`,
     );
   });
 

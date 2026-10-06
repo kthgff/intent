@@ -24,7 +24,7 @@ import {
   MockupSchema,
   type MockupState,
   type MockupVisualAc,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import { badRequest, invalid, stableJson } from './types.js';
 
 /** The doc kind every mockup revision lives under. */

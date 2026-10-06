@@ -21,7 +21,7 @@ import type {
   StatementStatus,
   StatementStrength,
   Store,
-} from '@sprint-runner/core';
+} from '@veto/core';
 
 // ---------------------------------------------------------------------------
 // Authority ranks (higher = more authoritative)

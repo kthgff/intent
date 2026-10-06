@@ -9,8 +9,8 @@
  * SIGTERM shut down cleanly — runs are detached, so a restarted daemon
  * re-collects them (persisted handle.json rows).
  */
-import { loadOrCreateToken, startServer } from '@sprint-runner/api';
-import type { ApiServer } from '@sprint-runner/api';
+import { loadOrCreateToken, startServer } from '@veto/api';
+import type { ApiServer } from '@veto/api';
 import { bootRuntime } from '../boot.js';
 import type { BootedRuntime } from '../boot.js';
 import { overlayRepoCards } from '../cards.js';
@@ -63,7 +63,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   if (!uiDist) {
     io.err(
       'warning: no built UI found (packages/ui/dist) — serving the ' +
-        'placeholder page; run `pnpm -F @sprint-runner/ui build`',
+        'placeholder page; run `pnpm -F @veto/ui build`',
     );
   }
 

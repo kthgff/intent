@@ -9,9 +9,9 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { resolveConfig } from '@sprint-runner/config';
-import type { TicketRow } from '@sprint-runner/core';
-import { PostgresStore } from '@sprint-runner/store';
+import { resolveConfig } from '@veto/config';
+import type { TicketRow } from '@veto/core';
+import { PostgresStore } from '@veto/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { TransitionContext } from '../src/contracts.js';
 import { parseTicketMd } from '../src/import/parse.js';
@@ -173,7 +173,7 @@ const events = (ticketId?: string) =>
   });
 
 beforeEach(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'sr-wp153-'));
+  dir = mkdtempSync(join(tmpdir(), 'veto-wp153-'));
   store = await PostgresStore.connect('pglite:');
   handler = new RealTransitionHandler(makeConfig());
   nowMs = Date.parse(NOW);

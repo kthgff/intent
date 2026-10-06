@@ -6,7 +6,7 @@
  * Split plan), and a narrow Status / What's-left / Key-facts rail.
  * Contextual AI (ChatEdit) appears only beside editable docs.
  */
-import type { GateItem, TicketRow, TriageQuestion } from '@sprint-runner/core';
+import type { GateItem, TicketRow, TriageQuestion } from '@veto/core';
 import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import Alignment from '../Alignment';

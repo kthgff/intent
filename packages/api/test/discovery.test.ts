@@ -18,9 +18,9 @@ import {
   Conductor,
   type ConductorDeps,
   StubTransitionHandler,
-} from '@sprint-runner/conductor';
-import { resolveConfig } from '@sprint-runner/config';
-import { PostgresStore } from '@sprint-runner/store';
+} from '@veto/conductor';
+import { resolveConfig } from '@veto/config';
+import { PostgresStore } from '@veto/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { type ApiServer, createServer } from '../src/index.js';
 
@@ -92,7 +92,7 @@ async function addNote(
 }
 
 beforeEach(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'sr-api-discovery-'));
+  dir = mkdtempSync(join(tmpdir(), 'veto-api-discovery-'));
   store = await PostgresStore.connect('pglite:');
   await store.getSchemaVersion();
 });

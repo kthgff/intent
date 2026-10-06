@@ -1,4 +1,4 @@
-import type { StreamEvent } from '@sprint-runner/conductor';
+import type { StreamEvent } from '@veto/conductor';
 /**
  * SSE hub for `GET /api/v1/stream` (API.md "Live channel").
  *

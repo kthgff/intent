@@ -12,7 +12,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { TestReportSchema } from '@sprint-runner/core';
+import { TestReportSchema } from '@veto/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   collectArtifacts,
@@ -197,7 +197,7 @@ describe('collect', () => {
   it('moves scratch artifacts to runDir, purges, leaves clean git status', async () => {
     const worktree = join(root, 'wt');
     await initRepo(worktree);
-    await writeFile(join(worktree, '.gitignore'), '.sprint-runner/\n');
+    await writeFile(join(worktree, '.gitignore'), '.veto/\n');
     await writeFile(join(worktree, 'README.md'), 'x\n');
     git(['add', '-A'], worktree);
     git(['commit', '-m', 'init'], worktree);
@@ -236,11 +236,11 @@ describe('collect', () => {
 
   it('purges emptied ancestor dirs for multi-segment run ids', async () => {
     // Real run ids are `ws/<subject>/<attempt>-<stage>` — the scratch
-    // leaf sits under `.sprint-runner/ws/<subject>/`, which must not
+    // leaf sits under `.veto/ws/<subject>/`, which must not
     // survive as residue (wp-098 container e2e regression).
     const worktree = join(root, 'wt-ms');
     await initRepo(worktree);
-    await writeFile(join(worktree, '.gitignore'), '.sprint-runner/\n');
+    await writeFile(join(worktree, '.gitignore'), '.veto/\n');
     git(['add', '-A'], worktree);
     git(['commit', '-m', 'init'], worktree);
 
@@ -258,7 +258,7 @@ describe('collect', () => {
 
     expect(res.ok).toBe(true);
     expect(res.residue).toEqual([]);
-    await expect(readdir(join(worktree, '.sprint-runner'))).rejects.toThrow();
+    await expect(readdir(join(worktree, '.veto'))).rejects.toThrow();
   });
 
   it('is a no-op (besides scratch purge) for outside-tree backends', async () => {

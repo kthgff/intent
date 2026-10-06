@@ -14,10 +14,7 @@
  * A question is only emitted once the previous answer is durably
  * persisted (`assertAnswerOrder`).
  */
-import type {
-  InterviewMessageRow,
-  QuestionCandidateRow,
-} from '@sprint-runner/core';
+import type { InterviewMessageRow, QuestionCandidateRow } from '@veto/core';
 import {
   type EligibleSlotForPrompt,
   buildQuestionPrompt,

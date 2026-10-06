@@ -21,7 +21,7 @@ import type {
   KnowledgeSlotRow,
   QuestionCandidateRow,
   StatementRow,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import {
   ingestExtraction,
   runExtraction,

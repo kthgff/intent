@@ -1,5 +1,5 @@
 {
-  "name": "@sprint-runner/kb",
+  "name": "@veto/kb",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -12,8 +12,8 @@
   },
   "dependencies": {
     "@huggingface/transformers": "^4.3.0",
-    "@sprint-runner/core": "workspace:*",
-    "@sprint-runner/store": "workspace:*",
+    "@veto/core": "workspace:*",
+    "@veto/store": "workspace:*",
     "zod": "^3.23.8"
   },
   "devDependencies": {

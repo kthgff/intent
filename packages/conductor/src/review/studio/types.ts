@@ -9,7 +9,7 @@
  * `TransitionContext` (conductor paths) and the API's transitionCtx
  * satisfy it structurally.
  */
-import type { Store } from '@sprint-runner/core';
+import type { Store } from '@veto/core';
 
 /** Everything the studio engine needs — a subset of TransitionContext. */
 export interface StudioCtx {

@@ -17,8 +17,8 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { QualityDebtRow, ReviewFindingRow } from '@sprint-runner/core';
-import { PostgresStore } from '@sprint-runner/store';
+import type { QualityDebtRow, ReviewFindingRow } from '@veto/core';
+import { PostgresStore } from '@veto/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   activeSecurityExceptions,
@@ -68,7 +68,7 @@ const tick = (ms = 60_000) => {
 };
 
 beforeEach(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'sr-sec-'));
+  dir = mkdtempSync(join(tmpdir(), 'veto-sec-'));
   store = await PostgresStore.connect('pglite:');
   clock = T0;
 });

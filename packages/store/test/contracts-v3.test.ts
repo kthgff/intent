@@ -9,7 +9,7 @@ let store: PostgresStore;
 const WS = 'ws1';
 
 beforeEach(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'sr-c3-'));
+  dir = mkdtempSync(join(tmpdir(), 'veto-c3-'));
   store = await PostgresStore.connect('pglite:');
 });
 

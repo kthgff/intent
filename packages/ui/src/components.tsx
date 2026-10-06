@@ -2,7 +2,7 @@
  * Shared components (UI-INVENTORY §3): status stepper, kind badges,
  * markdown rendering, diff view, list states. Functional styling only.
  */
-import type { GateKind } from '@sprint-runner/core';
+import type { GateKind } from '@veto/core';
 import type { ReactNode } from 'react';
 
 // ---------- list states ----------

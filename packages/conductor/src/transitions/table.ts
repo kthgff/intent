@@ -9,7 +9,7 @@
  * on the sentinel payload (`ESCALATE: needs split` vs `ESCALATE: <other>`).
  * The catch-all `*` stage row implements "any | BLOCKED: <r>".
  */
-import type { Sentinel, Stage } from '@sprint-runner/core';
+import type { Sentinel, Stage } from '@veto/core';
 
 /** Action identifiers — the `do` column. One implementation per id in
  *  `RealTransitionHandler.#actions`. */

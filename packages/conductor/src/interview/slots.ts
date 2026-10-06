@@ -15,11 +15,7 @@
  * Dead truth (rejected/superseded) is ignored — it never backs a slot.
  * The transition is application-owned: the LLM never sets a slot state.
  */
-import type {
-  KnowledgeSlotRow,
-  StatementRow,
-  Store,
-} from '@sprint-runner/core';
+import type { KnowledgeSlotRow, StatementRow, Store } from '@veto/core';
 import { confirmStatement } from '../semantics/index.js';
 import type { InterviewCtx, SlotState, WizardConfig } from './types.js';
 import { invalid, notFound } from './types.js';

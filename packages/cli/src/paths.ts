@@ -1,23 +1,22 @@
 /**
  * paths.ts — filesystem layout for the CLI (wp-099).
  *
- * Product naming is still `sprint-runner` everywhere on disk
- * (wp-100 owns the sprint-runner → veto rename: binary, config dir,
- * package scopes — ordered after this wp so the rename lands once).
+ * Product naming is `veto` everywhere on disk (wp-100 rename —
+ * binary, config dir, package scopes).
  *
- *   ~/.config/sprint-runner/config.yaml   global config (SETTINGS.md)
- *   ~/.config/sprint-runner/.env          secrets
- *   ~/.config/sprint-runner/ui-token      UI bearer token (0600)
- *   ~/.local/share/sprint-runner/workspaces/<name>   workspace roots
- *   ~/.local/share/sprint-runner/runs/<ws>/<subject>/<NNN>-<stage>/  run dirs
+ *   ~/.config/veto/config.yaml   global config (SETTINGS.md)
+ *   ~/.config/veto/.env          secrets
+ *   ~/.config/veto/ui-token      UI bearer token (0600)
+ *   ~/.local/share/veto/workspaces/<name>   workspace roots
+ *   ~/.local/share/veto/runs/<ws>/<subject>/<NNN>-<stage>/  run dirs
  */
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { defaultGlobalConfigPath } from '@sprint-runner/config';
+import { defaultGlobalConfigPath } from '@veto/config';
 
-/** `~/.config/sprint-runner/config.yaml` (SETTINGS.md). */
+/** `~/.config/veto/config.yaml` (SETTINGS.md). */
 export function globalConfigPath(): string {
   return defaultGlobalConfigPath();
 }
@@ -31,7 +30,7 @@ export function configDir(
 
 /** Local data root — matches the API POST /workspaces default pathing. */
 export function dataDir(): string {
-  return join(homedir(), '.local', 'share', 'sprint-runner');
+  return join(homedir(), '.local', 'share', 'veto');
 }
 
 export function workspacesDir(): string {

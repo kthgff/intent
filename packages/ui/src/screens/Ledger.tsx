@@ -1,4 +1,4 @@
-import type { EventRow } from '@sprint-runner/core';
+import type { EventRow } from '@veto/core';
 /**
  * S-11 — ledger browser. Per-ticket event timeline (filterable
  * by event name / stage / actor). At `/ledger` a ticket picker lists

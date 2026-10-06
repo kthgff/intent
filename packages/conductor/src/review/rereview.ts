@@ -23,8 +23,8 @@
  *     round — a partial round (failed pass) cannot conclude absence,
  *     so those findings stay `open`.
  */
-import { REVIEW_PASSES } from '@sprint-runner/core';
-import { matchThread } from '@sprint-runner/lints';
+import { REVIEW_PASSES } from '@veto/core';
+import { matchThread } from '@veto/lints';
 import { createFinding, findingInput, orderedPasses } from './merge.js';
 import type { FindingsByPass, ReviewDocument, ReviewFinding } from './types.js';
 

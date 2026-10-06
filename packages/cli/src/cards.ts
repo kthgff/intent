@@ -1,7 +1,7 @@
 /**
  * cards.ts — repo-card overlay (wp-099 spec-gap resolution).
  *
- * Repo cards live at `<repo>/.sprint-runner/card.json`, written by the
+ * Repo cards live at `<repo>/.veto/card.json`, written by the
  * conductor's own `probe:<repo>` runs (CONDUCTOR "repo-card rule",
  * SETTINGS auto-probe). CLAIM checks `deps.config.repos[name].card
  * .verified` — but nothing else ever loads card.json back into the
@@ -15,9 +15,9 @@
  */
 import { readFile } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
-import type { ConductorWorkspace } from '@sprint-runner/conductor';
-import type { EffectiveConfig } from '@sprint-runner/config';
-import { type RepoCard, RepoCardSchema } from '@sprint-runner/core';
+import type { ConductorWorkspace } from '@veto/conductor';
+import type { EffectiveConfig } from '@veto/config';
+import { type RepoCard, RepoCardSchema } from '@veto/core';
 
 export interface CardOverlayResult {
   /** Repos whose config card was (re)applied from card.json. */
@@ -26,7 +26,7 @@ export interface CardOverlayResult {
 }
 
 /**
- * Overlay `<repo>/.sprint-runner/card.json` onto `config.repos[*].card`
+ * Overlay `<repo>/.veto/card.json` onto `config.repos[*].card`
  * in place. `workspaces` anchors relative `repos.<name>.path` entries
  * (resolveRepoPath semantics — first workspace hit wins).
  */
@@ -40,7 +40,7 @@ export async function overlayRepoCards(
       ? [repo.path]
       : workspaces.map((ws) => resolve(ws.rootPath, repo.path));
     for (const dir of candidates) {
-      const cardPath = join(dir, '.sprint-runner', 'card.json');
+      const cardPath = join(dir, '.veto', 'card.json');
       let parsed: unknown;
       try {
         parsed = RepoCardSchema.partial().parse(

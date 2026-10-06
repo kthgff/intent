@@ -10,8 +10,8 @@
  * a high-risk narrative over green gates is shown alongside `ready`,
  * never silently suppressing either.
  */
-import type { Store } from '@sprint-runner/core';
-import { type ReleaseGateCheck, releaseGatesGreen } from '@sprint-runner/lints';
+import type { Store } from '@veto/core';
+import { type ReleaseGateCheck, releaseGatesGreen } from '@veto/lints';
 import { evaluateRelease } from '../release/gates.js';
 import type { ReleaseCtx } from '../release/types.js';
 import { ReleaseError } from '../release/types.js';

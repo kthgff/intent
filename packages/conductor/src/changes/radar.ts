@@ -37,7 +37,7 @@
  * decisions and apply — clearing it IS the higher approval
  * (fail-closed: a breached set can never sail through unattended).
  */
-import type { ChangesetRow, ScopeBudgets, Store } from '@sprint-runner/core';
+import type { ChangesetRow, ScopeBudgets, Store } from '@veto/core';
 import type { StreamEvent } from '../loop/deps.js';
 import { OPEN_CHANGESET_STATUSES } from './analysis.js';
 import type { ChangesetAnalysis } from './analysis.js';

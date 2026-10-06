@@ -1,4 +1,4 @@
-import type { EvalRunRow } from '@sprint-runner/core';
+import type { EvalRunRow } from '@veto/core';
 import { describe, expect, it } from 'vitest';
 import {
   evaluatePromotionGate,

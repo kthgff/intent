@@ -10,9 +10,9 @@
  * on this machine's actual toolchain.
  */
 import { spawnSync } from 'node:child_process';
-import { findAiderBinary, findDevinBinary } from '@sprint-runner/adapters';
-import type { EffectiveConfig } from '@sprint-runner/config';
-import { createClient } from '@sprint-runner/store';
+import { findAiderBinary, findDevinBinary } from '@veto/adapters';
+import type { EffectiveConfig } from '@veto/config';
+import { createClient } from '@veto/store';
 
 export interface DepCheck {
   /** Binary/dep name (`git`, `gitleaks`, `gh`, `docker`, `devin`, …). */

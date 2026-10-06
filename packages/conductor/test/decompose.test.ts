@@ -18,16 +18,16 @@ import { cpSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { MockAdapter } from '@sprint-runner/adapters';
-import { resolveConfig } from '@sprint-runner/config';
+import { MockAdapter } from '@veto/adapters';
+import { resolveConfig } from '@veto/config';
 import {
   ContractDocSchema,
   type RunResult,
   type RunRow,
   type Stage,
   type TicketRow,
-} from '@sprint-runner/core';
-import { PostgresStore } from '@sprint-runner/store';
+} from '@veto/core';
+import { PostgresStore } from '@veto/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { claim } from '../src/claim/index.js';
 import {
@@ -235,7 +235,7 @@ const gates = () => store.listGateItems({ workspace: WS });
 // ---------------------------------------------------------------------------
 
 beforeEach(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'sr-wp154-'));
+  dir = mkdtempSync(join(tmpdir(), 'veto-wp154-'));
   runsDir = join(dir, 'runs');
   mkdirSync(runsDir, { recursive: true });
   codeRepo = join(dir, 'code-repo');

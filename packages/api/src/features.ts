@@ -27,13 +27,13 @@ import {
   assembleAcceptancePackage,
   featureAcceptanceCriteria,
   featureHealth,
-} from '@sprint-runner/conductor';
+} from '@veto/conductor';
 import {
   DOC_KINDS,
   type DocKind,
   type FeatureRow,
   type Store,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { lineDiff } from './diff.js';

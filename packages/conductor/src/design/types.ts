@@ -9,7 +9,7 @@
  * minimal and structurally compatible with `TransitionContext` and the
  * API's request context.
  */
-import type { Store } from '@sprint-runner/core';
+import type { Store } from '@veto/core';
 
 /** Everything the design engine needs — a subset of TransitionContext. */
 export interface DesignCtx {

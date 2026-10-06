@@ -16,7 +16,7 @@
  * decomposition — this function always returns a computed verdict.
  * The fuller per-type DoR checklist (wp-153) composes on top of this.
  */
-import type { ExecutionReadiness } from '@sprint-runner/core';
+import type { ExecutionReadiness } from '@veto/core';
 import type { TransitionContext } from '../contracts.js';
 
 /** Dep statuses that mean the dependency has delivered. */

@@ -21,7 +21,7 @@ import type {
   FeatureRow,
   Relation,
   TicketRow,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import type { TransitionContext } from '../contracts.js';
 
 export type FeatureCtx = TransitionContext;

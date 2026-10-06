@@ -8,11 +8,8 @@
  * human renders the verdict through the normal finding lifecycle
  * (wp-148). This module never resolves a drift finding itself.
  */
-import type {
-  ReviewFindingRow,
-  ReviewFindingStatus,
-} from '@sprint-runner/core';
-import { DESIGN_DRIFT_CATEGORY } from '@sprint-runner/core';
+import type { ReviewFindingRow, ReviewFindingStatus } from '@veto/core';
+import { DESIGN_DRIFT_CATEGORY } from '@veto/core';
 import { upsertFinding } from '../review/studio/findings.js';
 import { reviewIdFor } from '../review/studio/types.js';
 import { type DesignCtx, driftFindingId } from './types.js';

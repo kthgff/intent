@@ -1,4 +1,4 @@
-import type { TriageQuestion } from '@sprint-runner/core';
+import type { TriageQuestion } from '@veto/core';
 /**
  * S-04 — Q&A wizard. One question per card; options with `recommended`
  * badges; "Other…"; skip = accept; Accept-all; progress; bail-outs

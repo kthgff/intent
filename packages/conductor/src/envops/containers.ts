@@ -40,7 +40,7 @@ import {
   type Store,
   TERMINAL_STATUSES,
   resolveRuntime,
-} from '@sprint-runner/core';
+} from '@veto/core';
 
 /** Labels identifying conductor-owned containers (CONDUCTOR D30). */
 export const MANAGED_LABEL = 'veto/managed';

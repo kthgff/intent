@@ -135,9 +135,9 @@ describe('worktrees', () => {
     expect(dir).toBe(worktreePath(repo, 'run-1'));
     expect(dir).toBe(join(`${repo}.worktrees`, 'run-1'));
     expect(existsSync(dir)).toBe(true);
-    // .sprint-runner/ injected into the worktree's .gitignore
+    // .veto/ injected into the worktree's .gitignore
     const gi = await readFile(join(dir, '.gitignore'), 'utf8');
-    expect(gi.split('\n').map((l) => l.trim())).toContain('.sprint-runner/');
+    expect(gi.split('\n').map((l) => l.trim())).toContain('.veto/');
     expect(sh(['rev-parse', '--abbrev-ref', 'HEAD'], dir)).toBe('wp-999');
     sh(['show-ref', '--verify', '--quiet', 'refs/heads/wp-999'], repo);
 
@@ -150,16 +150,14 @@ describe('worktrees', () => {
     ).rejects.toBeInstanceOf(GitError);
   });
 
-  it('appends .sprint-runner/ to an existing .gitignore once', async () => {
+  it('appends .veto/ to an existing .gitignore once', async () => {
     const repo = await cloneRepo('a');
     await writeFile(join(repo, '.gitignore'), 'node_modules\n');
     await commitAll(repo, 'gi', ACTOR);
     const dir = await createWorktree(repo, 'run-2', 'wp-998');
     const gi = await readFile(join(dir, '.gitignore'), 'utf8');
     expect(gi).toContain('node_modules');
-    expect(
-      gi.split('\n').filter((l) => l.trim() === '.sprint-runner/'),
-    ).toHaveLength(1);
+    expect(gi.split('\n').filter((l) => l.trim() === '.veto/')).toHaveLength(1);
     await removeWorktree(repo, 'run-2');
   });
 });

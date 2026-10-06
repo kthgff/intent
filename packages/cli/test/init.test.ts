@@ -10,7 +10,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { PostgresStore } from '@sprint-runner/store';
+import { PostgresStore } from '@veto/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   cmdInit,
@@ -40,7 +40,7 @@ const okProbe = () =>
   ] satisfies DepCheck[];
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'sr-cli-init-'));
+  root = mkdtempSync(join(tmpdir(), 'veto-cli-init-'));
   configPath = join(root, 'cfg', 'config.yaml');
   lines = [];
   errs = [];

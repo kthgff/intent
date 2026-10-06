@@ -1,4 +1,4 @@
-import type { GateItem, RunRow } from '@sprint-runner/core';
+import type { GateItem, RunRow } from '@veto/core';
 /**
  * `status` — queue snapshot (wp-099): open gate_items grouped by kind,
  * live runs, and the container picture (D30 — surfaced as live runs
@@ -8,7 +8,7 @@ import type { GateItem, RunRow } from '@sprint-runner/core';
  * Read-only against the store: boots config + Postgres only — no
  * adapters, no conductor, no API.
  */
-import type { PostgresStore } from '@sprint-runner/store';
+import type { PostgresStore } from '@veto/store';
 import { bootConfigAndStore } from '../boot.js';
 
 export interface StatusOptions {

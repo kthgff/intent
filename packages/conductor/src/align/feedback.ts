@@ -14,7 +14,7 @@
  * `listBoardItems({workspace})`, so similar feedback in two workspaces
  * never merges into one cluster (wp-112 test plan).
  */
-import type { BoardItem, Store } from '@sprint-runner/core';
+import type { BoardItem, Store } from '@veto/core';
 import { type Cluster, clusterItems } from '../semantics/cluster.js';
 
 export interface FeedbackCtx {

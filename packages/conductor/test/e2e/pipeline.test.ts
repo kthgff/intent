@@ -17,7 +17,7 @@
  * path) — assert only the mode's gates surface.
  */
 import { join } from 'node:path';
-import { REVIEW_PASSES } from '@sprint-runner/core';
+import { REVIEW_PASSES } from '@veto/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   type FixtureWorld,

@@ -17,7 +17,7 @@
  */
 import { createHash } from 'node:crypto';
 import { basename, isAbsolute, join, resolve } from 'node:path';
-import type { EffectiveConfig } from '@sprint-runner/config';
+import type { EffectiveConfig } from '@veto/config';
 import {
   type EventRow,
   type EvidenceGate,
@@ -42,11 +42,11 @@ import {
   needsScopeApproval,
   severityRule,
   validateRsQuality,
-} from '@sprint-runner/core';
-import { coverageLint, structuredDocLint } from '@sprint-runner/lints';
-import { contractLint } from '@sprint-runner/lints';
-import { specLint } from '@sprint-runner/lints';
-import { escalationModelFor } from '@sprint-runner/prompts';
+} from '@veto/core';
+import { coverageLint, structuredDocLint } from '@veto/lints';
+import { contractLint } from '@veto/lints';
+import { specLint } from '@veto/lints';
+import { escalationModelFor } from '@veto/prompts';
 import { type ChangesCtx, createChangeset } from '../changes/index.js';
 import {
   type ApplyStatusOptions,
@@ -2456,7 +2456,7 @@ export class RealTransitionHandler implements TransitionHandler {
   // ------------------------------------------------------------------
   // Ticket taxonomy enforcement (PRD §15.7, wp-151)
   //
-  // The policy table lives in @sprint-runner/core (taxonomy.ts); this
+  // The policy table lives in @veto/core (taxonomy.ts); this
   // is the conductor *enforcing* it at the EVIDENCE_GATES boundaries.
   // No per-type branches: every decision reads WORK_TYPE_POLICIES.
   // ------------------------------------------------------------------
@@ -2922,7 +2922,7 @@ export class RealTransitionHandler implements TransitionHandler {
   /** Probe CARD-WRITTEN/PROBE-FAILED → persist the card snapshot as a
    *  `card.json` run_artifacts row on the probe run (the durable copy;
    *  the live config card is the probe agent's own write into the code
-   *  repo's `.sprint-runner/` — git-for-code is still real under D29). */
+   *  repo's `.veto/` — git-for-code is still real under D29). */
   async #persistCard(
     tools: TransitionTools,
     runId: string,
@@ -2936,7 +2936,7 @@ export class RealTransitionHandler implements TransitionHandler {
         : resolve(tools.rootPath, repoCfg.path)
       : null;
     const cardRaw = repoPath
-      ? await readOrNull(join(repoPath, '.sprint-runner', 'card.json'))
+      ? await readOrNull(join(repoPath, '.veto', 'card.json'))
       : null;
     const parsed = cardRaw
       ? (JSON.parse(cardRaw) as Record<string, unknown>)

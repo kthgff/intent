@@ -14,7 +14,7 @@
  * and the coordinator agree — and honors `parallel_safety` as payload
  * context (the launch-side fences stay the coordinator's).
  */
-import type { Config, TicketRow, TicketWorkType } from '@sprint-runner/core';
+import type { Config, TicketRow, TicketWorkType } from '@veto/core';
 import type { TransitionContext } from '../contracts.js';
 import { computeExecutionReadiness } from '../decompose/readiness.js';
 import {

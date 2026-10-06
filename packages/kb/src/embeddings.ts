@@ -18,7 +18,7 @@
  *   still execute (nearestEmbeddings scans happily on whatever vectors
  *   exist — callers just skip writes/lookups).
  */
-import type { SemanticConfig } from '@sprint-runner/core';
+import type { SemanticConfig } from '@veto/core';
 
 /** Bundled local model (spike-verified; 384 dims, fp32, ~90MB). */
 export const LOCAL_EMBEDDING_MODEL = 'Xenova/all-MiniLM-L6-v2';

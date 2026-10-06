@@ -14,7 +14,7 @@ import { randomUUID } from 'node:crypto';
  *     lands a capture-tray board item (retro-proposal parity —
  *     nothing enters committed scope without it).
  */
-import type { BoardItem, IncidentRow } from '@sprint-runner/core';
+import type { BoardItem, IncidentRow } from '@veto/core';
 import { type TelemetryCtx, TelemetryServiceError } from './ingest.js';
 
 // ---------------------------------------------------------------------------

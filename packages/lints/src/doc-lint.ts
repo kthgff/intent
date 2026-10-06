@@ -13,7 +13,7 @@ import {
   TEST_CASE_TYPES,
   TICKET_PRIORITIES,
   TICKET_STATUSES,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import type { LintViolation } from './coverage.js';
 import {
   CASES_COLUMNS,

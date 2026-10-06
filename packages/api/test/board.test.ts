@@ -17,10 +17,10 @@ import {
   Conductor,
   type ConductorDeps,
   StubTransitionHandler,
-} from '@sprint-runner/conductor';
-import { resolveConfig } from '@sprint-runner/config';
-import type { BoardItem, GateItem, TicketRow } from '@sprint-runner/core';
-import { PostgresStore } from '@sprint-runner/store';
+} from '@veto/conductor';
+import { resolveConfig } from '@veto/config';
+import type { BoardItem, GateItem, TicketRow } from '@veto/core';
+import { PostgresStore } from '@veto/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { type ApiServer, createServer } from '../src/index.js';
 
@@ -122,7 +122,7 @@ const gateItem = (over: Partial<GateItem>): GateItem => ({
 });
 
 beforeEach(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'sr-api-board-'));
+  dir = mkdtempSync(join(tmpdir(), 'veto-api-board-'));
   store = await PostgresStore.connect('pglite:');
   await store.getSchemaVersion();
 });

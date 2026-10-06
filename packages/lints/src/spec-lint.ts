@@ -3,11 +3,7 @@
  * Pure function: doc text in → {score, flags} out. Advisory only; the
  * conductor injects the rendered text as {{SPEC_LINT}} into triage.
  */
-import {
-  DEPTH_TIERS,
-  TICKET_PRIORITIES,
-  TICKET_STATUSES,
-} from '@sprint-runner/core';
+import { DEPTH_TIERS, TICKET_PRIORITIES, TICKET_STATUSES } from '@veto/core';
 import { parseFrontmatter, parseTables, sectionLines } from './md.js';
 
 export interface SpecLintResult {

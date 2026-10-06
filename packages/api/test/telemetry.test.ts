@@ -16,9 +16,9 @@ import {
   Conductor,
   type ConductorDeps,
   StubTransitionHandler,
-} from '@sprint-runner/conductor';
-import { resolveConfig } from '@sprint-runner/config';
-import { PostgresStore } from '@sprint-runner/store';
+} from '@veto/conductor';
+import { resolveConfig } from '@veto/config';
+import { PostgresStore } from '@veto/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   type ApiServer,
@@ -70,7 +70,7 @@ function makeServer(
 }
 
 beforeEach(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'sr-tel-'));
+  dir = mkdtempSync(join(tmpdir(), 'veto-tel-'));
   store = await PostgresStore.connect('pglite:');
   await store.upsertProject({ workspace: WS });
 });

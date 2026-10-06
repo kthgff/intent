@@ -12,8 +12,8 @@
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { TicketRow } from '@sprint-runner/core';
-import { PostgresStore } from '@sprint-runner/store';
+import type { TicketRow } from '@veto/core';
+import { PostgresStore } from '@veto/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   IMPORT_FAILURE_GATE,
@@ -95,7 +95,7 @@ async function getDoc(subject: string, doc: 'ticket.md') {
 }
 
 beforeEach(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'sr-import-'));
+  dir = mkdtempSync(join(tmpdir(), 'veto-import-'));
   store = await PostgresStore.connect('pglite:');
 });
 

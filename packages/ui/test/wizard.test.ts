@@ -1,4 +1,4 @@
-import type { TriageQuestion } from '@sprint-runner/core';
+import type { TriageQuestion } from '@veto/core';
 import { describe, expect, it } from 'vitest';
 import {
   acceptAll,

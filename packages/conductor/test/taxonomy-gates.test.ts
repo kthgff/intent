@@ -10,9 +10,9 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { resolveConfig } from '@sprint-runner/config';
-import type { RunRow, Stage } from '@sprint-runner/core';
-import { PostgresStore } from '@sprint-runner/store';
+import { resolveConfig } from '@veto/config';
+import type { RunRow, Stage } from '@veto/core';
+import { PostgresStore } from '@veto/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   type ApplyStatusOptions,
@@ -273,7 +273,7 @@ async function writeClassification(
 }
 
 beforeEach(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'sr-taxonomy-gates-'));
+  dir = mkdtempSync(join(tmpdir(), 'veto-taxonomy-gates-'));
   store = await PostgresStore.connect('pglite:');
   handler = new RealTransitionHandler(makeConfig());
   requestedRuns = [];

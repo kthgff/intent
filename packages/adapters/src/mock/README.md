@@ -51,7 +51,7 @@ USAGE_TOTAL {"tokens_in":n,"tokens_out":n,"tokens_cached":n,"cost_usd":n|null}
   a known CONDUCTOR sentinel or `sentinel: null` (`sentinel_raw` keeps
   the line) → conductor maps to `run_failed`.
 - Artifacts: listed from `ARTIFACT_TARGETS`. When the target is a
-  worktree-relative `.sprint-runner/<run-id>/` scratch dir
+  worktree-relative `.veto/<run-id>/` scratch dir
   (`can_write_outside_tree: false`), collect copies it into
   `ctx.run_dir` and purges the scratch dir — the diff never sees it.
 

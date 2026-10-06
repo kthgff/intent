@@ -15,8 +15,8 @@
  * the observed window → release/ticket members → prior incidents on
  * the same signature (verified resolutions first).
  */
-import type { IncidentInvestigation, Store } from '@sprint-runner/core';
-import { validateIncidentInvestigation } from '@sprint-runner/core';
+import type { IncidentInvestigation, Store } from '@veto/core';
+import { validateIncidentInvestigation } from '@veto/core';
 import { type TelemetryCtx, TelemetryServiceError } from './ingest.js';
 import { TELEMETRY_REDACTION_POLICY } from './sanitize.js';
 

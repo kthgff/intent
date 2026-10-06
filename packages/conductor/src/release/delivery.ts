@@ -26,7 +26,7 @@ import type {
   FeatureExposureState,
   ReleaseOutcomeRow,
   ReleaseRow,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import { resolveItemTickets } from './manifest.js';
 import { type ReleaseCtx, ReleaseError } from './types.js';
 

@@ -21,7 +21,7 @@ import {
   type ReleaseNoteAudience,
   type ReleaseNoteRow,
   type ReleaseRow,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import { type ReleaseCtx, ReleaseError } from './types.js';
 
 const AUDIENCES = new Set<string>(RELEASE_NOTE_AUDIENCES);

@@ -18,7 +18,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, extname, join, resolve, sep } from 'node:path';
-import type { ConductorDeps, StreamEvent } from '@sprint-runner/conductor';
+import type { ConductorDeps, StreamEvent } from '@veto/conductor';
 import {
   type Conductor,
   type ConductorWorkspace,
@@ -35,13 +35,13 @@ import {
   renderLogMd,
   resolveReconciliationFinding,
   upsertFrontmatterKeys,
-} from '@sprint-runner/conductor';
+} from '@veto/conductor';
 import {
   defaultGlobalConfigPath,
   mergeConfigFile,
   parseEnv,
-} from '@sprint-runner/config';
-import type { EffectiveConfig } from '@sprint-runner/config';
+} from '@veto/config';
+import type { EffectiveConfig } from '@veto/config';
 import {
   APPROVED_SCOPE_ORIGINS,
   BOARD_ITEM_KINDS,
@@ -69,7 +69,7 @@ import {
   latestClassification,
   needsScopeApproval,
   severityRule,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import Fastify, {
   type FastifyInstance,
   type FastifyReply,
@@ -568,7 +568,7 @@ export function createServer(opts: ServerOptions): ApiServer {
   const bind = opts.bind ?? config.ui.bind;
   const globalConfigPath = opts.globalConfigPath ?? defaultGlobalConfigPath();
   const hub = new StreamHub();
-  const actor = config.actor ?? 'sprint-runner';
+  const actor = config.actor ?? 'veto';
 
   const app = Fastify({ logger: false }) as unknown as ApiServer;
 
@@ -598,7 +598,7 @@ export function createServer(opts: ServerOptions): ApiServer {
   // Auth — bearer token or session cookie on EVERYTHING (API.md auth)
   // ------------------------------------------------------------------
 
-  const sessionCookie = 'sr_session';
+  const sessionCookie = 'veto_session';
 
   function cookieToken(req: FastifyRequest): string | null {
     const raw = req.headers.cookie;
@@ -969,7 +969,7 @@ export function createServer(opts: ServerOptions): ApiServer {
         )
         .type('text/html')
         .send(
-          '<html><body><h1>sprint-runner</h1><p>Session established.</p></body></html>',
+          '<html><body><h1>veto</h1><p>Session established.</p></body></html>',
         );
       return;
     }
@@ -979,9 +979,9 @@ export function createServer(opts: ServerOptions): ApiServer {
     void reply
       .type('text/html')
       .send(
-        '<html><body><h1>sprint-runner</h1>' +
+        '<html><body><h1>veto</h1>' +
           '<p>UI bundle not built — run ' +
-          '<code>pnpm -F @sprint-runner/ui build</code>.</p></body></html>',
+          '<code>pnpm -F @veto/ui build</code>.</p></body></html>',
       );
   });
 
@@ -2264,14 +2264,7 @@ export function createServer(opts: ServerOptions): ApiServer {
     // config key. The project row is the DB registration.
     const rootPath =
       body.path ??
-      join(
-        homedir(),
-        '.local',
-        'share',
-        'sprint-runner',
-        'workspaces',
-        body.name,
-      );
+      join(homedir(), '.local', 'share', 'veto', 'workspaces', body.name);
     await mkdir(rootPath, { recursive: true });
     const ts = now();
     const existing = await store.getProject(body.name);

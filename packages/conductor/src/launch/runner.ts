@@ -26,8 +26,8 @@ import type {
   TestReport,
   TestReportCase,
   TicketRepoRow,
-} from '@sprint-runner/core';
-import { TestReportSchema } from '@sprint-runner/core';
+} from '@veto/core';
+import { TestReportSchema } from '@veto/core';
 import type { RunnerTask } from '../contracts.js';
 import { runVerifyTask } from '../envops/index.js';
 import type { VerifyResult } from '../envops/index.js';

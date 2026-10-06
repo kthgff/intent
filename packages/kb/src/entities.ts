@@ -9,12 +9,7 @@
  * demoted by an agent `inferred` re-survey (same ethic as dossier
  * edited_by-wins).
  */
-import type {
-  Entity,
-  EntitySource,
-  Relation,
-  Store,
-} from '@sprint-runner/core';
+import type { Entity, EntitySource, Relation, Store } from '@veto/core';
 
 export const norm = (s: string): string => s.trim().toLowerCase();
 

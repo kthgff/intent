@@ -13,10 +13,10 @@
  *   POST   /api/v1/commitments              — record committed scope
  *   POST   /api/v1/commitments/:ws/:id/status — advance the lifecycle
  */
-import { registers } from '@sprint-runner/conductor';
-import type { ConductorWorkspace } from '@sprint-runner/conductor';
-import type { Store } from '@sprint-runner/core';
-import { DELIVERY_COMMITMENT_STATUSES } from '@sprint-runner/core';
+import { registers } from '@veto/conductor';
+import type { ConductorWorkspace } from '@veto/conductor';
+import type { Store } from '@veto/core';
+import { DELIVERY_COMMITMENT_STATUSES } from '@veto/core';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { ApiError } from './server.js';

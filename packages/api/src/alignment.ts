@@ -4,7 +4,7 @@ import {
   decideAlignmentFinding,
   releaseReadiness,
   runAlignment,
-} from '@sprint-runner/conductor';
+} from '@veto/conductor';
 /**
  * api/alignment.ts — wp-112 continuous-alignment routes (D37 Phase B,
  * API.md `/alignment/<scope>` row, SCHEMAS §18).
@@ -29,13 +29,13 @@ import {
  *        cluster proposals. Proposes only — never creates board items
  *        or initiatives; original refs preserved.
  */
-import type { EffectiveConfig } from '@sprint-runner/config';
-import type { Store } from '@sprint-runner/core';
+import type { EffectiveConfig } from '@veto/config';
+import type { Store } from '@veto/core';
 import {
   ALIGNMENT_FINDING_ACTIONS,
   ALIGNMENT_FINDING_STATUSES,
   validateAlignmentFindings,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { ApiError } from './server.js';

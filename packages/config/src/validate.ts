@@ -2,7 +2,7 @@
  * Validation helpers — fail-closed per AGENTS.md: unknown keys and
  * malformed values are errors, never silently dropped.
  */
-import { ConfigSchema } from '@sprint-runner/core';
+import { ConfigSchema } from '@veto/core';
 import type { z } from 'zod';
 import { type PlainObject, isPlainObject } from './merge.js';
 

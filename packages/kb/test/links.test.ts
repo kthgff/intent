@@ -16,8 +16,8 @@ import {
   type Relation,
   type RepoIndexRow,
   type TicketRow,
-} from '@sprint-runner/core';
-import { PostgresStore } from '@sprint-runner/store';
+} from '@veto/core';
+import { PostgresStore } from '@veto/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   LinkError,

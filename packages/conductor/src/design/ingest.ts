@@ -7,7 +7,7 @@
  * generic-AI. This module owns parse/merge so the bundle is always a
  * valid artifact and incremental refreshes are deterministic.
  */
-import { type DesignSystem, DesignSystemSchema } from '@sprint-runner/core';
+import { type DesignSystem, DesignSystemSchema } from '@veto/core';
 import { badRequest, invalid, stableJson } from './types.js';
 
 /** Parse + validate a design-system.json bundle. Fail-closed. */

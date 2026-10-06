@@ -31,8 +31,8 @@ import type {
   ReviewFindingRow,
   ReviewFindingStatus,
   RunBaseline,
-} from '@sprint-runner/core';
-import { git } from '@sprint-runner/gitops';
+} from '@veto/core';
+import { git } from '@veto/gitops';
 import type { TransitionContext } from '../../contracts.js';
 import { readReviewJson } from '../../transitions/actions.js';
 import { transitionFinding, upsertFinding } from './findings.js';

@@ -5,7 +5,7 @@
  * The `text` is exactly what `source_ref.span` offsets index into —
  * deterministic concatenation, never reformatted.
  */
-import type { BoardItem, InterviewMessageRow } from '@sprint-runner/core';
+import type { BoardItem, InterviewMessageRow } from '@veto/core';
 import type { ExtractionSource } from './types.js';
 
 /** Board item → source. Title and body are both evidence; joined with

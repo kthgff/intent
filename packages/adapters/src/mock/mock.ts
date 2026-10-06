@@ -43,8 +43,8 @@ import {
   type Usage,
   type UsageCallback,
   type UsagePartial,
-} from '@sprint-runner/core';
-import { renderPrompt } from '@sprint-runner/prompts';
+} from '@veto/core';
+import { renderPrompt } from '@veto/prompts';
 
 /** Prefix of the streamed usage line format the agent emits. */
 export const USAGE_LINE_PREFIX = 'USAGE ';
@@ -126,7 +126,7 @@ function defaultAgentScript(): string {
 
 /** Extract the artifact dir from a rendered prompt's ARTIFACT_TARGETS
  *  block (the renderer emits `<dir>/ (absolute …)` or
- *  `.sprint-runner/<id>/ (worktree-relative …)`). */
+ *  `.veto/<id>/ (worktree-relative …)`). */
 export function parseArtifactDir(
   renderedText: string,
   worktree: string,
@@ -135,9 +135,7 @@ export function parseArtifactDir(
   // so match anywhere in a line, not anchored.
   const abs = renderedText.match(/(\/\S+)\/ \(absolute/);
   if (abs?.[1]) return abs[1];
-  const rel = renderedText.match(
-    /(\.sprint-runner\/\S+)\/ \(worktree-relative/,
-  );
+  const rel = renderedText.match(/(\.veto\/\S+)\/ \(worktree-relative/);
   if (rel?.[1]) return join(worktree, rel[1]);
   return null;
 }
@@ -256,10 +254,10 @@ export class MockAdapter implements Adapter {
     const artifactDir =
       mopts?.artifactDir ??
       parseArtifactDir(rendered.text, worktree) ??
-      join(tmpdir(), `sr-mock-${Date.now()}`);
+      join(tmpdir(), `veto-mock-${Date.now()}`);
     mkdirSync(artifactDir, { recursive: true });
 
-    // In-tree artifact dirs are the `.sprint-runner/<run-id>/` scratch
+    // In-tree artifact dirs are the `.veto/<run-id>/` scratch
     // contract — the log must live INSIDE the leaf so collectArtifacts
     // moves it into run_dir as `run.log` (SKIP_FILES) instead of
     // stranding a `mock-run-*.log` sibling that trips the residue

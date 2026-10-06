@@ -17,10 +17,10 @@ import {
   Conductor,
   type ConductorDeps,
   StubTransitionHandler,
-} from '@sprint-runner/conductor';
-import { resolveConfig } from '@sprint-runner/config';
-import type { TicketRow } from '@sprint-runner/core';
-import { PostgresStore } from '@sprint-runner/store';
+} from '@veto/conductor';
+import { resolveConfig } from '@veto/config';
+import type { TicketRow } from '@veto/core';
+import { PostgresStore } from '@veto/store';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   type ApiServer,
@@ -193,7 +193,7 @@ async function shipRelease(app: ApiServer): Promise<string> {
 }
 
 beforeEach(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'sr-releases-'));
+  dir = mkdtempSync(join(tmpdir(), 'veto-releases-'));
   store = await PostgresStore.connect('pglite:');
   await store.getSchemaVersion();
 });

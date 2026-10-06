@@ -1,4 +1,4 @@
-import type { RunRow } from '@sprint-runner/core';
+import type { RunRow } from '@veto/core';
 /**
  * S-07 — live run monitor. RunsList = registry; RunMonitor = transcript
  * tail via SSE `run_output`, live usage via `usage_partial`, kill /

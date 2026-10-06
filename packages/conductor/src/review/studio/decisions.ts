@@ -23,7 +23,7 @@ import type {
   ReviewAction,
   ReviewDecisionRow,
   ReviewSessionRow,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import { securityGate } from '../security.js';
 import { requireSession, rollupSessionStatus } from './session.js';
 import {

@@ -31,9 +31,9 @@ import {
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { MockAdapter, parseArtifactDir } from '@sprint-runner/adapters';
-import { resolveConfig } from '@sprint-runner/config';
-import { REVIEW_PASSES } from '@sprint-runner/core';
+import { MockAdapter, parseArtifactDir } from '@veto/adapters';
+import { resolveConfig } from '@veto/config';
+import { REVIEW_PASSES } from '@veto/core';
 import type {
   Adapter,
   CapabilityFlags,
@@ -47,8 +47,8 @@ import type {
   TicketRow,
   TokenValues,
   UsageCallback,
-} from '@sprint-runner/core';
-import { PostgresStore } from '@sprint-runner/store';
+} from '@veto/core';
+import { PostgresStore } from '@veto/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   CliDockerClient,
@@ -946,7 +946,7 @@ interface ExecRecord {
  * the scripted mock agent runs INSIDE the subject's container via
  * `docker exec -w <worktree>` (installed once per container by
  * `docker cp`). `can_write_outside_tree: false` → the prompt renders a
- * worktree-relative `.sprint-runner/<run-id>/` scratch dir; the mount
+ * worktree-relative `.veto/<run-id>/` scratch dir; the mount
  * is path-identical (D30), so in-container artifact writes land on the
  * host and reconcile's collectArtifacts moves them into run_dir.
  * Cardless stages (no container_id — the lazy-create rule) fall back
@@ -1050,7 +1050,7 @@ class ContainerScriptedAdapter implements Adapter {
     }
     const artifactDir =
       parseArtifactDir(rendered.text, worktree) ??
-      join(worktree, '.sprint-runner', meta?.runId ?? 'run');
+      join(worktree, '.veto', meta?.runId ?? 'run');
     const logPath = join(opts?.run_dir ?? tmpdir(), 'run.log');
     mkdirSync(dirname(logPath), { recursive: true });
     const fd = openSync(logPath, 'a');
@@ -1391,7 +1391,7 @@ describe.skipIf(!DOCKER_OK)('wp-098 container e2e (real docker)', () => {
         await store.getArtifact(impl?.id as string, 'result.json'),
       ).not.toBeNull();
       // The scratch dir is purged — nothing left in the worktree.
-      expect(existsSync(join(wt, '.sprint-runner'))).toBe(false);
+      expect(existsSync(join(wt, '.veto'))).toBe(false);
 
       // Transition ran the verify task + review passes to the gate.
       const gate = await store.getGateItem({

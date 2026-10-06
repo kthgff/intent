@@ -15,7 +15,7 @@ import type {
   Store,
   WizardDefinitionRow,
   WizardVersionRow,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import { z } from 'zod';
 import {
   DEFAULT_THRESHOLDS,

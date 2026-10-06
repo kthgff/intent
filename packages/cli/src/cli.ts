@@ -1,5 +1,5 @@
 /**
- * cli.ts — command dispatch for the `sprint-runner` binary (wp-099).
+ * cli.ts — command dispatch for the `veto` binary (wp-099).
  *
  * Command table (ticket):
  *   (no args) / daemon  boot config + store → conductor loop → UI+API
@@ -13,8 +13,8 @@
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { ConfigError } from '@sprint-runner/config';
-import { PROMPT_VERSION } from '@sprint-runner/core';
+import { ConfigError } from '@veto/config';
+import { PROMPT_VERSION } from '@veto/core';
 import { CliUsageError, assertFlags, flagString, parseArgs } from './args.js';
 import { cmdDaemon } from './commands/daemon.js';
 import { cmdDoctor } from './commands/doctor.js';
@@ -47,9 +47,9 @@ function version(): string {
   }
 }
 
-export const USAGE = `sprint-runner — governance layer for agent-authored code
+export const USAGE = `veto — governance layer for agent-authored code
 
-Usage: sprint-runner <command>
+Usage: veto <command>
 
 Commands:
   (none)/daemon  Boot the conductor + serve the UI on ui.bind:ui.port
@@ -60,7 +60,7 @@ Commands:
   version        Print version
 
 Flags:
-  --config <path>     override ~/.config/sprint-runner/config.yaml
+  --config <path>     override ~/.config/veto/config.yaml
   --workspace <name>  scope status to one workspace
   --json              machine-readable output (status, doctor)
   --project <name>    project name for init (default: repo basename)
@@ -204,5 +204,5 @@ export async function runCli(
 }
 
 function versionLine(): string {
-  return `sprint-runner ${version()} (prompts v${PROMPT_VERSION})`;
+  return `veto ${version()} (prompts v${PROMPT_VERSION})`;
 }

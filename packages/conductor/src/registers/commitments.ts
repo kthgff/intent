@@ -26,7 +26,7 @@ import type {
   DeliveryCommitmentRow,
   DeliveryCommitmentStatus,
   Store,
-} from '@sprint-runner/core';
+} from '@veto/core';
 
 export interface CommitmentCtx {
   store: Store;

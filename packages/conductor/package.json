@@ -1,5 +1,5 @@
 {
-  "name": "@sprint-runner/conductor",
+  "name": "@veto/conductor",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -12,18 +12,18 @@
     "test:e2e": "vitest run test/e2e"
   },
   "dependencies": {
-    "@sprint-runner/config": "workspace:*",
-    "@sprint-runner/core": "workspace:*",
-    "@sprint-runner/gitops": "workspace:*",
-    "@sprint-runner/kb": "workspace:*",
-    "@sprint-runner/lints": "workspace:*",
-    "@sprint-runner/prompts": "workspace:*",
-    "@sprint-runner/store": "workspace:*",
+    "@veto/config": "workspace:*",
+    "@veto/core": "workspace:*",
+    "@veto/gitops": "workspace:*",
+    "@veto/kb": "workspace:*",
+    "@veto/lints": "workspace:*",
+    "@veto/prompts": "workspace:*",
+    "@veto/store": "workspace:*",
     "yaml": "^2.5.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
-    "@sprint-runner/adapters": "workspace:*",
+    "@veto/adapters": "workspace:*",
     "@types/node": "^22.10.0",
     "typescript": "^5.7.0",
     "vitest": "^2.1.0"

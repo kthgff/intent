@@ -11,7 +11,7 @@ import type {
   InterviewSessionRow,
   KnowledgeSlotRow,
   StatementRow,
-} from '@sprint-runner/core';
+} from '@veto/core';
 
 // ---------- typed-sticky taxonomy (§15.3, wp-144 note_kinds) ----------
 

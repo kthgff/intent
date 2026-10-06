@@ -56,7 +56,7 @@ import {
   type ReviewCommentRow,
   type ScopeBudgets,
   type Store,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import type { StreamEvent } from '../loop/deps.js';
 import { reconcileAffectedRuns } from '../reconcile/baseline.js';
 import { specInputsHash } from '../transitions/actions.js';

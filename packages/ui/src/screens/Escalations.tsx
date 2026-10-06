@@ -1,4 +1,4 @@
-import type { TicketRow } from '@sprint-runner/core';
+import type { TicketRow } from '@veto/core';
 /**
  * S-10 — escalations & failures queue. Tickets in failed / blocked /
  * escalated / aborted / changes-requested plus gate items of kind

@@ -1,4 +1,4 @@
-import type { BoardItem, StatementRow } from '@sprint-runner/core';
+import type { BoardItem, StatementRow } from '@veto/core';
 /**
  * S-16 — Board canvas v2 (s-16-board-canvas.md, PRD §15.3, wp-147).
  *

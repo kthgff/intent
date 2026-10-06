@@ -3,7 +3,7 @@
  * fragments into one review.json document (wp-050; SCHEMAS §6).
  *
  *   - The runner computes `fingerprint` + `thread_id` — agents never
- *     emit either (formula lives in @sprint-runner/lints; do NOT
+ *     emit either (formula lives in @veto/lints; do NOT
  *     reimplement).
  *   - Dedupe across passes uses the same rule as cross-round matching
  *     (`matchThread`): same file+category AND (identical text_hash OR
@@ -13,17 +13,13 @@
  *   - thread_id collisions (`f-xxxx` is only 4 hex chars) resolve with
  *     `-2`, `-3` suffixes per SCHEMAS §6.
  */
-import {
-  type AgentFinding,
-  REVIEW_PASSES,
-  type ReviewPass,
-} from '@sprint-runner/core';
+import { type AgentFinding, REVIEW_PASSES, type ReviewPass } from '@veto/core';
 import {
   type FindingInput,
   fingerprint,
   matchThread,
   threadIdFor,
-} from '@sprint-runner/lints';
+} from '@veto/lints';
 import type { FindingsByPass, ReviewDocument, ReviewFinding } from './types.js';
 
 /** Severity ordering — higher rank wins when two passes disagree on a

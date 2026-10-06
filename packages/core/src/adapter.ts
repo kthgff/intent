@@ -15,7 +15,7 @@ export interface CapabilityFlags {
   /** Can run shell commands → repo-card commands included in prompt. */
   can_exec: boolean;
   /** Can write outside the repo → ARTIFACT_TARGETS renders as absolute
-   *  `runs/<id>/` paths; false → worktree-relative `.sprint-runner/<run-id>/`
+   *  `runs/<id>/` paths; false → worktree-relative `.veto/<run-id>/`
    *  scratch dir, collected post-exit (ADAPTERS ARTIFACT_TARGETS). */
   can_write_outside_tree: boolean;
   /** Can run `gh` → PR creation in-prompt vs runner-owned. */

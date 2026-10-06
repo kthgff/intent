@@ -17,7 +17,7 @@ import {
   type TestReport,
   type TestReportCase,
   TestReportSchema,
-} from '@sprint-runner/core';
+} from '@veto/core';
 
 export interface VerifyCommandResult {
   name: string;
@@ -76,7 +76,7 @@ export const DEFAULT_TEST_FILE_GLOBS = [
 const SKIP_DIRS = new Set([
   'node_modules',
   '.git',
-  '.sprint-runner',
+  '.veto',
   'dist',
   'build',
   'vendor',

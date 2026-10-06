@@ -9,7 +9,7 @@
  * contract between the checklist, the executor, the post-merge
  * bookkeeping, and the poll wiring.
  */
-import type { GateName } from '@sprint-runner/core';
+import type { GateName } from '@veto/core';
 import type { ToolCtx } from '../loop/tools.js';
 import type { GhClient } from '../shepherd/gh.js';
 

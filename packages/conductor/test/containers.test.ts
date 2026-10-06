@@ -21,8 +21,8 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Store, TicketRow } from '@sprint-runner/core';
-import { PostgresStore } from '@sprint-runner/store';
+import type { Store, TicketRow } from '@veto/core';
+import { PostgresStore } from '@veto/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   CliDockerClient,

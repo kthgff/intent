@@ -32,9 +32,9 @@ import type {
   ReleaseNoteRow,
   ReleaseRow,
   ReleaseStatus,
-} from '@sprint-runner/core';
-import { RELEASE_NOTE_AUDIENCES } from '@sprint-runner/core';
-import { releaseGatesGreen, releaseManifestDigest } from '@sprint-runner/lints';
+} from '@veto/core';
+import { RELEASE_NOTE_AUDIENCES } from '@veto/core';
+import { releaseGatesGreen, releaseManifestDigest } from '@veto/lints';
 import { applyTicketStatusTx } from '../contracts.js';
 import { evaluateRelease, recordReleaseGates } from './gates.js';
 import { buildManifestItems, resolveManifestMembers } from './manifest.js';

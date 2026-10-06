@@ -1,5 +1,5 @@
 {
-  "name": "@sprint-runner/store",
+  "name": "@veto/store",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -17,7 +17,7 @@
     "vitest": "^2.1.0"
   },
   "dependencies": {
-    "@sprint-runner/core": "workspace:*",
+    "@veto/core": "workspace:*",
     "postgres": "^3.4.9"
   }
 }

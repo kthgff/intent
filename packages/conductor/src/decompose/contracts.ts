@@ -15,7 +15,7 @@ import {
   type ContractDoc,
   type ContractSpec,
   ContractSpecSchema,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import type { TransitionContext } from '../contracts.js';
 import type { PlanContract } from './plan.js';
 

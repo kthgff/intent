@@ -15,8 +15,8 @@ import {
   RunBaselineSchema,
   type RunRow,
   type Store,
-} from '@sprint-runner/core';
-import { git } from '@sprint-runner/gitops';
+} from '@veto/core';
+import { git } from '@veto/gitops';
 
 /** AC tokens the baseline pins (`AC-1`, `ac:login-2` spellings) —
  *  best-effort extraction from the spec text (mirrors the review

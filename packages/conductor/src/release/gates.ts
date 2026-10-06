@@ -2,19 +2,19 @@
  * release/gates.ts — release-readiness gate evaluation (DELIVERY §4,
  * wp-134).
  *
- * The conductor gathers facts from the store; `@sprint-runner/lints`
+ * The conductor gathers facts from the store; `@veto/lints`
  * decides; results append to `release_gate_results` — append-only
  * audit, one row per gate per evaluation. A `waived` verdict is the
  * recorded human override: it counts as pass only while bound to the
  * current manifest version (a re-cut invalidates it, invariant 3).
  */
-import { type ReleaseRow, TERMINAL_STATUSES } from '@sprint-runner/core';
+import { type ReleaseRow, TERMINAL_STATUSES } from '@veto/core';
 import {
   type ReleaseGateCheck,
   type ReleaseGateFacts,
   type ReleaseGateId,
   evaluateReleaseGates,
-} from '@sprint-runner/lints';
+} from '@veto/lints';
 import { resolveManifestMembers } from './manifest.js';
 import { type ReleaseCtx, ReleaseError } from './types.js';
 

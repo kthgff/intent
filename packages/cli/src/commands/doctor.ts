@@ -12,8 +12,8 @@ import {
   type PartialConfig,
   defaultGlobalConfigPath,
   loadGlobalConfig,
-} from '@sprint-runner/config';
-import { ConfigSchema } from '@sprint-runner/core';
+} from '@veto/config';
+import { ConfigSchema } from '@veto/core';
 import {
   type DepCheck,
   checkStorage,

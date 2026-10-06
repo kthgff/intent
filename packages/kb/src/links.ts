@@ -22,13 +22,8 @@
  * (ticket.repos ∩ config.repos). Stale → `stale`; out-of-scope →
  * `unauthorized`. Edges with no commit pin skip the freshness check.
  */
-import type {
-  Config,
-  Relation,
-  RelationVerification,
-  Store,
-} from '@sprint-runner/core';
-import { RelationSchema } from '@sprint-runner/core';
+import type { Config, Relation, RelationVerification, Store } from '@veto/core';
+import { RelationSchema } from '@veto/core';
 
 export type LinkAction = 'verify' | 'reject';
 

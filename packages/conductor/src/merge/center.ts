@@ -24,7 +24,7 @@ import type {
   RunRow,
   TicketRepoRow,
   TicketRow,
-} from '@sprint-runner/core';
+} from '@veto/core';
 import { runAlignment } from '../align/engine.js';
 import type { TransitionTools } from '../contracts.js';
 import { nowIso } from '../loop/deps.js';

@@ -7,32 +7,28 @@
  *   adapters per `backend:` → Conductor + RealTransitionHandler.
  */
 import { mkdir } from 'node:fs/promises';
-import {
-  AiderAdapter,
-  DevinAdapter,
-  MockAdapter,
-} from '@sprint-runner/adapters';
+import { AiderAdapter, DevinAdapter, MockAdapter } from '@veto/adapters';
 import {
   Conductor,
   type ConductorWorkspace,
   RealTransitionHandler,
-} from '@sprint-runner/conductor';
+} from '@veto/conductor';
 import {
   type EffectiveConfig,
   type LoadedConfig,
   defaultGlobalConfigPath,
   loadGlobalConfig,
   resolveConfig,
-} from '@sprint-runner/config';
-import type { Adapter } from '@sprint-runner/core';
-import { resolveRuntime } from '@sprint-runner/core';
-import { PostgresStore } from '@sprint-runner/store';
+} from '@veto/config';
+import type { Adapter } from '@veto/core';
+import { resolveRuntime } from '@veto/core';
+import { PostgresStore } from '@veto/store';
 import { overlayRepoCards } from './cards.js';
 import { runsDir as defaultRunsDir, defaultWorkspaceRoot } from './paths.js';
 
 export interface BootOptions {
   /** `--config <path>` override — defaults to
-   *  `~/.config/sprint-runner/config.yaml`. */
+   *  `~/.config/veto/config.yaml`. */
   configPath?: string;
   /** Run-dir root override (tests). */
   runsDir?: string;
@@ -53,7 +49,7 @@ export interface BootedRuntime {
 
 /**
  * Load + resolve the effective config (global layer; the workspace
- * `.sprint-runner/config.yaml` and `projects.settings` precedence
+ * `.veto/config.yaml` and `projects.settings` precedence
  * layers are not wired into ConductorDeps yet — see TRACKER wp-099
  * decision log). Throws ConfigError — callers fail closed.
  */
@@ -197,7 +193,7 @@ export async function bootRuntime(
     await mkdir(ws.rootPath, { recursive: true });
   }
 
-  // Repo cards live in each repo's .sprint-runner/card.json — overlay
+  // Repo cards live in each repo's .veto/card.json — overlay
   // them onto the effective config so probes' `verified` lands.
   const cards = await overlayRepoCards(config, workspaces);
   warnings.push(...cards.warnings);

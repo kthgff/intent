@@ -12,15 +12,15 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { resolveConfig } from '@sprint-runner/config';
+import { resolveConfig } from '@veto/config';
 import type {
   AgentFinding,
   RunResult,
   RunRow,
   Stage,
   TicketRow,
-} from '@sprint-runner/core';
-import { PostgresStore } from '@sprint-runner/store';
+} from '@veto/core';
+import { PostgresStore } from '@veto/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   type ApplyStatusOptions,
@@ -613,7 +613,7 @@ function outcome(
 
 describe('handler: fix dismissal cap breach', () => {
   beforeEach(async () => {
-    dir = mkdtempSync(join(tmpdir(), 'sr-wp050-'));
+    dir = mkdtempSync(join(tmpdir(), 'veto-wp050-'));
     store = await PostgresStore.connect('pglite:');
     requestedRuns = [];
     handler = new RealTransitionHandler(

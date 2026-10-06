@@ -13,13 +13,8 @@
  *      parse, so this never breaks validation; it rides the JSON for
  *      the Issues tab and for merge observability.
  */
-import type {
-  AgentFinding,
-  Finding,
-  Review,
-  ReviewPass,
-} from '@sprint-runner/core';
-import type { Fingerprint } from '@sprint-runner/lints';
+import type { AgentFinding, Finding, Review, ReviewPass } from '@veto/core';
+import type { Fingerprint } from '@veto/lints';
 
 /** Fingerprint as stored — lints' nullable `line_range`, plus the
  *  optional `symbol` slot SCHEMAS §6 reserves (runner-derived; null

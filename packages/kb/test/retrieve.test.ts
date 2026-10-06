@@ -9,8 +9,8 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { RetrievalRequest } from '@sprint-runner/core';
-import { PostgresStore } from '@sprint-runner/store';
+import type { RetrievalRequest } from '@veto/core';
+import { PostgresStore } from '@veto/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   type GoldenSuite,
@@ -32,7 +32,7 @@ const WS = 'ws-a';
 const REPO = 'api';
 
 beforeEach(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'sr-kb-retrieve-'));
+  dir = mkdtempSync(join(tmpdir(), 'veto-kb-retrieve-'));
   repoDir = join(dir, 'repo');
   mkdirSync(repoDir, { recursive: true });
   store = await PostgresStore.connect('pglite:');
