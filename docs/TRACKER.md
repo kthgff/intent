@@ -123,7 +123,7 @@ Program plan for W16+ (PRD §14+§15): `docs/DEV-PLAN.md` + `docs/DELIVERY.md`.
 | W22 | wp-155 | Model Routing Registry: versioned task→model config, latency classes, cost-per-accepted | wp-131 | done |
 | W22 | wp-156 | AI Evaluation Lab: golden sets, bake-off harness, promotion gates | wp-155, wp-143 | done |
 | W22 | wp-157 | Test-environment requests: declarative env spec + conductor provisioning | wp-131 | done |
-| W23 | wp-158 | Discovery E2E: board→statements→interview→RS→approve→tickets vertical | wp-143–146 | todo |
+| W23 | wp-158 | Discovery E2E: board→statements→interview→RS→approve→tickets vertical | wp-143–146 | done |
 | W23 | wp-159 | Wave close-out: docs reconciliation + full suite green + TRACKER update | wp-138,142,147,150,152–158 | todo |
 | W23 | wp-160 | API/store backlog sweep: review route, notify path, workspace persist, metrics, snooze, run_output SSE | wp-131 | done |
 ## Parallel-agent rules
