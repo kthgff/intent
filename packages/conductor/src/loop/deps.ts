@@ -190,6 +190,7 @@ export function containerRuntimeDeps(
   return {
     docker: deps.docker ?? new CliDockerClient(),
     store: deps.store,
+    workspaces: deps.workspaces.map((w) => w.name),
     containers: deps.config.containers,
     capabilities: deps.config.capabilities,
     ...(deps.containerDockerfile !== undefined

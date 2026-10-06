@@ -241,6 +241,7 @@ const deps = (
 ): ContainerRuntimeDeps => ({
   docker,
   store,
+  workspaces: [WS],
   containers: CONTAINERS,
   dockerfile: null,
   now: () => new Date(NOW),
@@ -672,6 +673,31 @@ describe('subject container lifecycle (fake docker)', () => {
     expect(res.kept).toEqual(['veto-wstest-sr-live']);
     expect(docker.byName.has('foreign-cron')).toBe(true);
     expect((await getRow(store, 'SR-TERM'))?.state).toBe('removed');
+  });
+
+  it('sweep never touches another workspace’s managed containers', async () => {
+    const docker = new FakeDocker();
+    // Managed + rowless — but labeled for a foreign workspace. A
+    // `wstest` conductor must leave it alone even though its own
+    // store has no row (shared-daemon isolation).
+    await docker.create({
+      name: 'veto-otherws-sr-0099',
+      image: CONTAINERS.image,
+      labels: {
+        [MANAGED_LABEL]: 'true',
+        [SUBJECT_LABEL]: 'otherws/SR-0099',
+      },
+    });
+    // …while an in-scope rowless container is still reaped.
+    await docker.create({
+      name: 'veto-wstest-ghost',
+      image: CONTAINERS.image,
+      labels: { [MANAGED_LABEL]: 'true', [SUBJECT_LABEL]: `${WS}/GHOST` },
+    });
+    const res = await sweepOrphanedContainers(deps(docker));
+    expect(res.removed).toEqual(['veto-wstest-ghost']);
+    expect(res.kept).toEqual([]);
+    expect(docker.byName.has('veto-otherws-sr-0099')).toBe(true);
   });
 
   it('sweep removes a managed container whose subject ticket was deleted', async () => {

@@ -342,7 +342,10 @@ disposable execution context — losing one never loses work.
 - **Orphan sweep** — conductor startup lists
   `label=veto/managed=true`; any container with no live
   `containers` row or a subject in terminal state is removed — a
-  crashed babysitter can't leak containers.
+  crashed babysitter can't leak containers. The sweep is scoped to
+  the conductor's configured workspaces (the `veto/subject` label's
+  `<workspace>/<subject>` prefix): on a shared daemon it never
+  judges another workspace's containers.
 - **Docker is a PATH dep** for container backends: absent daemon →
   clean startup error, same rule as gitleaks/gh. Container runtime
   applies to the `aider` backend in v1; `devin` keeps host processes +

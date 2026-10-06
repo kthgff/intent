@@ -26,6 +26,7 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  writeFileSync,
 } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -61,14 +62,15 @@ import {
   type LaunchContext,
   LeaseManager,
   MANAGED_LABEL,
-  type ReconcileReport,
   RealTransitionHandler,
+  type ReconcileReport,
   SUBJECT_LABEL,
   StubTransitionHandler,
   containerName,
   containerRuntimeDeps,
   ensureSubjectContainer,
   launch,
+  queuePendingRun,
   reconcile,
   sweepOrphanedContainers,
   teardownSubjectContainer,
@@ -821,11 +823,10 @@ describe.skipIf(!DOCKER_OK)('conductor container run (real docker)', () => {
 //   6. Repo-set growth — a second repo's worktree recreates the
 //      container (new id, union of mounts).
 //
-// Real-daemon only (describe.skipIf). Deliberately in THIS file rather
-// than a sibling suite: the orphan sweep removes any `veto/managed`
-// container without a live row in the sweeping store, so two real-
-// daemon files racing under vitest file-parallelism would reap each
-// other's containers mid-test.
+// Real-daemon only (describe.skipIf). The orphan sweep is scoped to
+// the conductor's workspaces (`ContainerRuntimeDeps.workspaces`), so
+// this file's `ws` containers and containers.test.ts's `wstest` ones
+// can't reap each other under vitest file-parallelism.
 // ---------------------------------------------------------------------------
 
 const SCRIPT_AGENT = join(HERE, 'helpers/mock-agent.mjs');
@@ -851,24 +852,33 @@ const E2E_IMAGE = ((): string => {
 /** `docker cp` — the CliDockerClient surface has no need for it (the
  *  lifecycle never copies into containers); the in-container backend
  *  uses it to install the scripted agent once per container. */
-function dockerCp(src: string, dest: string): Promise<void> {
-  return new Promise((res, rej) => {
-    execFile(
-      'docker',
-      ['cp', src, dest],
-      { env: dockerEnv(), timeout: 60_000 },
-      (err, _stdout, stderr) => {
-        if (err === null) res();
-        else {
-          rej(
-            new Error(
-              `docker cp ${src} → ${dest}: ${String(stderr).trim() || err.message}`,
-            ),
-          );
-        }
-      },
-    );
-  });
+async function dockerCp(src: string, dest: string): Promise<void> {
+  // Bounded retry: under suite-wide docker load a cp can fail with an
+  // empty-stderr daemon stall; 3 attempts smooth that over without
+  // masking a persistently dead target.
+  let lastErr = 'unknown';
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await new Promise<void>((res, rej) => {
+        execFile(
+          'docker',
+          ['cp', src, dest],
+          { env: dockerEnv(), timeout: 60_000 },
+          (err, _stdout, stderr) => {
+            if (err === null) res();
+            else {
+              rej(new Error(String(stderr).trim() || err.message));
+            }
+          },
+        );
+      });
+      return;
+    } catch (e) {
+      lastErr = (e as Error).message;
+      await sleep(400);
+    }
+  }
+  throw new Error(`docker cp ${src} → ${dest}: ${lastErr}`);
 }
 
 function lastNonEmptyLine(path: string): string | null {
@@ -906,6 +916,10 @@ interface ContainerScriptSpec {
   artifacts?: Record<string, unknown>;
   delayMs?: number;
   hang?: boolean;
+  /** Poll for this path before emitting the sentinel — a file the test
+   *  drops into the (path-identical, host-visible) worktree releases
+   *  the run on demand. */
+  waitFor?: string;
 }
 type ContainerScript = ContainerScriptSpec | string;
 
@@ -915,6 +929,9 @@ interface ContainerRunInfo {
   attempt: number;
   ticketId: string | null;
   runId: string;
+  /** Set by run() before the script resolves — prepare() doesn't know
+   *  the worktree yet. */
+  worktree?: string;
 }
 
 type ContainerScriptFn = (run: ContainerRunInfo) => ContainerScript;
@@ -956,6 +973,10 @@ class ContainerScriptedAdapter implements Adapter {
   readonly #killGraceMs: number;
   readonly #meta = new WeakMap<RenderedPrompt, ContainerRunInfo>();
   readonly #records = new Map<number, ExecRecord>();
+  /** Container ids control() issued `docker kill` against — the kill
+   *  itself is the durable signal (the subject restarts on retry
+   *  ensure, so a post-hoc `inspect().running` race loses). */
+  readonly kills: string[] = [];
   readonly #installed = new Set<string>();
 
   constructor(
@@ -974,17 +995,15 @@ class ContainerScriptedAdapter implements Adapter {
       capabilities: this.capabilities,
       delayMs: 30,
       heartbeatMs: 100,
+      // Cardless stages spawn the SAME e2e agent the container gets via
+      // docker cp — the bundled agent speaks the named-scenario DSL
+      // only and would reject `script:<base64>` payloads.
+      agentScript: this.#agentScript,
     });
   }
 
-  prepare(
-    subject: string,
-    stage: string,
-    ctx: PrepareContext,
-  ): RenderedPrompt {
-    const attempt = Number(
-      ctx.run_id.split('/').pop()?.split('-')[0] ?? '1',
-    );
+  prepare(subject: string, stage: string, ctx: PrepareContext): RenderedPrompt {
+    const attempt = Number(ctx.run_id.split('/').pop()?.split('-')[0] ?? '1');
     const info: ContainerRunInfo = {
       subject,
       stage,
@@ -1014,6 +1033,7 @@ class ContainerScriptedAdapter implements Adapter {
     opts?: { run_dir?: string; container_id?: string },
   ): Promise<RunHandle> {
     const meta = this.#meta.get(rendered);
+    if (meta) meta.worktree = worktree;
     const scenario = this.#scenario(rendered);
     const containerId = opts?.container_id;
     if (containerId === undefined) {
@@ -1083,6 +1103,7 @@ class ContainerScriptedAdapter implements Adapter {
     const info = await this.#docker.inspect(cid).catch(() => null);
     if (info?.paused) await this.#docker.unpause(cid).catch(() => {});
     if (info?.running) {
+      this.kills.push(cid);
       await this.#docker.kill(cid, 'TERM').catch(() => {});
       const deadline = Date.now() + this.#killGraceMs;
       let cur: DockerContainerInfo | null = info;
@@ -1185,6 +1206,9 @@ describe.skipIf(!DOCKER_OK)('wp-098 container e2e (real docker)', () => {
     // afterEach already removes; only bind mounts are used (no
     // volumes are ever created by the runtime).
     for (const name of [...tracked, ...foreignNames]) {
+      // `docker rm -f` hangs on a PAUSED container — unpause first so a
+      // failed mid-pause test can't wedge cleanup.
+      await docker.unpause(name).catch(() => {});
       await docker.rm(name, { force: true }).catch(() => {});
     }
     for (const name of tracked) {
@@ -1198,14 +1222,58 @@ describe.skipIf(!DOCKER_OK)('wp-098 container e2e (real docker)', () => {
     conductor: Conductor,
     pred: () => Promise<boolean> | boolean,
     desc: string,
-    maxTicks = 600,
+    maxMs = 90_000,
   ): Promise<void> => {
-    for (let i = 0; i < maxTicks; i++) {
+    // Time-bounded, not tick-bounded: a tick costs seconds of real
+    // docker work under load, so a tick count can't stay under the
+    // vitest test timeout — and an early throw keeps the diagnostic.
+    const deadline = Date.now() + maxMs;
+    let ticks = 0;
+    for (;;) {
       await conductor.tick();
+      ticks++;
       if (await pred()) return;
+      if (Date.now() > deadline) break;
       await sleep(40);
     }
-    throw new Error(`tickUntil(${desc}) — ${maxTicks} ticks elapsed`);
+    const runs = await store.listRuns({ workspace: WS });
+    const diag = runs
+      .map(
+        (r) =>
+          `${r.id} ${r.status} sentinel=${r.sentinel} raw=${r.sentinel_raw} backend=${r.backend} cid=${r.container_id}`,
+      )
+      .join('\n  ');
+    const evts = (await store.listEvents({ workspace: WS }))
+      .filter((e) =>
+        [
+          'run_started',
+          'run_finished',
+          'run_failed',
+          'run_killed',
+          'run_paused',
+          'run_resumed',
+          'status_changed',
+        ].includes(e.event),
+      )
+      .map(
+        (e) =>
+          `${e.ts} ${e.run ?? e.ticket_id} ${e.event} ` +
+          `${JSON.stringify(e.data ?? null)}`,
+      )
+      .slice(-25)
+      .join('\n  ');
+    const gates = (await store.listGateItems({ workspace: WS }))
+      .map(
+        (g) =>
+          `${g.subject} ${g.gate}/${g.kind} ${JSON.stringify(g.payload ?? null)}`,
+      )
+      .join('\n  ');
+    const notifs = (await store.listNotifications({ workspace: WS }))
+      .map((n) => `${n.kind} ${n.payload?.slice(0, 300)}`)
+      .join('\n  ');
+    throw new Error(
+      `tickUntil(${desc}) — ${ticks} ticks / ${maxMs}ms elapsed\n  runs:\n  ${diag}\n  events:\n  ${evts}\n  gates:\n  ${gates}\n  notifs:\n  ${notifs}`,
+    );
   };
 
   const ticketStatus = async (id: string): Promise<string | undefined> =>
@@ -1233,6 +1301,17 @@ describe.skipIf(!DOCKER_OK)('wp-098 container e2e (real docker)', () => {
 
   const runsFor = (subject: string) =>
     store.listRuns({ workspace: WS, subject });
+
+  /** Seed the implement run the ticket would have queued on its
+   *  test-approved → in-progress transition — the e2e enters the chain
+   *  AT in-progress, so the pending row is the claim's trigger. */
+  const queueImplement = (deps: ConductorDeps, subject: string) =>
+    queuePendingRun(launchCtx(deps), {
+      workspace: WS,
+      subject,
+      stage: 'implement',
+      ticketId: subject,
+    });
 
   it(
     'full chain: worktree → ensure → exec → sentinel → collect → transition → gate-sleep → wake → teardown',
@@ -1275,6 +1354,7 @@ describe.skipIf(!DOCKER_OK)('wp-098 container e2e (real docker)', () => {
       await putTicket('SR-E1', 'in-progress');
       track('SR-E1');
       await conductor.start(); // ping + image + startup orphan sweep
+      await queueImplement(deps, 'SR-E1');
       const tBoot = Date.now();
 
       // The chain: worktree create → container ensure → docker exec →
@@ -1299,7 +1379,10 @@ describe.skipIf(!DOCKER_OK)('wp-098 container e2e (real docker)', () => {
 
       // The in-container agent wrote the run's stdout — its banner is
       // in the collected run.log (sentinel source).
-      const logText = readFileSync(join(impl?.run_dir as string, 'run.log'), 'utf8');
+      const logText = readFileSync(
+        join(impl?.run_dir as string, 'run.log'),
+        'utf8',
+      );
       expect(logText).toContain('MOCK scenario=script:');
 
       // Artifact collect — the worktree scratch dir crossed the bind
@@ -1339,9 +1422,9 @@ describe.skipIf(!DOCKER_OK)('wp-098 container e2e (real docker)', () => {
       });
       const fix = await getRun(fixId as string);
       expect(fix?.container_id).toBe(row?.container_id);
-      expect(
-        (await docker.inspect(row?.container_id as string))?.running,
-      ).toBe(true);
+      expect((await docker.inspect(row?.container_id as string))?.running).toBe(
+        true,
+      );
       await tickUntil(
         conductor,
         async () => (await getRun(fixId as string))?.status === 'done',
@@ -1381,6 +1464,7 @@ describe.skipIf(!DOCKER_OK)('wp-098 container e2e (real docker)', () => {
       await putTicket('SR-K1', 'in-progress');
       track('SR-K1');
       await conductor.start();
+      await queueImplement(deps, 'SR-K1');
 
       await tickUntil(
         conductor,
@@ -1430,62 +1514,37 @@ describe.skipIf(!DOCKER_OK)('wp-098 container e2e (real docker)', () => {
             return {
               sentinel: 'DONE',
               artifacts: { 'result.json': { ok: true } },
-              delayMs: 1500,
+              // Test-gated completion — a fixed delayMs loses under
+              // suite load (the run DONEs before the pause lands). The
+              // agent polls for `.release-p1` in the bind-mounted
+              // worktree, so the run stays alive until we release it.
+              waitFor: join(r.worktree as string, '.release-p1'),
             };
           }
           return 'hang'; // SR-P2 hangs forever
         },
       });
-      // Short implement timeout — SR-P2's run must die on schedule even
-      // though it spent most of its life paused.
+      // Implement timeout — SR-P2's run must die on schedule even
+      // though it spends most of its life paused (the deadline is
+      // absolute; paused runs just skip the sweep until resumed).
+      // 35s leaves the whole P1 pause/release choreography inside the
+      // window under load.
       const deps = e2eDeps(docker, adapter, {
-        timeouts: { implement: 8 },
+        timeouts: { implement: 35 },
       });
       const conductor = new Conductor(deps);
       await putTicket('SR-P1', 'in-progress');
       await putTicket('SR-P2', 'in-progress');
       track('SR-P1', 'SR-P2');
       await conductor.start();
+      await queueImplement(deps, 'SR-P1');
+      await queueImplement(deps, 'SR-P2');
 
-      // --- pause/resume: SR-P1 finishes after a mid-run freeze ---
-      await tickUntil(
-        conductor,
-        async () =>
-          (await runsFor('SR-P1')).some((r) => r.status === 'running'),
-        'SR-P1 running',
-      );
-      const p1 = (await runsFor('SR-P1')).find(
-        (r) => r.status === 'running',
-      ) as RunRow;
-      await conductor.control(p1.id, 'pause');
-      expect((await docker.inspect(p1.container_id as string))?.paused).toBe(
-        true,
-      );
-      expect((await getRun(p1.id))?.status).toBe('paused');
-
-      // Work frozen — the agent emits heartbeat lines ~10Hz live, so a
-      // flat log size across 600ms is a real cgroup freeze, not a quiet
-      // process.
-      const p1Log = join(p1.run_dir as string, 'run.log');
-      const frozenSize = statSync(p1Log).size;
-      await sleep(600);
-      expect(statSync(p1Log).size).toBe(frozenSize);
-
-      await conductor.control(p1.id, 'resume');
-      expect(
-        (await docker.inspect(p1.container_id as string))?.paused,
-      ).toBe(false);
-      await tickUntil(
-        conductor,
-        async () => (await getRun(p1.id))?.status === 'done',
-        'SR-P1 done',
-      );
-      expect((await getRun(p1.id))?.sentinel).toBe('DONE');
-
-      // --- timeout keeps ticking while paused: SR-P2 hangs, gets
-      //     paused, outlives its deadline frozen, and is killed as soon
-      //     as the resumed run is swept (the deadline is absolute —
-      //     pause did not defer it). ---
+      // --- arm SR-P2's pause FIRST: a paused run skips the timeout
+      //     sweep entirely, so freezing it early keeps attempt 1 alive
+      //      through the whole P1 section (no early-kill churn). Its
+      //     20s clock keeps counting while frozen — by resume time the
+      //     deadline is already past. ---
       await tickUntil(
         conductor,
         async () =>
@@ -1495,21 +1554,107 @@ describe.skipIf(!DOCKER_OK)('wp-098 container e2e (real docker)', () => {
       const p2 = (await runsFor('SR-P2')).find(
         (r) => r.status === 'running',
       ) as RunRow;
-      await conductor.control(p2.id, 'pause');
-      expect((await docker.inspect(p2.container_id as string))?.paused).toBe(
-        true,
+      // Wait until the exec'd agent is alive inside the container —
+      // `running` means the exec CLIENT spawned, but the daemon-side
+      // session can still be in flight; pausing in that window makes
+      // docker reject the exec ('cannot exec in a paused state', 126)
+      // and the run fails instead of being timeout-killed.
+      const p2Log = join(p2.run_dir as string, 'run.log');
+      await tickUntil(
+        conductor,
+        () =>
+          existsSync(p2Log) &&
+          readFileSync(p2Log, 'utf8').includes('MOCK scenario='),
+        'SR-P2 agent exec established',
       );
-      // Past the 8s implement timeout while frozen.
-      await sleep(9_000);
+      // Bounded poll for the cgroup state — `docker pause` already ran
+      // inside control(), but under suite load a single `inspect` can
+      // transiently report "No such container" while the daemon
+      // reconciles state. Polls until the deadline; fails loudly with
+      // the run row if the container is genuinely gone.
+      const awaitPaused = async (
+        cid: string,
+        want: boolean,
+        run: RunRow,
+      ): Promise<void> => {
+        let info: DockerContainerInfo | null = null;
+        const deadline = Date.now() + 15_000;
+        while (Date.now() < deadline) {
+          info = await docker.inspect(cid).catch(() => null);
+          if (info !== null && info.paused === want) return;
+          await sleep(100);
+        }
+        expect(
+          info?.paused,
+          `container ${cid} paused=${want}; run=${JSON.stringify({ id: run.id, status: run.status, backend: run.backend, container_id: run.container_id })}`,
+        ).toBe(want);
+      };
+
+      await conductor.control(p2.id, 'pause');
+      await awaitPaused(p2.container_id as string, true, p2);
+
+      // --- pause/resume: SR-P1 finishes after a mid-run freeze ---
+      await tickUntil(
+        conductor,
+        async () =>
+          (await runsFor('SR-P1')).some(
+            (r) => r.status === 'running' && r.container_id !== null,
+          ),
+        'SR-P1 running in container',
+      );
+      const p1 = (await runsFor('SR-P1')).find(
+        (r) => r.status === 'running' && r.container_id !== null,
+      ) as RunRow;
+      // Same exec-establishment race as P2 — wait for the agent's
+      // banner line before pausing.
+      const p1Log = join(p1.run_dir as string, 'run.log');
+      await tickUntil(
+        conductor,
+        () =>
+          existsSync(p1Log) &&
+          readFileSync(p1Log, 'utf8').includes('MOCK scenario='),
+        'SR-P1 agent exec established',
+      );
+      await conductor.control(p1.id, 'pause');
+      await awaitPaused(p1.container_id as string, true, p1);
+      expect((await getRun(p1.id))?.status).toBe('paused');
+
+      // Work frozen — the agent emits heartbeat lines ~10Hz live, so a
+      // flat log size across 600ms is a real cgroup freeze, not a quiet
+      // process. Settle 300ms first: the host-side exec client can
+      // still flush bytes the agent wrote just before the freeze.
+      await sleep(300);
+      const frozenSize = statSync(p1Log).size;
+      await sleep(600);
+      expect(statSync(p1Log).size).toBe(frozenSize);
+
+      await conductor.control(p1.id, 'resume');
+      await awaitPaused(p1.container_id as string, false, p1);
+      // Release the run — the agent sees the file via the bind mount
+      // and emits DONE.
+      writeFileSync(join(p1.worktree as string, '.release-p1'), 'go');
+      await tickUntil(
+        conductor,
+        async () => (await getRun(p1.id))?.status === 'done',
+        'SR-P1 done',
+      );
+      expect((await getRun(p1.id))?.sentinel).toBe('DONE');
+
+      // --- timeout keeps ticking while paused: SR-P2's deadline is
+      //     absolute from started_at — most of its elapsed ran out
+      //     frozen. On resume the sweep kills it at that deadline;
+      //     pause did not defer the clock. ---
       await conductor.control(p2.id, 'resume');
       await tickUntil(
         conductor,
         async () => (await getRun(p2.id))?.status === 'killed',
         'SR-P2 killed after resume',
       );
-      expect(
-        (await docker.inspect(p2.container_id as string))?.running,
-      ).toBe(false);
+      // The timeout kill issued `docker kill` against the subject —
+      // inspecting `running` here races the same-tick retry ensure
+      // (reconcile kills → claim launches attempt 2 → `docker start`
+      // revives the shared container before the assert can run).
+      expect(adapter.kills).toContain(p2.container_id);
       expect(await ticketStatus('SR-P2')).toBe('in-progress'); // stays for retry
       const events = (
         await store.listEvents({ workspace: WS, ticket_id: 'SR-P2' })
@@ -1608,6 +1753,7 @@ describe.skipIf(!DOCKER_OK)('wp-098 container e2e (real docker)', () => {
       await putTicket('SR-M1', 'in-progress', ['code-repo', 'code-repo-2']);
       track('SR-M1');
       await conductor.start();
+      await queueImplement(deps, 'SR-M1');
 
       await tickUntil(
         conductor,
@@ -1674,6 +1820,7 @@ describe.skipIf(!DOCKER_OK)('wp-098 container e2e (real docker)', () => {
       await putTicket('SR-MG1', 'in-progress', ['code-repo']);
       track('SR-MG1');
       await conductor.start();
+      await queueImplement(deps, 'SR-MG1');
 
       await tickUntil(
         conductor,
@@ -1703,9 +1850,7 @@ describe.skipIf(!DOCKER_OK)('wp-098 container e2e (real docker)', () => {
       expect(await docker.inspect(id1)).toBeNull(); // old container rm'd
       const grown = await docker.inspect(id2);
       expect(grown?.running).toBe(true);
-      expect(
-        grown?.mounts.filter((m) => m.type === 'bind'),
-      ).toHaveLength(2);
+      expect(grown?.mounts.filter((m) => m.type === 'bind')).toHaveLength(2);
       await tickUntil(
         conductor,
         async () => (await getRun(fixId as string))?.status === 'done',

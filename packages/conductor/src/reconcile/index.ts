@@ -41,7 +41,7 @@ import {
 } from '../envops/index.js';
 import { gateForStatus } from '../gates/index.js';
 import { blockTicketForCap } from '../launch/caps-action.js';
-import { queuePendingRun } from '../launch/index.js';
+import { type LaunchContext, queuePendingRun } from '../launch/index.js';
 import { RUNNER_RESULT_FILE } from '../launch/runner.js';
 import { capExceeded } from '../loop/caps.js';
 import {
@@ -838,7 +838,17 @@ async function surfaceRepair(
 /** Missing/unparseable sentinel → `run_failed` (conductor-owned;
  *  CONDUCTOR "Run lifecycle") → retry ladder → ticket `failed` when
  *  the ladder is exhausted. */
-async function applyRetryLadder(ctx: ReconcileCtx, run: RunRow): Promise<void> {
+/**
+ * Re-enter a dead run into the retry ladder (CONDUCTOR "Retry
+ * ladder": killed/failed = transient → same-config retry → escalation
+ * → ticket `failed`). ReconcileCtx satisfies LaunchContext; control's
+ * manual-kill path calls this with a minimal context so a
+ * `control('kill')` requeues exactly like the timeout kill does.
+ */
+export async function applyRetryLadder(
+  ctx: LaunchContext,
+  run: RunRow,
+): Promise<void> {
   const { deps, ws } = ctx;
   const all = await deps.store.listRuns({
     workspace: ws.name,
@@ -950,7 +960,7 @@ async function applyRetryLadder(ctx: ReconcileCtx, run: RunRow): Promise<void> {
  * without rewriting the finished run row to `killed`.
  */
 async function blockTerminalRunTicket(
-  ctx: ReconcileCtx,
+  ctx: LaunchContext,
   run: RunRow,
   cap: import('../loop/caps.js').CapKind,
 ): Promise<void> {

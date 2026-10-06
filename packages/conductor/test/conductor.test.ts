@@ -274,18 +274,20 @@ describe('conductor tick loop (wp-030)', () => {
     expect(run.status).toBe('running');
 
     // No log/artifact progress (heartbeat noise disabled) + stall
-    // budget 200ms → stalled.
+    // budget 200ms → stalled. Generous waitFor budget — each tick is
+    // seconds under full-suite load, so the default 10s can lapse
+    // after only a handful of ticks.
     await sleep(300);
     await waitFor(async () => {
       await conductor.tick();
       return (await store.getRun(run.id))?.status === 'stalled';
-    });
+    }, 60_000);
 
     // Timeout 1s → kill + run_killed; the ticket stays for retry.
     await waitFor(async () => {
       await conductor.tick();
       return (await store.getRun(run.id))?.status === 'killed';
-    });
+    }, 60_000);
     const events = await store.listEvents({ workspace: WS });
     expect(events.map((e) => e.event)).toContain('run_killed');
     const notes = await store.listNotifications({ workspace: WS });

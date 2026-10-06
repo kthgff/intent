@@ -439,6 +439,11 @@ export interface ContainerRuntimeDeps {
   dockerfile?: string | null;
   /** Keepalive command override (tests with non-coreutils images). */
   command?: string[];
+  /** Workspace names this conductor owns. When set, the orphan sweep
+   *  only evaluates managed containers whose `veto/subject` label
+   *  resolves to one of them — a conductor must never reap another
+   *  workspace's containers on a shared daemon. */
+  workspaces?: string[];
   now?: () => Date;
 }
 
@@ -765,7 +770,9 @@ export interface SweepResult {
  * every `veto/managed=true` container and `docker rm` it when there is
  * no live `containers` row, the row points at a different container id,
  * or the subject is terminal/deleted. Unmanaged containers (no label)
- * are never listed and never touched.
+ * are never listed and never touched. When `deps.workspaces` is set,
+ * managed containers labeled for a workspace outside the set are
+ * skipped entirely — each conductor owns only its own workspaces.
  */
 export async function sweepOrphanedContainers(
   deps: ContainerRuntimeDeps,
@@ -787,6 +794,13 @@ export async function sweepOrphanedContainers(
         workspace: who.slice(0, slash),
         subject: who.slice(slash + 1),
       };
+      if (
+        deps.workspaces !== undefined &&
+        !deps.workspaces.includes(key.workspace)
+      ) {
+        // Another conductor's container — never ours to judge.
+        continue;
+      }
       row = await deps.store.getContainer(key);
       orphan =
         row === null ||
