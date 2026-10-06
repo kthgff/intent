@@ -10,6 +10,9 @@
  */
 import type { ContainerState } from './enums.js';
 import type {
+  AlignmentFindingDecisionRow,
+  AlignmentFindingRow,
+  AlignmentRunRow,
   AssumptionRow,
   BoardItem,
   BoardRow,
@@ -1081,6 +1084,100 @@ export interface Store {
     task?: string;
     suite_version?: string;
   }): Promise<RetrievalEvaluationRow[]>;
+
+  // =====================================================================
+  // Continuous alignment (SCHEMAS §18, INTELLIGENCE §5, D37 Phase B,
+  // wp-112). Runs are durable + deduplicated: an `on-merge` run keyed
+  // by (workspace, scope, trigger_sha) collides on the unique index and
+  // returns `existing` — duplicate merge events can never fork history.
+  // Finding `status` changes ONLY through `decideAlignmentFinding`
+  // (OCC + append-only audit); a comparison re-run may refresh
+  // evidence/confidence/freshness but never reopens a settled finding.
+  // =====================================================================
+
+  /**
+   * Insert a comparison run. Returns `created` when the row landed,
+   * `existing` (+ the row) when the (workspace, scope, trigger_sha)
+   * dedupe key already has one — the caller reuses that run_id.
+   */
+  insertAlignmentRun(row: AlignmentRunRow): Promise<{
+    state: 'created' | 'existing';
+    run: AlignmentRunRow;
+  }>;
+  getAlignmentRun(key: {
+    workspace: string;
+    run_id: string;
+  }): Promise<AlignmentRunRow | null>;
+  /** Most recent first; filter by scope/status/trigger. */
+  listAlignmentRuns(filter?: {
+    workspace?: string;
+    scope?: string;
+    status?: string;
+    trigger?: string;
+  }): Promise<AlignmentRunRow[]>;
+  /** Finish a run: status + the validated artifact + finding count +
+   *  usage totals. */
+  updateAlignmentRun(
+    key: { workspace: string; run_id: string },
+    patch: Partial<
+      Pick<
+        AlignmentRunRow,
+        | 'status'
+        | 'finding_count'
+        | 'artifact'
+        | 'index_heads'
+        | 'tokens_in'
+        | 'tokens_out'
+        | 'cost_usd'
+        | 'finished_at'
+      >
+    >,
+  ): Promise<void>;
+
+  /**
+   * Persist a finding from a comparison run. `ON CONFLICT` refreshes
+   * the mutable evidence fields (claim/confidence/evidence/freshness/
+   * next-check/run_id) but NEVER touches `status` — a dismissed or
+   * verified finding stays settled across re-runs (original preserved).
+   */
+  upsertAlignmentFinding(row: AlignmentFindingRow): Promise<void>;
+  getAlignmentFinding(key: {
+    workspace: string;
+    id: string;
+  }): Promise<AlignmentFindingRow | null>;
+  listAlignmentFindings(filter?: {
+    workspace?: string;
+    scope?: string;
+    run_id?: string;
+    kind?: string;
+    status?: string;
+  }): Promise<AlignmentFindingRow[]>;
+  /**
+   * Atomic optimistic-concurrency status transition for a human
+   * inspect/dismiss/verify/resolve decision — same contract as
+   * `decideRelation`: `updated` | `noop` (already at target) |
+   * `conflict` (stale `expected` → HTTP 409) | `missing` (404).
+   */
+  decideAlignmentFinding(
+    key: { workspace: string; id: string },
+    expected: AlignmentFindingRow['status'] | null,
+    next: NonNullable<AlignmentFindingRow['status']>,
+    at: string,
+  ): Promise<
+    | { state: 'updated'; prior: AlignmentFindingRow['status'] }
+    | { state: 'noop' }
+    | { state: 'conflict'; current: AlignmentFindingRow['status'] }
+    | { state: 'missing' }
+  >;
+  /** Append-only audit row for a decision (seq allocated by the
+   *  caller inside the same transaction). */
+  appendAlignmentFindingDecision(
+    row: AlignmentFindingDecisionRow,
+  ): Promise<void>;
+  listAlignmentFindingDecisions(filter: {
+    workspace: string;
+    finding_id: string;
+  }): Promise<AlignmentFindingDecisionRow[]>;
   // ---- test-environment requests (PRD §15.10, wp-157) ----
 
   /** `TE-NNNN` allocator — same transactional seq-bump as tickets. */

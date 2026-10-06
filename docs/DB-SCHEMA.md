@@ -294,6 +294,39 @@ retrieval_evaluations(
   index_heads TEXT, metrics TEXT,              -- json; includes ACL violations
   created_at TEXT);
 
+-- --- continuous alignment (Phase B, D37; wp-112, migration 0007) ---
+alignment_runs(                              -- one comparison execution;
+  workspace TEXT, run_id TEXT,               -- `artifact` is the durable
+  scope TEXT,                                -- SR-…|F-…|I-…|release:<id>
+  trigger TEXT,                              -- manual|on-merge
+  trigger_sha TEXT,                          -- merged head (dedupe key):
+                                             -- UNIQUE(workspace, scope,
+                                             --   trigger_sha) WHERE
+                                             --   trigger='on-merge'
+  index_heads TEXT,                          -- json [{repo, commit_sha}]
+  status TEXT,                               -- running|done|failed
+  finding_count INT, artifact TEXT,          -- alignment-findings.json
+  tokens_in BIGINT, tokens_out BIGINT, cost_usd REAL,
+  created_at TEXT, finished_at TEXT,
+  PRIMARY KEY(workspace, run_id));
+alignment_findings(                          -- SCHEMAS §18 rows; status
+  workspace TEXT, id TEXT,                   -- aln_<hash> (deterministic
+  run_id TEXT, scope TEXT,                   --   per scope+kind+anchor)
+  kind TEXT, severity TEXT, claim TEXT,
+  confidence REAL, evidence_refs TEXT,       -- json array, >=1
+  disconfirming_refs TEXT,                   -- json array
+  freshness TEXT, suggested_next_check TEXT,
+  status TEXT,                               -- open|dismissed|verified|
+                                             -- resolved — OCC decide only;
+                                             -- upserts never touch it
+  created_at TEXT, updated_at TEXT,
+  PRIMARY KEY(workspace, id));
+alignment_finding_decisions(                 -- append-only human-decision
+  workspace TEXT, finding_id TEXT, seq INT,  -- audit (finding_resolutions
+  status TEXT, actor TEXT, rationale TEXT,   -- parity)
+  at TEXT,
+  PRIMARY KEY(workspace, finding_id, seq));
+
 -- --- production intelligence (Phase C, D37) ---
 telemetry_sources(
   id TEXT PRIMARY KEY, workspace TEXT,

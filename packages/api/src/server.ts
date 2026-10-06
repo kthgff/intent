@@ -76,6 +76,7 @@ import Fastify, {
 } from 'fastify';
 import YAML from 'yaml';
 import { z } from 'zod';
+import { registerAlignmentRoutes } from './alignment.js';
 import { registerBoardRoutes } from './board.js';
 import { registerDesignRoutes } from './design.js';
 import {
@@ -3327,6 +3328,22 @@ export function createServer(opts: ServerOptions): ApiServer {
     notify: (e) =>
       conductor.deps.notify?.({
         type: 'link_decided',
+        payload: e.payload,
+      }),
+  });
+
+  // /alignment, /feedback/clusters — wp-112 continuous alignment (D37
+  // Phase B): durable alignment-findings.json, OCC human decisions,
+  // release-readiness narrative (advisory — never overrides gates).
+  registerAlignmentRoutes(app, {
+    store,
+    config,
+    actor,
+    workspaceRoot: (name) =>
+      conductor.deps.workspaces.find((w) => w.name === name)?.rootPath,
+    notify: (e) =>
+      conductor.deps.notify?.({
+        type: 'alignment_status',
         payload: e.payload,
       }),
   });

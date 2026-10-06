@@ -69,7 +69,14 @@ export interface StreamEvent {
     | 'changeset'
     /** Traceability-link verify/reject landed (wp-111 — mirrors the
      *  link_verified/link_rejected events row; payload is the edge). */
-    | 'link_decided';
+    | 'link_decided'
+    /** Continuous-alignment run progress (wp-112 — the `alignment_status`
+     *  row in the API.md event table; the artifact stays durable on the
+     *  alignment_runs row). */
+    | 'alignment_status'
+    /** Feedback-cluster proposals emitted (wp-112 — proposals only,
+     *  never auto-created work). */
+    | 'feedback_clustered';
   payload: unknown;
 }
 

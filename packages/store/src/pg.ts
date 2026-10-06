@@ -20,6 +20,9 @@ import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type {
+  AlignmentFindingDecisionRow,
+  AlignmentFindingRow,
+  AlignmentRunRow,
   AssumptionRow,
   BoardItem,
   BoardRow,
@@ -4218,6 +4221,267 @@ export class PostgresStore implements Store {
     );
     return rows.map(rowToRetrievalEvaluation);
   }
+
+  // ---- continuous alignment (SCHEMAS §18, wp-112) ----
+
+  async insertAlignmentRun(row: AlignmentRunRow) {
+    // Dedupe: an on-merge run keyed by (workspace, scope, trigger_sha)
+    // hits the partial unique index → DO NOTHING → reuse the existing
+    // run (duplicate merge events can't fork history, wp-112 AC).
+    const rows = await this.db.query(
+      `INSERT INTO alignment_runs (workspace, run_id, scope, trigger,
+         trigger_sha, index_heads, status, finding_count, artifact,
+         tokens_in, tokens_out, cost_usd, created_at, finished_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+       ON CONFLICT DO NOTHING
+       RETURNING run_id`,
+      [
+        row.workspace,
+        row.run_id,
+        row.scope,
+        row.trigger,
+        row.trigger_sha ?? null,
+        j(row.index_heads ?? []),
+        row.status,
+        row.finding_count ?? 0,
+        row.artifact ?? null,
+        row.tokens_in ?? null,
+        row.tokens_out ?? null,
+        row.cost_usd ?? null,
+        row.created_at,
+        row.finished_at ?? null,
+      ],
+    );
+    if (rows.length > 0) return { state: 'created' as const, run: row };
+    const existing = await this.getAlignmentRun({
+      workspace: row.workspace,
+      run_id: row.run_id,
+    });
+    if (existing) return { state: 'existing' as const, run: existing };
+    // Collision on the dedupe key with a different run_id — return the
+    // canonical row for (scope, trigger_sha).
+    const dup = await this.db.query(
+      `SELECT * FROM alignment_runs
+       WHERE workspace=$1 AND scope=$2 AND trigger_sha IS NOT DISTINCT FROM $3
+       ORDER BY created_at DESC LIMIT 1`,
+      [row.workspace, row.scope, row.trigger_sha ?? null],
+    );
+    if (!dup[0]) {
+      throw new Error(
+        `alignment run ${row.run_id} insert collided but no existing row found`,
+      );
+    }
+    return { state: 'existing' as const, run: rowToAlignmentRun(dup[0]) };
+  }
+
+  async getAlignmentRun(key: {
+    workspace: string;
+    run_id: string;
+  }): Promise<AlignmentRunRow | null> {
+    const rows = await this.db.query(
+      'SELECT * FROM alignment_runs WHERE workspace=$1 AND run_id=$2',
+      [key.workspace, key.run_id],
+    );
+    return rows[0] ? rowToAlignmentRun(rows[0]) : null;
+  }
+
+  async listAlignmentRuns(
+    filter: {
+      workspace?: string;
+      scope?: string;
+      status?: string;
+      trigger?: string;
+    } = {},
+  ): Promise<AlignmentRunRow[]> {
+    const { where, args } = pgWhere({
+      workspace: filter.workspace,
+      scope: filter.scope,
+      status: filter.status,
+      trigger: filter.trigger,
+    });
+    const rows = await this.db.query(
+      `SELECT * FROM alignment_runs ${where} ORDER BY created_at DESC`,
+      args,
+    );
+    return rows.map(rowToAlignmentRun);
+  }
+
+  async updateAlignmentRun(
+    key: { workspace: string; run_id: string },
+    patch: Partial<
+      Pick<
+        AlignmentRunRow,
+        | 'status'
+        | 'finding_count'
+        | 'artifact'
+        | 'index_heads'
+        | 'tokens_in'
+        | 'tokens_out'
+        | 'cost_usd'
+        | 'finished_at'
+      >
+    >,
+  ): Promise<void> {
+    const sets: string[] = [];
+    const args: unknown[] = [];
+    const push = (col: string, v: unknown) => {
+      args.push(v);
+      sets.push(`${col}=$${args.length}`);
+    };
+    if (patch.status !== undefined) push('status', patch.status);
+    if (patch.finding_count !== undefined)
+      push('finding_count', patch.finding_count);
+    if (patch.artifact !== undefined) push('artifact', patch.artifact);
+    if (patch.index_heads !== undefined)
+      push('index_heads', j(patch.index_heads));
+    if (patch.tokens_in !== undefined) push('tokens_in', patch.tokens_in);
+    if (patch.tokens_out !== undefined) push('tokens_out', patch.tokens_out);
+    if (patch.cost_usd !== undefined) push('cost_usd', patch.cost_usd);
+    if (patch.finished_at !== undefined) push('finished_at', patch.finished_at);
+    if (sets.length === 0) return;
+    args.push(key.workspace, key.run_id);
+    await this.db.query(
+      `UPDATE alignment_runs SET ${sets.join(', ')}
+       WHERE workspace=$${args.length - 1} AND run_id=$${args.length}`,
+      args,
+    );
+  }
+
+  async upsertAlignmentFinding(row: AlignmentFindingRow): Promise<void> {
+    // `status` is deliberately NOT in the UPDATE set — a re-run
+    // refreshes the hypothesis but never reopens a settled finding
+    // (wp-112 DoD "preserve original findings").
+    await this.db.query(
+      `INSERT INTO alignment_findings (workspace, id, run_id, scope,
+         kind, severity, claim, confidence, evidence_refs,
+         disconfirming_refs, freshness, suggested_next_check, status,
+         created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+       ON CONFLICT (workspace, id) DO UPDATE SET
+         run_id=$3, claim=$7, confidence=$8, evidence_refs=$9,
+         disconfirming_refs=$10, freshness=$11,
+         suggested_next_check=$12, updated_at=$15`,
+      [
+        row.workspace,
+        row.id,
+        row.run_id,
+        row.scope,
+        row.kind,
+        row.severity,
+        row.claim,
+        row.confidence,
+        j(row.evidence_refs),
+        j(row.disconfirming_refs ?? []),
+        row.freshness,
+        row.suggested_next_check,
+        row.status ?? 'open',
+        row.created_at,
+        row.updated_at,
+      ],
+    );
+  }
+
+  async getAlignmentFinding(key: {
+    workspace: string;
+    id: string;
+  }): Promise<AlignmentFindingRow | null> {
+    const rows = await this.db.query(
+      'SELECT * FROM alignment_findings WHERE workspace=$1 AND id=$2',
+      [key.workspace, key.id],
+    );
+    return rows[0] ? rowToAlignmentFinding(rows[0]) : null;
+  }
+
+  async listAlignmentFindings(
+    filter: {
+      workspace?: string;
+      scope?: string;
+      run_id?: string;
+      kind?: string;
+      status?: string;
+    } = {},
+  ): Promise<AlignmentFindingRow[]> {
+    const { where, args } = pgWhere({
+      workspace: filter.workspace,
+      scope: filter.scope,
+      run_id: filter.run_id,
+      kind: filter.kind,
+      status: filter.status,
+    });
+    const rows = await this.db.query(
+      `SELECT * FROM alignment_findings ${where} ORDER BY id`,
+      args,
+    );
+    return rows.map(rowToAlignmentFinding);
+  }
+
+  async decideAlignmentFinding(
+    key: { workspace: string; id: string },
+    expected: AlignmentFindingRow['status'],
+    next: NonNullable<AlignmentFindingRow['status']>,
+    at: string,
+  ) {
+    // Same OCC contract as decideRelation — the expected state rides
+    // in the WHERE clause; a contested write loses IN the statement.
+    const rows = await this.db.query(
+      `UPDATE alignment_findings SET status=$3, updated_at=$4
+       WHERE workspace=$1 AND id=$2
+         AND status IS NOT DISTINCT FROM $5
+       RETURNING status`,
+      [key.workspace, key.id, next, at, expected ?? null],
+    );
+    if (rows.length > 0) {
+      return { state: 'updated' as const, prior: expected };
+    }
+    const cur = await this.db.query(
+      'SELECT status FROM alignment_findings WHERE workspace=$1 AND id=$2',
+      [key.workspace, key.id],
+    );
+    if (cur.length === 0) return { state: 'missing' as const };
+    const current =
+      (cur[0]?.status as AlignmentFindingRow['status']) ?? undefined;
+    if (current === next) return { state: 'noop' as const };
+    return { state: 'conflict' as const, current };
+  }
+
+  async appendAlignmentFindingDecision(
+    row: AlignmentFindingDecisionRow,
+  ): Promise<void> {
+    await this.db.query(
+      `INSERT INTO alignment_finding_decisions
+         (workspace, finding_id, seq, status, actor, rationale, at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [
+        row.workspace,
+        row.finding_id,
+        row.seq,
+        row.status,
+        row.actor,
+        row.rationale ?? null,
+        row.at,
+      ],
+    );
+  }
+
+  async listAlignmentFindingDecisions(filter: {
+    workspace: string;
+    finding_id: string;
+  }): Promise<AlignmentFindingDecisionRow[]> {
+    const rows = await this.db.query(
+      `SELECT * FROM alignment_finding_decisions
+       WHERE workspace=$1 AND finding_id=$2 ORDER BY seq`,
+      [filter.workspace, filter.finding_id],
+    );
+    return rows.map((r) => ({
+      workspace: r.workspace as string,
+      finding_id: r.finding_id as string,
+      seq: Number(r.seq),
+      status: r.status as AlignmentFindingDecisionRow['status'],
+      actor: r.actor as string,
+      rationale: (r.rationale as string | null) ?? null,
+      at: r.at as string,
+    }));
+  }
 }
 
 // ---------- shared row helpers ----------
@@ -5262,6 +5526,54 @@ function rowToCodeEdge(row: Row): CodeEdgeRow {
       row.confidence === null || row.confidence === undefined
         ? null
         : Number(row.confidence),
+  };
+}
+
+function rowToAlignmentRun(row: Row): AlignmentRunRow {
+  return {
+    workspace: row.workspace as string,
+    run_id: row.run_id as string,
+    scope: row.scope as string,
+    trigger: row.trigger as AlignmentRunRow['trigger'],
+    trigger_sha: (row.trigger_sha as string | null) ?? null,
+    index_heads: unj<AlignmentRunRow['index_heads']>(row.index_heads, []),
+    status: row.status as AlignmentRunRow['status'],
+    finding_count: Number(row.finding_count ?? 0),
+    artifact: (row.artifact as string | null) ?? null,
+    tokens_in:
+      row.tokens_in === null || row.tokens_in === undefined
+        ? null
+        : Number(row.tokens_in),
+    tokens_out:
+      row.tokens_out === null || row.tokens_out === undefined
+        ? null
+        : Number(row.tokens_out),
+    cost_usd:
+      row.cost_usd === null || row.cost_usd === undefined
+        ? null
+        : Number(row.cost_usd),
+    created_at: row.created_at as string,
+    finished_at: (row.finished_at as string | null) ?? null,
+  };
+}
+
+function rowToAlignmentFinding(row: Row): AlignmentFindingRow {
+  return {
+    workspace: row.workspace as string,
+    id: row.id as string,
+    run_id: row.run_id as string,
+    scope: row.scope as string,
+    kind: row.kind as AlignmentFindingRow['kind'],
+    severity: row.severity as AlignmentFindingRow['severity'],
+    claim: row.claim as string,
+    confidence: Number(row.confidence),
+    evidence_refs: unj<string[]>(row.evidence_refs, []),
+    disconfirming_refs: unj<string[]>(row.disconfirming_refs, []),
+    freshness: row.freshness as AlignmentFindingRow['freshness'],
+    suggested_next_check: row.suggested_next_check as string,
+    status: row.status as AlignmentFindingRow['status'],
+    created_at: row.created_at as string,
+    updated_at: row.updated_at as string,
   };
 }
 

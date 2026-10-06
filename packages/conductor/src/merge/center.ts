@@ -25,6 +25,7 @@ import type {
   TicketRepoRow,
   TicketRow,
 } from '@sprint-runner/core';
+import { runAlignment } from '../align/engine.js';
 import type { TransitionTools } from '../contracts.js';
 import { nowIso } from '../loop/deps.js';
 import { makeTransitionTools } from '../loop/tools.js';
@@ -314,6 +315,34 @@ export async function runMergeCenter(
         if (o.kind === 'merged') {
           report.merged.push(id);
           report.actions.push(`${id}/${o.repo}: merged ${o.sha ?? ''}`.trim());
+          // wp-112 on-merge alignment: deterministic comparison pinned
+          // to the merged head. Coalesced on (scope, trigger_sha) so a
+          // replayed merge event can't fork the run. Never blocks the
+          // merge — a comparison failure is a warning, not a veto.
+          if (o.sha && deps.config.intelligence.alignment === 'on-merge') {
+            try {
+              const res = await runAlignment(
+                {
+                  store,
+                  workspace: ws.name,
+                  actor: 'merge-center',
+                  now: () => deps.now?.() ?? new Date(),
+                },
+                deps.config,
+                {
+                  scope: id,
+                  trigger: 'on-merge',
+                  triggerSha: o.sha,
+                  notify: (e) => deps.notify?.(e),
+                },
+              );
+              report.actions.push(
+                `${id}: alignment ${res.created ? 'run' : 'coalesced'} ${res.run.run_id}`,
+              );
+            } catch (e) {
+              report.warnings.push(`${id}: alignment: ${(e as Error).message}`);
+            }
+          }
         } else if (o.kind === 'queued') {
           report.queued.push(id);
           report.actions.push(`${id}/${o.repo}: merge enqueued (--auto)`);

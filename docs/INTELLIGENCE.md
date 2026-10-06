@@ -174,6 +174,24 @@ findings, migration/rollback checks, required attestations) are truth; AI adds
 an evidence-backed risk narrative. The risk narrative cannot turn a failed
 gate green.
 
+As shipped (wp-112): `packages/conductor/src/align/` implements the
+deterministic comparison (`compareAlignment`/`runAlignment` — no model
+call; intended = ticket.md ACs + `ac:`/`SR-x:ac:` edges, implemented =
+`implements|documents` edges + merged `ticket_repos`, verified =
+`tests|verified-by` edges + green `test-report.json`), the OCC human
+decide path (`decideAlignmentFinding` — dismiss/verify/resolve/reopen,
+append-only audit + `alignment_finding_decided` events), the
+release-readiness narrative (`releaseReadiness` — `gate_verdict` is
+computed from the DELIVERY §4 gate checks only; the narrative carries
+`advisory_only: true` and finding refs), and workspace-scoped feedback
+clustering (`clusterFeedback` — proposals only, original refs
+preserved). API surface: `GET/POST /alignment/<scope>`,
+`POST /alignment/decide`, `GET /alignment/<scope>/readiness`,
+`POST /feedback/clusters`. `intelligence.alignment` gates the engine
+(`off|manual|on-merge`); on-merge runs coalesce on
+(workspace, scope, trigger_sha) and configured `budgets` caps are
+checked before a run.
+
 ## 6. Telemetry and incident intelligence
 
 Telemetry intelligence is a post-foundation phase. Veto integrates with an

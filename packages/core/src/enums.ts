@@ -325,6 +325,13 @@ export const EVENT_NAMES = [
    *  edge key (subject/predicate/object) + prior verification state. */
   'link_verified',
   'link_rejected',
+  /** Continuous alignment (D37 Phase B, wp-112) — a comparison run
+   *  finished and its `alignment-findings.json` is durable; a human
+   *  dismissed/verified/resolved a finding; feedback clustering
+   *  PROPOSED board/initiative work (never silently creates it). */
+  'alignment_run_completed',
+  'alignment_finding_decided',
+  'feedback_cluster_proposed',
 ] as const;
 export type EventName = (typeof EVENT_NAMES)[number];
 
@@ -1438,6 +1445,58 @@ export type CommitPolicy = (typeof COMMIT_POLICIES)[number];
  */
 export const EVIDENCE_FRESHNESS = ['current', 'stale'] as const;
 export type EvidenceFreshness = (typeof EVIDENCE_FRESHNESS)[number];
+
+// ---------- continuous alignment (SCHEMAS §18, D37 Phase B, wp-112) ----------
+
+/** The five finding kinds an alignment comparison emits (SCHEMAS §18). */
+export const ALIGNMENT_FINDING_KINDS = [
+  'missing-implementation-evidence',
+  'unverified-ac',
+  'unlinked-change',
+  'likely-drift',
+  'affected-approved-behavior',
+] as const;
+export type AlignmentFindingKind = (typeof ALIGNMENT_FINDING_KINDS)[number];
+
+/** Alignment severities — deliberately NOT the review severities
+ *  (`info` exists here; `nit`/`question` do not). */
+export const ALIGNMENT_SEVERITIES = [
+  'info',
+  'minor',
+  'major',
+  'blocker',
+] as const;
+export type AlignmentSeverity = (typeof ALIGNMENT_SEVERITIES)[number];
+
+/** Human-settled lifecycle — a finding is born `open`; the engine
+ *  NEVER writes anything but `open` (a hypothesis can't settle
+ *  itself). `verified` = a human confirmed the hypothesis is true. */
+export const ALIGNMENT_FINDING_STATUSES = [
+  'open',
+  'dismissed',
+  'verified',
+  'resolved',
+] as const;
+export type AlignmentFindingStatus =
+  (typeof ALIGNMENT_FINDING_STATUSES)[number];
+
+/** Actions a human may take on a finding (API `POST /alignment/decide`). */
+export const ALIGNMENT_FINDING_ACTIONS = [
+  'dismiss',
+  'verify',
+  'resolve',
+  'reopen',
+] as const;
+export type AlignmentFindingAction = (typeof ALIGNMENT_FINDING_ACTIONS)[number];
+
+export const ALIGNMENT_RUN_STATUSES = ['running', 'done', 'failed'] as const;
+export type AlignmentRunStatus = (typeof ALIGNMENT_RUN_STATUSES)[number];
+
+/** What kicked the comparison off — `on-merge` runs coalesce on
+ *  (workspace, scope, trigger_sha) so duplicate merge events can't
+ *  fork the run history (wp-112 AC). */
+export const ALIGNMENT_TRIGGERS = ['manual', 'on-merge'] as const;
+export type AlignmentTrigger = (typeof ALIGNMENT_TRIGGERS)[number];
 
 /**
  * RS quality-pass dimensions (INTELLIGENCE §5, wp-111). The cited AI

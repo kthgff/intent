@@ -648,6 +648,19 @@ strategy that did not contribute is absent from `scores`, not zero.
 An alignment finding cannot mutate a document, relation verification state, or
 release gate. Human action or deterministic evidence performs those changes.
 
+As shipped (wp-112, `packages/conductor/src/align/engine.ts` +
+`POST /alignment/<scope>`): the artifact is validated fail-closed by
+`AlignmentFindingsSchema` and stored durably on its `alignment_runs`
+row (`artifact` column; alignment is conductor-side compute, not a
+`runs` stage). Each finding is also persisted in `alignment_findings`
+— a re-run refreshes evidence/confidence/freshness on the deterministic
+`aln_<hash>` id but never rewrites a human-settled `status`; decisions
+are OCC-guarded (`expected`), audited in `alignment_finding_decisions`,
+and evented (`alignment_finding_decided`). `on-merge` runs coalesce on
+the (workspace, scope, trigger_sha) unique index. Finding ids anchor
+on `ac:<ticket>:<AC-n>`, `<ac>:<repo>:<sha>` for drift, or
+`change:<ticket>:<repo>:<sha>` for unlinked merges.
+
 ## 19. incident-investigation.json — production hypothesis set
 
 ```json
