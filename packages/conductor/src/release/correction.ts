@@ -17,7 +17,7 @@ import {
   type TicketSeverity,
 } from '@sprint-runner/core';
 import { isMaterialCorrection } from '@sprint-runner/lints';
-import { ReleaseError, type ReleaseCtx } from './types.js';
+import { type ReleaseCtx, ReleaseError } from './types.js';
 
 const TERMINAL = new Set<string>(TERMINAL_STATUSES);
 
@@ -104,7 +104,8 @@ export async function fileCorrection(
   const row: TicketRow = {
     workspace: ctx.workspace,
     ticket_id: id,
-    feature: args.feature === undefined ? (parent.feature ?? null) : args.feature,
+    feature:
+      args.feature === undefined ? (parent.feature ?? null) : args.feature,
     title: args.title,
     status: 'imported',
     priority: args.priority ?? parent.priority ?? 'medium',

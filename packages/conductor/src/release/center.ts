@@ -33,12 +33,9 @@ import type {
 } from '@sprint-runner/core';
 import { releaseGatesGreen, releaseManifestDigest } from '@sprint-runner/lints';
 import { applyTicketStatusTx } from '../contracts.js';
-import {
-  evaluateRelease,
-  recordReleaseGates,
-} from './gates.js';
+import { evaluateRelease, recordReleaseGates } from './gates.js';
 import { buildManifestItems, resolveManifestMembers } from './manifest.js';
-import { ReleaseError, type ReleaseCtx } from './types.js';
+import { type ReleaseCtx, ReleaseError } from './types.js';
 
 /** Statuses in which scope is editable. `released`/`closed`/`abandoned`
  *  are frozen forever. */
@@ -276,13 +273,13 @@ export async function addReleaseItem(
       ticket_id: args.itemId,
     });
     if (!ticket) {
-      throw new ReleaseError('not-found', `item ticket ${args.itemId} not found`);
+      throw new ReleaseError(
+        'not-found',
+        `item ticket ${args.itemId} not found`,
+      );
     }
   } else {
-    const feature = await ctx.store.getFeature(
-      ctx.workspace,
-      args.itemId,
-    );
+    const feature = await ctx.store.getFeature(ctx.workspace, args.itemId);
     if (!feature) {
       throw new ReleaseError(
         'not-found',

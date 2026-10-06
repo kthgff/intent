@@ -13,7 +13,7 @@ import type {
   ReleaseManifestItem,
   TicketRow,
 } from '@sprint-runner/core';
-import { ReleaseError, type ReleaseCtx } from './types.js';
+import { type ReleaseCtx, ReleaseError } from './types.js';
 
 /** Member statuses excluded from a feature's membership — the ticket
  *  will never ship, so it isn't scope and can't block. `reverted`

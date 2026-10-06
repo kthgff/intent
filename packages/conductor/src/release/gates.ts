@@ -8,15 +8,15 @@
  * recorded human override: it counts as pass only while bound to the
  * current manifest version (a re-cut invalidates it, invariant 3).
  */
-import { TERMINAL_STATUSES, type ReleaseRow } from '@sprint-runner/core';
+import { type ReleaseRow, TERMINAL_STATUSES } from '@sprint-runner/core';
 import {
-  evaluateReleaseGates,
   type ReleaseGateCheck,
   type ReleaseGateFacts,
   type ReleaseGateId,
+  evaluateReleaseGates,
 } from '@sprint-runner/lints';
 import { resolveManifestMembers } from './manifest.js';
-import { ReleaseError, type ReleaseCtx } from './types.js';
+import { type ReleaseCtx, ReleaseError } from './types.js';
 
 const TERMINAL = new Set<string>(TERMINAL_STATUSES);
 
@@ -91,7 +91,11 @@ export async function gatherReleaseGateFacts(
     ctx,
     members.map((t) => t.ticket_id),
   );
-  const waived = await waivedGates(ctx, release.release_id, manifest?.version ?? null);
+  const waived = await waivedGates(
+    ctx,
+    release.release_id,
+    manifest?.version ?? null,
+  );
   return {
     manifest: manifest
       ? {

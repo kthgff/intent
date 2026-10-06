@@ -25,6 +25,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ReleaseCtx } from '../src/release/index.js';
 import {
   ReleaseError,
+  abandonRelease,
   addReleaseItem,
   approveRelease,
   closeRelease,
@@ -36,7 +37,6 @@ import {
   markReleased,
   removeReleaseItem,
   waiveReleaseGate,
-  abandonRelease,
 } from '../src/release/index.js';
 
 const WS = 'ws';
@@ -120,7 +120,8 @@ async function seedMergedTicket(
       pr_url: `https://example.com/pr/${id}/${repo}`,
       pr_state: 'merged',
       ci_state: 'green',
-      merged_sha: opts.mergedSha === undefined ? `sha-${id}-${repo}` : opts.mergedSha,
+      merged_sha:
+        opts.mergedSha === undefined ? `sha-${id}-${repo}` : opts.mergedSha,
     };
     await store.upsertTicketRepo(row);
   }
@@ -146,9 +147,9 @@ async function getRel(id: string): Promise<ReleaseRow> {
 }
 
 async function releaseEvents(id: string): Promise<string[]> {
-  return (
-    await store.listEvents({ workspace: WS, subject: id })
-  ).map((e) => e.event);
+  return (await store.listEvents({ workspace: WS, subject: id })).map(
+    (e) => e.event,
+  );
 }
 
 beforeEach(async () => {
@@ -278,15 +279,15 @@ describe('release center — lifecycle', () => {
         itemId: 'SR-0301',
       }),
     ).rejects.toMatchObject({ code: 'bad-state' });
-    await expect(
-      freezeRelease(ctx, rel.release_id),
-    ).rejects.toMatchObject({ code: 'bad-state' });
-    await expect(
-      markReleased(ctx, rel.release_id),
-    ).rejects.toMatchObject({ code: 'bad-state' });
-    await expect(
-      abandonRelease(ctx, rel.release_id),
-    ).rejects.toMatchObject({ code: 'bad-state' });
+    await expect(freezeRelease(ctx, rel.release_id)).rejects.toMatchObject({
+      code: 'bad-state',
+    });
+    await expect(markReleased(ctx, rel.release_id)).rejects.toMatchObject({
+      code: 'bad-state',
+    });
+    await expect(abandonRelease(ctx, rel.release_id)).rejects.toMatchObject({
+      code: 'bad-state',
+    });
   });
 
   it('abandon is terminal; draft/ready/approved can abandon', async () => {
@@ -302,9 +303,9 @@ describe('release center — lifecycle', () => {
         itemId: 'SR-0999',
       }),
     ).rejects.toMatchObject({ code: 'bad-state' });
-    await expect(
-      freezeRelease(ctx, rel.release_id),
-    ).rejects.toMatchObject({ code: 'bad-state' });
+    await expect(freezeRelease(ctx, rel.release_id)).rejects.toMatchObject({
+      code: 'bad-state',
+    });
     const evs = await releaseEvents(rel.release_id);
     expect(evs).toContain('discarded');
   });
@@ -356,10 +357,7 @@ describe('release center — manifest freeze', () => {
 
     // The v1 approval stays as audit but does NOT count for v2 —
     // releasing now fails the `approved` gate.
-    const { checks } = await evaluateRelease(
-      ctx,
-      await getRel(rel.release_id),
-    );
+    const { checks } = await evaluateRelease(ctx, await getRel(rel.release_id));
     const approved = checks.find((c) => c.gate === 'approved');
     expect(approved?.verdict).toBe('fail');
     // Status is `ready`, not `approved` — markReleased stops at the
@@ -447,10 +445,10 @@ describe('release center — approvals', () => {
       }),
     ).rejects.toMatchObject({ code: 'ai-approval' });
     expect(
-      (await store.listReleaseApprovals({
+      await store.listReleaseApprovals({
         workspace: WS,
         release_id: rel.release_id,
-      })),
+      }),
     ).toHaveLength(0);
   });
 
@@ -538,10 +536,7 @@ describe('release center — partial releases (invariant 5)', () => {
       actorType: 'human',
       decision: 'approved',
     });
-    const { checks } = await evaluateRelease(
-      ctx,
-      await getRel(rel.release_id),
-    );
+    const { checks } = await evaluateRelease(ctx, await getRel(rel.release_id));
     expect(checks.find((c) => c.gate === 'partial-ac')?.verdict).toBe('pass');
   });
 });
@@ -571,13 +566,11 @@ describe('release center — merged gate (invariant 2)', () => {
     });
     expect(gates.at(-1)?.result).toBe('fail');
     expect(
-      (gates.at(-1)?.evidence as { manifest_version: number })
-        .manifest_version,
+      (gates.at(-1)?.evidence as { manifest_version: number }).manifest_version,
     ).toBe(1);
     // …and the ticket was NOT flipped.
     expect(
-      (await store.getTicket({ workspace: WS, ticket_id: 'SR-0801' }))
-        ?.status,
+      (await store.getTicket({ workspace: WS, ticket_id: 'SR-0801' }))?.status,
     ).toBe('merged');
   });
 
@@ -594,10 +587,7 @@ describe('release center — merged gate (invariant 2)', () => {
       actorType: 'human',
       decision: 'approved',
     });
-    const { checks } = await evaluateRelease(
-      ctx,
-      await getRel(rel.release_id),
-    );
+    const { checks } = await evaluateRelease(ctx, await getRel(rel.release_id));
     const merged = checks.find((c) => c.gate === 'merged');
     expect(merged?.verdict).toBe('fail');
     expect(merged?.detail).toContain('SR-0802');
