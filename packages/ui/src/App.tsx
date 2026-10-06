@@ -10,6 +10,7 @@ import CodeReview from './screens/CodeReview';
 import CreateImport from './screens/CreateImport';
 import DocReview from './screens/DocReview';
 import Escalations from './screens/Escalations';
+import FeatureWorkspace from './screens/FeatureWorkspace';
 import Home from './screens/Home';
 import Inbox from './screens/Inbox';
 import KnowledgeBase from './screens/KnowledgeBase';
@@ -96,6 +97,7 @@ function ProductionApp() {
           <Route path="/" element={<Home />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/new" element={<CreateImport />} />
+          <Route path="/features/:ws/:id" element={<FeatureWorkspace />} />
           <Route path="/tickets/:ws/:id" element={<TicketFocus />} />
           <Route path="/tickets/:ws/:id/wizard" element={<Wizard />} />
           <Route path="/tickets/:ws/:id/docs/:name" element={<DocReview />} />

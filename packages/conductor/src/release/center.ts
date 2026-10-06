@@ -286,6 +286,15 @@ export async function addReleaseItem(
         `item feature ${args.itemId} not found`,
       );
     }
+    // PRD §15.7 / wp-152: release assignment requires the human
+    // acceptance gate — `done` is reachable ONLY via explicit
+    // acceptance (features/acceptFeature), never by ticket rollup.
+    if (feature.status !== 'done') {
+      throw new ReleaseError(
+        'not-approved',
+        `item feature ${args.itemId} is '${feature.status}' — the Feature Acceptance Package must be human-accepted (POST /features/<ref>/accept) before release assignment`,
+      );
+    }
   }
 
   const existing = (

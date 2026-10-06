@@ -2,7 +2,7 @@
 schema: 1
 id: wp-152
 title: Feature Workspace — tabs, health rollup, acceptance package, scoped assistant
-status: todo
+status: done
 priority: medium
 depth: standard
 repos: []
@@ -29,10 +29,10 @@ assistant over feature-scoped evidence.
 `packages/conductor` acceptance-package assembly
 
 ## Acceptance criteria
-- [ ] All six tabs populated from live rows
-- [ ] Health shows findings with evidence links, no score
-- [ ] Acceptance gate required before release assignment
-- [ ] Feature-scoped assistant answers from its evidence only
+- [x] All six tabs populated from live rows — S-17 `/features/<ws>/<feature>`: Overview/Requirements/Design/Tickets/Quality/Release, all server-computed (`GET /api/v1/features/<ref>` rollup; `/docs/<name>`, `/acs`)
+- [x] Health shows findings with evidence links, no score — `conductor/features` `featureHealth`: 8 finding kinds, severity, `refs`; UI `FindingsList` renders refs verbatim (tested)
+- [x] Acceptance gate required before release assignment — `POST /features/<ref>/accept` (durable `doc_approved` event + `done`, only path); `addReleaseItem` throws `not-approved` on unaccepted features; merge rollup caps at `active` (D46)
+- [x] Feature-scoped assistant answers from its evidence only — `/interview` edit mode accepts `F-*` `subject_ref` (D27); chat-to-edit sessions over `feature|ac|vs|notes` doc targets
 
 ## Contract change
 None.
