@@ -86,11 +86,7 @@ export interface LaunchContext {
 const RUN_ID_SEGMENT = /^[A-Za-z0-9._:-]+$/;
 
 function assertRunIdSegment(seg: string, what: string): void {
-  if (
-    !RUN_ID_SEGMENT.test(seg) ||
-    seg.startsWith('.') ||
-    seg.includes('..')
-  ) {
+  if (!RUN_ID_SEGMENT.test(seg) || seg.startsWith('.') || seg.includes('..')) {
     throw new Error(
       `invalid run-id ${what} '${seg}' — segments must match ${RUN_ID_SEGMENT.source} and never start with '.' or contain '..'`,
     );

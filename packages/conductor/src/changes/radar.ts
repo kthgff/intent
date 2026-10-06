@@ -37,12 +37,7 @@
  * decisions and apply — clearing it IS the higher approval
  * (fail-closed: a breached set can never sail through unattended).
  */
-import type {
-  ChangesetRow,
-  RunRow,
-  ScopeBudgets,
-  Store,
-} from '@veto/core';
+import type { ChangesetRow, RunRow, ScopeBudgets, Store } from '@veto/core';
 import type { StreamEvent } from '../loop/deps.js';
 import { OPEN_CHANGESET_STATUSES } from './analysis.js';
 import type { ChangesetAnalysis } from './analysis.js';
@@ -273,13 +268,9 @@ async function subjectRadar(
     const a = cs.analysis as ChangesetAnalysis | null;
     for (const t of a?.affected_tickets ?? []) blast.add(t);
   }
-  // Workspace-scoped live-run read — `listLiveRuns(filter?:
-  // {workspace})` is the store contract; the local `r.workspace`
-  // filter stays as a belt for stores that predate the param.
-  const listLiveRuns = store.listLiveRuns.bind(store) as (filter?: {
-    workspace?: string;
-  }) => Promise<RunRow[]>;
-  const affectedExecutions = (await listLiveRuns({ workspace }))
+  // Workspace-scoped live-run read — `listLiveRuns(workspace)` is the
+  // store contract; the local `r.workspace` filter stays as a belt.
+  const affectedExecutions = (await store.listLiveRuns(workspace))
     .filter((r) => r.workspace === workspace && blast.has(r.subject))
     .map((r) => r.id)
     .sort();

@@ -270,6 +270,37 @@ export function registerReleaseRoutes(
             return id;
           };
         }
+        if (prop === 'transaction') {
+          return async <T>(fn: (s: Store) => Promise<T>): Promise<T> => {
+            // Events appended by the tx-scoped store bypass the outer
+            // proxy — buffer them and mirror only after the commit
+            // succeeds (a rolled-back event must never stream).
+            const buffered: EventRow[] = [];
+            const result = await base.transaction((txStore) => {
+              const wrapped = new Proxy(txStore, {
+                get(t, p) {
+                  if (p === 'appendEvent') {
+                    return async (e: EventRow) => {
+                      const id = await txStore.appendEvent(e);
+                      if (STREAMED_EVENTS.has(e.event)) buffered.push(e);
+                      return id;
+                    };
+                  }
+                  const v = Reflect.get(t, p);
+                  return typeof v === 'function' ? v.bind(t) : v;
+                },
+              }) as Store;
+              return fn(wrapped);
+            });
+            for (const e of buffered) {
+              deps.notify?.({
+                type: e.event as StreamEvent['type'],
+                payload: e,
+              });
+            }
+            return result;
+          };
+        }
         const v = Reflect.get(target, prop);
         return typeof v === 'function' ? v.bind(target) : v;
       },

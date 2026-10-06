@@ -100,9 +100,9 @@ export async function decideIncidentStatus(
     let resolvable = prRefs.length > 0;
     if (!resolvable && deploymentRefs.length > 0) {
       const known = new Set(
-        (
-          await ctx.store.listDeployments({ workspace: ctx.workspace })
-        ).map((d) => d.deployment_id),
+        (await ctx.store.listDeployments({ workspace: ctx.workspace })).map(
+          (d) => d.deployment_id,
+        ),
       );
       resolvable = deploymentRefs.some((r) => known.has(r));
     }

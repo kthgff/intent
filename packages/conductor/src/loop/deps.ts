@@ -299,15 +299,10 @@ export async function loadHandle(run: RunRow): Promise<RunHandle | null> {
       /* fall through to pid-only */
     }
   }
-  if (
-    (typeof run.pid === 'number' && run.pid > 0) ||
-    containerId !== null
-  ) {
+  if ((typeof run.pid === 'number' && run.pid > 0) || containerId !== null) {
     return {
       // Never emit pid:0 — pid stays unset when the row has none.
-      ...(typeof run.pid === 'number' && run.pid > 0
-        ? { pid: run.pid }
-        : {}),
+      ...(typeof run.pid === 'number' && run.pid > 0 ? { pid: run.pid } : {}),
       log_path: join(run.run_dir ?? '', 'run.log'),
       ...(containerId !== null ? { container_id: containerId } : {}),
     } as RunHandle;

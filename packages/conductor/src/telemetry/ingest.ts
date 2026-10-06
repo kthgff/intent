@@ -207,8 +207,7 @@ export async function ingestTelemetry(
           source_id: args.source_id,
           fingerprint_version: FINGERPRINT_VERSION,
           fingerprint: fp,
-          normalized_pattern:
-            first.message || first.exception_class || fp,
+          normalized_pattern: first.message || first.exception_class || fp,
           representative: representativeSample(first),
           attributes: first.attributes,
           first_seen: timestamps[0] ?? nowIso,

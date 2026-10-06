@@ -93,8 +93,7 @@ export async function recordMerged(
       subject: id,
       doc: IMPLEMENTATION_NOTE_DOC,
     });
-    const noteContent =
-      note?.content ?? `# Implementation note — ${id}\n\n`;
+    const noteContent = note?.content ?? `# Implementation note — ${id}\n\n`;
     const alreadyNoted = noteContent.includes(marker);
     const nextNote = alreadyNoted
       ? noteContent

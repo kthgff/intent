@@ -206,6 +206,30 @@ describe('incident investigate + decide', () => {
     });
     expect(bare.statusCode).toBe(400);
 
+    // Seed a real deployment — resolve evidence must resolve against
+    // real rows, never a bare id (wp-120 fail-closed hardening).
+    await store.upsertRelease({
+      workspace: WS,
+      release_id: 'REL-0001',
+      title: 'train',
+      status: 'released',
+      target: null,
+      created_by: 'ops',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+    await store.insertDeployment({
+      workspace: WS,
+      deployment_id: 'dep_1',
+      release_id: 'REL-0001',
+      environment: 'prod',
+      sha: 'd'.repeat(40),
+      evidence: { type: 'manual', by: 'ops', note: 'shipped' },
+      confirmed_by: 'ops',
+      confirmed_at: new Date().toISOString(),
+      created_at: new Date().toISOString(),
+    });
+
     const ok = await app.inject({
       method: 'POST',
       url: '/api/v1/incidents/decide',
