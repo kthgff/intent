@@ -29,7 +29,16 @@ export type ReleaseErrorCode =
   /** An agent tried to approve (invariant 6). */
   | 'ai-approval'
   /** `markReleased` with a failing release gate. */
-  | 'gate-failed';
+  | 'gate-failed'
+  /** Deployment evidence absent, non-manual, or missing a required
+   *  field (DELIVERY invariant 4 — MVP is manual-only). */
+  | 'invalid-evidence'
+  /** `feature_exposure` state `available` without a linked, confirmed
+   *  deployment carrying the feature (DELIVERY invariant 4). */
+  | 'no-deployment'
+  /** Publish/approve step attempted before its prerequisite — e.g.
+   *  `published_at` without a human-approved doc version. */
+  | 'not-approved';
 
 /** Fail-closed lifecycle error — thrown, never logged-and-continued. */
 export class ReleaseError extends Error {

@@ -54,6 +54,7 @@ import {
   stageTimeout,
 } from '../loop/deps.js';
 import type { LeaseManager } from '../loop/lease.js';
+import { buildReleaseBundle } from '../release/index.js';
 import {
   gitHead,
   pinnedBaselineOf,
@@ -379,6 +380,22 @@ async function buildTokens(
     const path = resolveRepoPath(ctx.deps, ws, repo);
     tokens.REPO_PATH = path;
     tokens.CARD_PATH = join(path, '.sprint-runner', 'card.json');
+  }
+  if (req.stage === 'retro' || req.stage === 'release-notes') {
+    // wp-135: RELEASE_MD is the frozen manifest + delivery/outcome
+    // evidence bundle for the release subject (DELIVERY §5/§7). A
+    // missing release fails closed at launch — the bundle is never a
+    // silent empty string.
+    tokens.RELEASE_MD = await buildReleaseBundle(
+      {
+        workspace: ws.name,
+        rootPath: ws.rootPath,
+        store: ctx.deps.store,
+        actor: actorOf(ctx.deps),
+        now: () => ctx.deps.now?.() ?? new Date(),
+      },
+      req.subject,
+    );
   }
   return { ...tokens, ...(req.tokens ?? {}) } as TokenValues;
 }

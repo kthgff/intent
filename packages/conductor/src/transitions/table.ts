@@ -49,6 +49,8 @@ export type ActionId =
   | 'editProposed'
   | 'editClarify'
   | 'editRefused'
+  | 'notesDrafted'
+  | 'retroDone'
   | 'toBlocked';
 
 export interface TableRow {
@@ -323,6 +325,19 @@ export const TRANSITION_TABLE: readonly TableRow[] = [
     sentinel: 'SURVEY-FAILED',
     action: 'surveyFailed',
     spec: 'survey | SURVEY-FAILED: <r> | failure inbox item',
+  },
+  // -- release-notes / retro (wp-135, DELIVERY §5/§7) --
+  {
+    stage: 'release-notes',
+    sentinel: 'DONE',
+    action: 'notesDrafted',
+    spec: 'release-notes | DONE | notes-<audience>.md drafts registered; human approves per audience',
+  },
+  {
+    stage: 'retro',
+    sentinel: 'DONE',
+    action: 'retroDone',
+    spec: 'retro | DONE | retro.md + draft board proposals → retro_completed (never commits scope)',
   },
   // -- catch-all --
   {
