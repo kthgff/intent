@@ -93,9 +93,13 @@ export async function decideIncidentStatus(
     const prRefs = (ev.pr_refs ?? []).filter(
       (r): r is string => typeof r === 'string' && r.trim() !== '',
     );
-    resolvedDeploymentRefs = deploymentRefs;
-    resolvedTicketRefs = ticketRefs;
-    resolvedPrRefs = prRefs;
+    // Only overwrite refs the evidence actually supplied — absent keys
+    // leave previously-stored refs alone (empty array = explicit clear).
+    if (ev.deployment_refs !== undefined) {
+      resolvedDeploymentRefs = deploymentRefs;
+    }
+    if (ev.ticket_refs !== undefined) resolvedTicketRefs = ticketRefs;
+    if (ev.pr_refs !== undefined) resolvedPrRefs = prRefs;
     if (deploymentRefs.length + ticketRefs.length + prRefs.length === 0) {
       throw new TelemetryServiceError(
         'invalid',

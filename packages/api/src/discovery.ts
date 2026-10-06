@@ -852,7 +852,6 @@ export function registerDiscoveryRoutes(
         `board item ${id} changed since your read (expected_updated_at ${item.updated_at}) — reload and retry`,
       );
     }
-    const ts = env.nowIso();
     // Tray → board moves route through the engine's promotion rule
     // (fail-closed when the item isn't actually in the tray); other
     // board↔board / board→tray moves update the row directly.
@@ -876,6 +875,9 @@ export function registerDiscoveryRoutes(
       base = promoted;
       fence = promoted.updated_at ?? fence;
     }
+    // Stamped after any promotion write — updated_at must not move
+    // backwards across writes.
+    const ts = env.nowIso();
     const next: BoardItem = {
       ...base,
       ...(body.board !== undefined ? { board: body.board } : {}),

@@ -224,7 +224,16 @@ export async function recordDeployment(
     const existing = (
       await ctx.store.listDeployments({ workspace: ctx.workspace })
     ).find((d) => d.deployment_id === row.deployment_id);
-    if (existing) return existing;
+    if (!existing) {
+      // Conflict target == find filter — a miss can only mean a
+      // concurrent delete; fail closed rather than claim a row that
+      // was never persisted.
+      throw new ReleaseError(
+        'bad-state',
+        `deployment ${row.deployment_id} exists but is unreadable`,
+      );
+    }
+    return existing;
   }
   return row;
 }

@@ -294,8 +294,20 @@ export function registerReleaseRoutes(
                   if (p === 'transaction') {
                     return async <T2>(
                       fn2: (s2: Store) => Promise<T2>,
-                    ): Promise<T2> =>
-                      s.transaction((inner) => fn2(wrapTx(inner)));
+                    ): Promise<T2> => {
+                      // A nested tx is a SAVEPOINT — if it rolls back
+                      // while the outer tx commits, its events must drop
+                      // from the buffer too.
+                      const mark = buffered.length;
+                      try {
+                        return await s.transaction((inner) =>
+                          fn2(wrapTx(inner)),
+                        );
+                      } catch (e) {
+                        buffered.length = mark;
+                        throw e;
+                      }
+                    };
                   }
                   const v = Reflect.get(t, p);
                   return typeof v === 'function' ? v.bind(t) : v;

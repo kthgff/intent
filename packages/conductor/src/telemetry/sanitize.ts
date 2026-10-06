@@ -325,6 +325,8 @@ const REF_VALUE = /^(env:|ref:|\$\{?[A-Z][A-Z0-9_]*\}?$)/;
  *  not just secret-named keys (a `notes:` field carrying a JWT is
  *  still a secret in the DB). */
 const CREDENTIAL_VALUE =
+  // `scheme://…:x@` also matches `host:port@` shapes (port-as-password)
+  // — over-redaction is the fail-safe direction for a sanitizer.
   /eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|[a-z][a-z0-9+.-]*:\/\/[^\s/@]*:[^\s/@]+@|\b(?:sk|ghp|gho|ghu|ghs|ghr|glpat|xox[baprs])-[A-Za-z0-9_-]{8,}/i;
 
 /**

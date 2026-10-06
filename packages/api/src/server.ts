@@ -574,6 +574,15 @@ const DOC_NAME_ALIASES: Record<string, string> = {
 };
 const docNameFor = (name: string): string => DOC_NAME_ALIASES[name] ?? name;
 
+/** Route/gate doc names → the on-disk spelling events must record —
+ *  radar keys approvals by the baseline pin doc (`rs.md`/`tdd.md`/
+ *  `vs.md`), so an approval event carrying `rs` never matches. */
+const DOC_DISK_NAME: Record<string, string> = {
+  rs: 'rs.md',
+  tdd: 'tdd.md',
+  vs: 'vs.md',
+};
+
 // ---------------------------------------------------------------------------
 // createServer
 // ---------------------------------------------------------------------------
@@ -1934,10 +1943,13 @@ export function createServer(opts: ServerOptions): ApiServer {
       await emitEvent(ws, {
         ticketId: ticket,
         event: 'doc_approved',
-        // Canonical doc name — approval via the `prd`/`test` aliases must
-        // record `rs.md`/`vs.md` so doc-name consumers (scope_ref checks,
-        // radar) recognize the approval.
-        data: { doc: docNameFor(name), gate },
+        // Canonical on-disk doc name — approval via the `prd`/`test`
+        // aliases registers on `rs.md`/`vs.md`, and radar keys approvals
+        // by the baseline pin doc so `rs` must record `rs.md` too.
+        data: {
+          doc: DOC_DISK_NAME[docNameFor(name)] ?? docNameFor(name),
+          gate,
+        },
       });
       return { approved: true, gate_cleared: cleared.gate };
     },
