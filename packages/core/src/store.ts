@@ -368,6 +368,9 @@ export interface Store {
   upsertRelation(r: Relation): Promise<void>;
   listRelations(filter?: {
     subject?: string;
+    /** Ticket-scoped edge sets (wp-111): `subject = prefix OR subject
+     *  LIKE prefix || ':%'` so `SR-1` also matches `SR-1:ac:AC-2`. */
+    subject_prefix?: string;
     predicate?: string;
     object?: string;
   }): Promise<Relation[]>;

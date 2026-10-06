@@ -13,9 +13,9 @@ import type { RetrievalRequest } from '@sprint-runner/core';
 import { PostgresStore } from '@sprint-runner/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  type GoldenSuite,
   codeContentRef,
   evaluateGoldenSet,
-  type GoldenSuite,
   indexRepo,
   queryEvidence,
   resolveCodeHeads,
@@ -530,15 +530,14 @@ describe('evaluateGoldenSet — golden-set harness', () => {
     // artifact, so the fixture and the harness can never drift.
     const fixture = JSON.parse(
       readFileSync(
-        join(HERE, '../../../fixtures/eval/wp111-workflow-tasks.json'),
+        join(HERE, '../../../fixtures/kb/wp111-workflow-tasks.json'),
         'utf8',
       ),
     ) as GoldenSuite;
-    const { row, metrics, cases } = await evaluateGoldenSet(
-      store,
-      fixture,
-      { workspace: WS, authorizedRepos: ACL },
-    );
+    const { row, metrics, cases } = await evaluateGoldenSet(store, fixture, {
+      workspace: WS,
+      authorizedRepos: ACL,
+    });
 
     // Every workflow task ran under ITS task label (per-case override).
     expect(cases.map((c) => c.task)).toEqual([

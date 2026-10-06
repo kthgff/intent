@@ -46,14 +46,14 @@ payload shapes come from `SCHEMAS.md`/`DB-SCHEMA.md`.
 | `/boards`, `/initiatives`, `/features` | — | **Draft (D26/D27, FEATURES.md §7):** S-15–S-18 — idea boards, board items, scoped synthesize, entity CRUD, re-plan/re-parent, provenance amendments. Not implemented; contract TBD in the board work package |
 | `/capture` | POST | **Draft (D27):** tray/feedback ingress — creates a `board: null` board_item (kind text/feedback/link/voice); sources: CLI `veto add`, `⌘⇧C` modal, webhook/email, mobile route |
 | `/tickets/<ref>` | GET | S-05 — ticket row + latest `ticket.md` doc_version + triage artifact + family rail |
-| `/tickets/<ref>/docs/<name>` | GET | S-06 — rendered prd/tdd/test from `doc_versions` + version diffs |
+| `/tickets/<ref>/docs/<name>` | GET | S-06 — rendered rs/tdd/vs from `doc_versions` + version diffs. `<name>` is a bare doc name (`rs`, `tdd`, `vs`, `ticket`, …) or full `DOC_KINDS` kind (`rs.md`); legacy aliases `prd`/`prd.md`→`rs.md`, `test`/`test.md`→`vs.md` are accepted because stage/gate ids kept pre-rename vocabulary (wp-111) |
 | `/tickets/<ref>/events` | GET | S-05 Activity / S-11 ledger slice |
 | `/tickets/<ref>/answers` | POST | S-04 wizard answers (single or batch) → commit → re-run |
 | `/tickets/<ref>/docs/<name>/feedback` | POST | S-06 comment → `doc_feedback` → revision run |
 | `/tickets/<ref>/docs/<name>/approve` | POST | S-06 approve → `doc_approved` (+ merges mirror PR) |
 | `/tickets/<ref>/review` | GET | S-08 — latest `review.json` run_artifact for the ticket (404 when absent; 502 on corrupt JSON — fail-closed) |
 | `/tickets/<ref>/findings/<fid>/verdict` | POST | S-08 accept / dismiss / wontfix |
-| `/tickets/<ref>/actions` | POST | `go_implement` (spend checkpoint), `open_pr`, `merge`, `revert`, `send_back`, `force_ready`, `wont_do`, `handoff`, `resume`, `retry`, `approve_split` |
+| `/tickets/<ref>/actions` | POST | `go_implement` (spend checkpoint), `open_pr`, `merge`, `revert`, `send_back`, `force_ready`, `wont_do`, `handoff`, `resume`, `retry`, `approve_split`, `waive_quality` (wp-111 — human waiver of the `rs-quality` gate → `gate_overridden` event; clears the gate, never approves or mutates rs.md) |
 | `/runs`, `/runs/<id>` | GET | S-07 monitor — registry + artifact listing |
 | `/runs/<id>/kill` `/pause` `/resume` | POST | process runs: SIGTERM→SIGKILL / SIGSTOP / SIGCONT; container runs: `docker kill` / `docker pause` / `docker unpause` (D30) |
 | `/workspaces` | GET, POST | S-13 — projects (`projects` rows) + per-project queue counts; add |
@@ -64,7 +64,10 @@ payload shapes come from `SCHEMAS.md`/`DB-SCHEMA.md`.
 | `/kb/<scope>` | GET, PUT | S-14 dossier sections; PUT = human edit → `dossier_edited` |
 | `/kb/<scope>/sync` | POST | manual survey run |
 | `/evidence/search` | POST | D37 hybrid evidence lookup → `retrieval-evidence.json`; server derives authorized project/repo scope from the subject/session and rejects client attempts to widen it |
-| `/evidence/links` | GET, POST | D37 traceability graph. GET returns verified + suggested links with provenance/confidence; POST verifies/rejects a suggestion or creates an explicit human link and appends an event |
+| `/links` | GET, POST | D37 traceability graph (wp-111). GET lists edges for `?workspace=&subject=` with provenance/confidence/verification/`valid_at`; POST proposes an edge — model/tool proposals land `suggested`/`auto-verified`, never `verified` |
+| `/links/decide` | POST | D37 human verify/reject, OCC `{expected}` (the state the human saw — a racing write 409s). Idempotent + evented (`link_verified`/`link_rejected`); stale or out-of-scope evidence can never verify (wp-111) |
+| `/evidence/source` | GET | wp-111 — resolves a pinned `code:` citation to `{ref, unit, current|stale}` for navigable citations; 400 unparseable · 403 unconfigured repo · 404 missing unit |
+| `/tickets/<ref>/rs-quality` | GET | S-06 — latest `rs-quality.json` run_artifact (the cited AI quality pass; advisory findings, not a score — never approves rs.md). 404 absent · 502 corrupt (fail-closed) |
 | `/repositories/<repo>/index` | GET, POST | D37 code-index head/status; POST requests incremental index of the authorized current default-branch SHA (never accepts arbitrary filesystem paths) |
 | `/alignment/<scope>` | GET, POST | Phase B (D37): list current `alignment-findings.json`; POST requests a fresh intended/implemented/verified comparison |
 | `/telemetry/sources`, `/incidents` | — | Phase C (D37), deferred: sanitized connector administration, error-signature list, incident investigation, and human-approved draft-ticket proposal; raw telemetry is queried in its source backend, not returned by default |

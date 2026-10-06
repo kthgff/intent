@@ -29,8 +29,7 @@ const SourceQuery = z.object({
   ref: z.string().min(1),
 });
 
-const CODE_REF =
-  /^code:([A-Za-z0-9_.\-/]+):([0-9a-f]{7,40}):([^:]+):(.+)$/;
+const CODE_REF = /^code:([A-Za-z0-9_.\-/]+):([0-9a-f]{7,40}):([^:]+):(.+)$/;
 
 const SearchBody = z
   .object({
@@ -151,8 +150,7 @@ export function registerEvidenceRoutes(
       throw new ApiError(
         400,
         'bad_request',
-        `unparseable citation ref '${q.ref}' — expected ` +
-          'code:<repo>:<sha>:<path>:<symbol|L<start>-<end>>',
+        `unparseable citation ref '${q.ref}' — expected code:<repo>:<sha>:<path>:<symbol|L<start>-<end>>`,
       );
     }
     const [, repo, sha, path, tail] = m;

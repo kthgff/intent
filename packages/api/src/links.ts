@@ -25,9 +25,9 @@ import {
   RelationSchema,
 } from '@sprint-runner/core';
 import {
-  decideLink,
   type LinkAction,
   LinkError,
+  decideLink,
   proposeLink,
 } from '@sprint-runner/kb';
 import type { FastifyInstance } from 'fastify';
@@ -88,7 +88,8 @@ export function registerLinkRoutes(
   app.get('/api/v1/links', async (req) => {
     const q = ListQuery.parse(req.query ?? {});
     const relations = await deps.store.listRelations({
-      subject: q.subject,
+      // Ticket-scoped read: `SR-1` also returns `SR-1:ac:*` edges.
+      subject_prefix: q.subject,
       ...(q.predicate ? { predicate: q.predicate } : {}),
       ...(q.object ? { object: q.object } : {}),
     });

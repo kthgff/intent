@@ -117,10 +117,7 @@ async function suggest(
   return res;
 }
 
-function decide(
-  app: ApiServer,
-  body: Record<string, unknown>,
-) {
+function decide(app: ApiServer, body: Record<string, unknown>) {
   return app.inject({
     method: 'POST',
     url: '/api/v1/links/decide',
@@ -136,7 +133,7 @@ beforeEach(async () => {
   execFileSync('git', ['init', '-qb', 'main'], { cwd: repoDir });
   execFileSync('git', ['config', 'user.name', 'test'], { cwd: repoDir });
   execFileSync('git', ['config', 'user.email', 't@t'], { cwd: repoDir });
-  writeFileSync(repoDir + '/a.ts', 'export const a = 1;\n');
+  writeFileSync(`${repoDir}/a.ts`, 'export const a = 1;\n');
   execFileSync('git', ['add', '-A'], { cwd: repoDir });
   execFileSync('git', ['commit', '-qm', 'seed'], { cwd: repoDir });
   store = await PostgresStore.connect('pglite:');
@@ -250,6 +247,20 @@ describe('GET /links', () => {
       confidence: 0.4,
       verification: 'suggested',
     });
+    await app.close();
+  });
+
+  it('ticket-scoped read — subject=SR-L1 also returns SR-L1:ac:* edges', async () => {
+    const app = makeServer();
+    await suggest(app, 'doc:SR-L1:ac.md', 'SR-L1:ac:AC-1');
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/v1/links?workspace=${WS}&subject=SR-L1`,
+      headers: AUTH,
+    });
+    expect(res.statusCode).toBe(200);
+    const { relations } = res.json() as { relations: { subject: string }[] };
+    expect(relations.map((r) => r.subject)).toContain('SR-L1:ac:AC-1');
     await app.close();
   });
 });

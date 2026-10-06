@@ -1448,11 +1448,7 @@ export type RsQualityDimension = (typeof RS_QUALITY_DIMENSIONS)[number];
  * and `minor` are advisory. Deliberately NOT the review-finding
  * severity enum — a spec-quality finding is a different contract.
  */
-export const RS_QUALITY_SEVERITIES = [
-  'critical',
-  'moderate',
-  'minor',
-] as const;
+export const RS_QUALITY_SEVERITIES = ['critical', 'moderate', 'minor'] as const;
 export type RsQualitySeverity = (typeof RS_QUALITY_SEVERITIES)[number];
 
 /**

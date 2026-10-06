@@ -25,6 +25,8 @@ import {
   type GateMode,
   INTAKE_QUESTION_PREFIX,
   REVIEW_PASSES,
+  type RsQuality,
+  RsQualityError,
   type RunResult,
   type RunRow,
   type ScopeVerdict,
@@ -38,8 +40,6 @@ import {
   latestClassification,
   missingQualityDimensions,
   needsScopeApproval,
-  type RsQuality,
-  RsQualityError,
   severityRule,
   validateRsQuality,
 } from '@sprint-runner/core';
@@ -2061,7 +2061,9 @@ export class RealTransitionHandler implements TransitionHandler {
    * (`dimensions_checked` missing any of the 12) is malformed, never a
    * soft skip.
    */
-  #rsQualityParse(raw: string | null):
+  #rsQualityParse(
+    raw: string | null,
+  ):
     | { quality: RsQuality; violations?: never }
     | { quality?: never; violations: { rule: string; message: string }[] } {
     if (raw === null) {
@@ -2085,9 +2087,7 @@ export class RealTransitionHandler implements TransitionHandler {
           violations: [
             {
               rule: 'rs-quality.dimensions',
-              message:
-                'rs-quality.json silently skipped dimensions: ' +
-                missing.join(', '),
+              message: `rs-quality.json silently skipped dimensions: ${missing.join(', ')}`,
             },
           ],
         };
@@ -2121,9 +2121,7 @@ export class RealTransitionHandler implements TransitionHandler {
     id: string,
     quality: RsQuality,
   ): Promise<void> {
-    const criticals = quality.findings.filter(
-      (f) => f.severity === 'critical',
-    );
+    const criticals = quality.findings.filter((f) => f.severity === 'critical');
     await emitEvent(tools, {
       ticketId: id,
       stage: outcome.run.stage,

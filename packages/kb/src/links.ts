@@ -44,11 +44,7 @@ export class LinkError extends Error {
   readonly kind: LinkErrorKind;
   /** The live verification state on a conflicted edge (OCC detail). */
   readonly current?: string | null | undefined;
-  constructor(
-    kind: LinkErrorKind,
-    message: string,
-    current?: string | null,
-  ) {
+  constructor(kind: LinkErrorKind, message: string, current?: string | null) {
     super(message);
     this.name = 'LinkError';
     this.kind = kind;
@@ -192,7 +188,7 @@ async function guardVerify(
     }
     const pin = pins.find((p) => p.repo === repo);
     const head = await store.getCurrentRepoIndex(workspace, repo);
-    if (!head || !pinMatchesHead(pin!.sha, head.commit_sha)) {
+    if (!head || !pin || !pinMatchesHead(pin.sha, head.commit_sha)) {
       throw new LinkError(
         'stale',
         `edge pin for '${repo}' is not the current index head ` +
@@ -208,7 +204,7 @@ async function guardVerify(
     // the other in-scope repos' current heads, else it is stale.
     for (const repo of allowed) {
       const head = await store.getCurrentRepoIndex(workspace, repo);
-      if (head && pinMatchesHead(shaBoundary!, head.commit_sha)) {
+      if (shaBoundary && head && pinMatchesHead(shaBoundary, head.commit_sha)) {
         boundaryMatched = true;
         break;
       }

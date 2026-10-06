@@ -20,10 +20,10 @@ import {
 import { PostgresStore } from '@sprint-runner/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  decideLink,
   LinkError,
-  proposeLink,
+  decideLink,
   proposalVerification,
+  proposeLink,
 } from '../src/links.js';
 
 const WS = 'ws';
@@ -206,9 +206,7 @@ describe('decideLink — idempotent, evented, OCC 409', () => {
       run: 'ws/SR-L1/001-review',
     });
     expect(decided.verification).toBe('verified');
-    const evs = (await linkEvents()).filter(
-      (e) => e.event === 'link_verified',
-    );
+    const evs = (await linkEvents()).filter((e) => e.event === 'link_verified');
     expect(evs).toHaveLength(1);
     expect(evs[0]?.actor_type).toBe('human');
     expect(evs[0]?.actor_id).toBe('alice');
@@ -233,9 +231,7 @@ describe('decideLink — idempotent, evented, OCC 409', () => {
     // Same action, edge already at target — idempotent noop.
     const again = await decideLink(store, cfg, args);
     expect(again.verification).toBe('rejected');
-    const evs = (await linkEvents()).filter(
-      (e) => e.event === 'link_rejected',
-    );
+    const evs = (await linkEvents()).filter((e) => e.event === 'link_rejected');
     expect(evs).toHaveLength(1);
   });
 
@@ -268,7 +264,9 @@ describe('decideLink — idempotent, evented, OCC 409', () => {
     // Exactly one decision landed — one event, one state.
     const evs = await linkEvents();
     expect(
-      evs.filter((e) => e.event === 'link_verified' || e.event === 'link_rejected'),
+      evs.filter(
+        (e) => e.event === 'link_verified' || e.event === 'link_rejected',
+      ),
     ).toHaveLength(1);
     const edgeNow = (
       await store.listRelations({

@@ -90,7 +90,7 @@ Program plan for W16+ (PRD §14+§15): `docs/DEV-PLAN.md` + `docs/DELIVERY.md`.
 | W12 | wp-099 | Launch: `veto` CLI wires conductor + serves UI dist; init/daemon/tick/status/doctor | wp-092 | done |
 | W12 | wp-100 | Rename sprint-runner→veto (D31/D35): binary, config dir, package scopes, container names/labels, UI strings, docs sweep | wp-095,wp-099 | todo |
 | W13 | wp-110 | Code-intelligence foundation: commit-pinned code units, FTS + semantic + structural retrieval, citations, evidence token, retrieval evals | wp-090,wp-091,wp-092,wp-100 | done |
-| W13 | wp-111 | Product integration: pre-PRD grounding, PRD quality findings, traceability verification, impact/test/review evidence UI | wp-110,wp-081 | todo |
+| W13 | wp-111 | Product integration: pre-PRD grounding, PRD quality findings, traceability verification, impact/test/review evidence UI | wp-110,wp-081 | done |
 | W14 | wp-112 | Continuous alignment: intended/implemented/verified findings + release-readiness narrative + feedback clustering | wp-111 | todo |
 | W15 | wp-120 | Telemetry/incident intelligence: sanitized connector, fingerprint/dedupe, investigation, validated resolution, draft-ticket gate | wp-112 | todo |
 | W16 | wp-130 | Finish conductor test-layer migration (wp-094 fold-in) + full regreen | — | done |

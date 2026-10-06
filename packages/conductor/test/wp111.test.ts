@@ -23,8 +23,8 @@ import { join } from 'node:path';
 import { resolveConfig } from '@sprint-runner/config';
 import {
   type GateItem,
-  RS_QUALITY_DIMENSIONS,
   REVIEW_PASSES,
+  RS_QUALITY_DIMENSIONS,
   type RunResult,
   type RunRow,
   type Stage,
@@ -201,8 +201,10 @@ describe('launch grounding — scoped evidence bundle before prompt render', () 
         expect(stageRuns.length, `no done ${stage} run`).toBeGreaterThan(0);
         for (const run of stageRuns) {
           const bundle = await evidenceArtifact(run.id);
-          expect(bundle, `${stage} run missing evidence artifact`).not
-            .toBeNull();
+          expect(
+            bundle,
+            `${stage} run missing evidence artifact`,
+          ).not.toBeNull();
           // Validated §17 bundle — task-bounded + subject-scoped.
           expect(bundle?.schema).toBe(1);
           expect(bundle?.request.task).toBe(task);
@@ -599,7 +601,8 @@ async function putRunArtifact(
 }
 
 const gates = (): Promise<GateItem[]> => store.listGateItems({ workspace: WS });
-const gate = (g: string) => store.getGateItem({ workspace: WS, subject: 'SR-0001', gate: g });
+const gate = (g: string) =>
+  store.getGateItem({ workspace: WS, subject: 'SR-0001', gate: g });
 const evs = () => store.listEvents({ workspace: WS, ticket_id: 'SR-0001' });
 
 function rsQuality(subject: string, findings: unknown[] = []): unknown {
@@ -838,9 +841,7 @@ describe('rs-quality ingest — fail-closed malformed artifacts', () => {
       `${JSON.stringify(rsQuality('SR-0001'))}\n`,
     );
     await handler.onRunComplete(outcome(repairRun, 'REPAIRED'), tools());
-    expect((await evs()).some((e) => e.event === 'finding_created')).toBe(
-      true,
-    );
+    expect((await evs()).some((e) => e.event === 'finding_created')).toBe(true);
     expect((await gate('prd-review'))?.kind).toBe('review');
   });
 });

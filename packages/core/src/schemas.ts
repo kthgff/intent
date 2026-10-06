@@ -84,14 +84,14 @@ import {
   RELEASE_STATUSES,
   REPO_INDEX_STATUSES,
   RETRIEVAL_TASKS,
-  RS_QUALITY_DIMENSIONS,
-  RS_QUALITY_SEVERITIES,
   REVIEW_ACTIONS,
   REVIEW_COMMENT_DISPOSITIONS,
   REVIEW_COMMENT_TYPES,
   REVIEW_FINDING_STATUSES,
   REVIEW_SESSION_STATUSES,
   ROUTE_DECISION_SOURCES,
+  RS_QUALITY_DIMENSIONS,
+  RS_QUALITY_SEVERITIES,
   RUN_STATUSES,
   SECURITY_CATEGORIES,
   SENTINELS,
@@ -2400,7 +2400,5 @@ export function validateRsQuality(value: unknown): RsQuality {
 export function missingQualityDimensions(
   q: Pick<RsQuality, 'dimensions_checked'>,
 ): RsQualityDimension[] {
-  return RS_QUALITY_DIMENSIONS.filter(
-    (d) => !q.dimensions_checked.includes(d),
-  );
+  return RS_QUALITY_DIMENSIONS.filter((d) => !q.dimensions_checked.includes(d));
 }

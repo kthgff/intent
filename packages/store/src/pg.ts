@@ -1159,6 +1159,9 @@ export class PostgresStore implements Store {
 
   async listRelations(filter?: {
     subject?: string;
+    /** Ticket-scoped edge sets (wp-111): `subject = prefix OR subject
+     *  LIKE prefix || ':%'` so `SR-1` also matches `SR-1:ac:AC-2`. */
+    subject_prefix?: string;
     predicate?: string;
     object?: string;
   }): Promise<Relation[]> {
@@ -1167,7 +1170,13 @@ export class PostgresStore implements Store {
       predicate: filter?.predicate,
       object: filter?.object,
     });
-    const rows = await this.db.query(`SELECT * FROM relations ${where}`, args);
+    let sql = `SELECT * FROM relations ${where}`;
+    if (filter?.subject_prefix) {
+      args.push(filter.subject_prefix);
+      const p = `$${args.length}`;
+      sql += `${where ? ' AND' : ' WHERE'} (subject = ${p} OR subject LIKE ${p} || ':%')`;
+    }
+    const rows = await this.db.query(sql, args);
     return rows.map((r) => ({
       subject: r.subject as string,
       predicate: r.predicate as Relation['predicate'],
