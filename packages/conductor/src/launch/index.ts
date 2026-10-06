@@ -77,6 +77,26 @@ export interface LaunchContext {
   onCapHit?: (run: RunRow, cap: string) => void;
 }
 
+/** Run-id segment charset — every segment must match so the id can
+ *  never escape the scratch/run-dir tree (`..`, `/`, `\`, leading `.`
+ *  are all rejected: the id interpolates raw into `.veto/<run-id>/`
+ *  and `runs/<id>/` paths that get rm -rf'd). `:` is allowed —
+ *  `probe:<repo>`/`import:<src>`/`survey:<a>:<b>` subjects carry it
+ *  and it cannot traverse a directory. Fail-closed. */
+const RUN_ID_SEGMENT = /^[A-Za-z0-9._:-]+$/;
+
+function assertRunIdSegment(seg: string, what: string): void {
+  if (
+    !RUN_ID_SEGMENT.test(seg) ||
+    seg.startsWith('.') ||
+    seg.includes('..')
+  ) {
+    throw new Error(
+      `invalid run-id ${what} '${seg}' — segments must match ${RUN_ID_SEGMENT.source} and never start with '.' or contain '..'`,
+    );
+  }
+}
+
 /** `<workspace>/<subject>/<attempt:03d>-<stage>` (DB-SCHEMA runs.id
  *  example: `team-a/ABC-123/003-implement`). */
 export function formatRunId(
@@ -85,7 +105,11 @@ export function formatRunId(
   attempt: number,
   stage: string,
 ): string {
-  return `${workspace}/${subject}/${String(attempt).padStart(3, '0')}-${stage}`;
+  assertRunIdSegment(workspace, 'workspace');
+  assertRunIdSegment(subject, 'subject');
+  const leaf = `${String(attempt).padStart(3, '0')}-${stage}`;
+  assertRunIdSegment(leaf, 'attempt-stage');
+  return `${workspace}/${subject}/${leaf}`;
 }
 
 /** Next attempt number for (subject, stage) — max existing + 1. */

@@ -433,7 +433,12 @@ export async function assembleAcceptancePackage(
 export async function acceptFeature(
   ctx: FeatureCtx,
   featureId: string,
-  opts: { exclusions?: string[]; actorType?: 'human' } = {},
+  opts: {
+    exclusions?: string[];
+    actorType?: 'human';
+    /** OCC fence — enforced inside the write transaction. */
+    expectedStatus?: string;
+  } = {},
 ): Promise<FeatureRow> {
   const feature = await requireFeature(ctx, featureId);
   if (feature.status === 'done') {
@@ -448,32 +453,63 @@ export async function acceptFeature(
       `feature ${featureId} is discarded — acceptance is impossible`,
     );
   }
-  const ts = ctx.now().toISOString();
   const tickets = await featureTickets(ctx, featureId);
-  await ctx.store.appendEvent({
-    workspace: ctx.workspace,
-    ticket_id: featureId,
-    ts,
-    stage: null,
-    actor_type: opts.actorType ?? 'human',
-    actor_id: ctx.actor,
-    event: 'doc_approved' satisfies EventName,
-    run: null,
-    refs: [featureId],
-    data: {
-      doc: 'acceptance-package',
-      exclusions: opts.exclusions ?? [],
-      tickets: tickets.map((t) => ({ id: t.ticket_id, status: t.status })),
-    },
-    cost_usd: null,
-    tokens_in: null,
-    tokens_out: null,
-    tokens_cached: null,
-    usage_source: null,
-    duration_s: null,
-    human_minutes: null,
+  // doc_approved event + status flip in ONE transaction — a crash
+  // must not leave the audit event without the status (or vice
+  // versa). The feature status is re-read in-tx so a concurrent
+  // accept/discard can't double-commit (conflict-class bad-state).
+  return ctx.store.transaction(async (store) => {
+    const current = await store.getFeature(ctx.workspace, featureId);
+    if (!current) {
+      throw new FeatureError('not-found', `no feature ${featureId}`);
+    }
+    if (current.status === 'done') {
+      throw new FeatureError(
+        'bad-state',
+        `feature ${featureId} is already accepted (done)`,
+      );
+    }
+    if (current.status === 'discarded') {
+      throw new FeatureError(
+        'bad-state',
+        `feature ${featureId} is discarded — acceptance is impossible`,
+      );
+    }
+    if (
+      opts.expectedStatus !== undefined &&
+      current.status !== opts.expectedStatus
+    ) {
+      throw new FeatureError(
+        'bad-state',
+        `stale write: expected status '${opts.expectedStatus}', feature ${featureId} is '${current.status}'`,
+      );
+    }
+    const ts = ctx.now().toISOString();
+    await store.appendEvent({
+      workspace: ctx.workspace,
+      ticket_id: featureId,
+      ts,
+      stage: null,
+      actor_type: opts.actorType ?? 'human',
+      actor_id: ctx.actor,
+      event: 'doc_approved' satisfies EventName,
+      run: null,
+      refs: [featureId],
+      data: {
+        doc: 'acceptance-package',
+        exclusions: opts.exclusions ?? [],
+        tickets: tickets.map((t) => ({ id: t.ticket_id, status: t.status })),
+      },
+      cost_usd: null,
+      tokens_in: null,
+      tokens_out: null,
+      tokens_cached: null,
+      usage_source: null,
+      duration_s: null,
+      human_minutes: null,
+    });
+    const next: FeatureRow = { ...current, status: 'done', updated_at: ts };
+    await store.upsertFeature(next);
+    return next;
   });
-  const next: FeatureRow = { ...feature, status: 'done', updated_at: ts };
-  await ctx.store.upsertFeature(next);
-  return next;
 }

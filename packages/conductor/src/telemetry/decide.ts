@@ -78,15 +78,50 @@ export async function decideIncidentStatus(
     // otherwise 400 (fail-closed). An investigation artifact alone is
     // analysis, not resolution evidence.
     const ev = args.evidence ?? {};
-    const refs = [
-      ...(ev.deployment_refs ?? []),
-      ...(ev.ticket_refs ?? []),
-      ...(ev.pr_refs ?? []),
-    ];
-    if (refs.length === 0) {
+    const deploymentRefs = (ev.deployment_refs ?? []).filter(
+      (r): r is string => typeof r === 'string' && r.trim() !== '',
+    );
+    const ticketRefs = (ev.ticket_refs ?? []).filter(
+      (r): r is string => typeof r === 'string' && r.trim() !== '',
+    );
+    const prRefs = (ev.pr_refs ?? []).filter(
+      (r): r is string => typeof r === 'string' && r.trim() !== '',
+    );
+    if (deploymentRefs.length + ticketRefs.length + prRefs.length === 0) {
       throw new TelemetryServiceError(
         'invalid',
         `resolve requires recorded evidence (deployment/ticket/pr refs) — ${args.id} cannot resolve on assertion alone`,
+      );
+    }
+    // Presence alone isn't evidence — at least one ref must RESOLVE:
+    // a real deployment id, a real ticket, or a non-empty PR url.
+    // Anything else fails closed (400) — a fabricated ref list can
+    // never settle an incident.
+    let resolvable = prRefs.length > 0;
+    if (!resolvable && deploymentRefs.length > 0) {
+      const known = new Set(
+        (
+          await ctx.store.listDeployments({ workspace: ctx.workspace })
+        ).map((d) => d.deployment_id),
+      );
+      resolvable = deploymentRefs.some((r) => known.has(r));
+    }
+    if (!resolvable) {
+      for (const t of ticketRefs) {
+        const ticket = await ctx.store.getTicket({
+          workspace: ctx.workspace,
+          ticket_id: t,
+        });
+        if (ticket) {
+          resolvable = true;
+          break;
+        }
+      }
+    }
+    if (!resolvable) {
+      throw new TelemetryServiceError(
+        'invalid',
+        `resolve evidence for ${args.id} does not resolve — no listed deployment id, ticket, or PR exists in this workspace`,
       );
     }
   }

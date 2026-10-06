@@ -125,11 +125,12 @@ const invalid = (m: string) => new ChangesetError('invalid', m);
 export const CHANGESET_DECISION_GATE = 'changeset-decision';
 
 /** Docs that feed `tickets.spec_hash` (CONDUCTOR stale-spec check). */
+// wp-132 naming: rs.md/vs.md (was prd.md/test.md — retired kinds).
 const SPEC_INPUT_DOCS = new Set<string>([
   'ticket.md',
-  'prd.md',
+  'rs.md',
   'tdd.md',
-  'test.md',
+  'vs.md',
 ]);
 
 /** Decisions that leave the set approved. */
@@ -676,109 +677,130 @@ export async function decideChangeset(
     expiresOn = new Date(t).toISOString();
   }
 
-  const ts = nowIso(ctx);
   const decidedBy = args.decidedBy ?? ctx.actor;
   const status = DECISION_TO_STATUS[args.decision];
-  const consequences: Record<string, unknown> = {};
 
-  // --- decision consequences land on affected releases (wp-134 link) ---
-  if (args.decision === 'swap-scope') {
-    const swapOut = args.consequences?.swap_out ?? [];
-    if (swapOut.length === 0) {
-      throw invalid(
-        'swap-scope requires consequences.swap_out — the displaced release items',
+  // Consequences + the status write commit in ONE transaction, and the
+  // status is re-read inside the tx (TOCTOU fence — a concurrent
+  // decide must not double-land consequences or overwrite the first
+  // decision). The pre-tx checks above are hints; this is authoritative.
+  const next = await ctx.store.transaction(async (store) => {
+    const txCtx: ChangesCtx = { ...ctx, store };
+    const current = await store.getChangeset({
+      workspace: ctx.workspace,
+      changeset_id: cs.changeset_id,
+    });
+    if (!current) {
+      throw notFound(`unknown changeset '${ctx.workspace}/${cs.changeset_id}'`);
+    }
+    if (!decidable.has(current.status)) {
+      throw badState(
+        `changeset ${cs.changeset_id} is '${current.status}' — decisions land on awaiting-decision${current.emergency ? ' (emergency: draft|analyzing|awaiting-decision)' : ''} (in-tx re-check)`,
       );
     }
-    const removed: DecideConsequences['swap_out'] = [];
-    for (const s of swapOut) {
-      const rel = await ctx.store.getRelease({
-        workspace: ctx.workspace,
-        release_id: s.release_id,
-      });
-      if (!rel) throw notFound(`swap-scope: unknown release '${s.release_id}'`);
-      const items = await ctx.store.listReleaseItems({
-        workspace: ctx.workspace,
-        release_id: s.release_id,
-      });
-      const item = items.find(
-        (i) => i.item_kind === s.item_kind && i.item_id === s.item_id,
-      );
-      if (!item) {
-        throw notFound(
-          `swap-scope: release ${s.release_id} has no ${s.item_kind} ${s.item_id}`,
+    const ts = nowIso(ctx);
+    const consequences: Record<string, unknown> = {};
+
+    // --- decision consequences land on affected releases (wp-134) ---
+    if (args.decision === 'swap-scope') {
+      const swapOut = args.consequences?.swap_out ?? [];
+      if (swapOut.length === 0) {
+        throw invalid(
+          'swap-scope requires consequences.swap_out — the displaced release items',
         );
       }
-      await ctx.store.removeReleaseItem(
-        {
+      const removed: DecideConsequences['swap_out'] = [];
+      for (const s of swapOut) {
+        const rel = await store.getRelease({
           workspace: ctx.workspace,
           release_id: s.release_id,
-          item_kind: s.item_kind,
-          item_id: s.item_id,
-        },
-        ts,
-      );
-      removed.push(s);
-      await emit(ctx, cs, 'release_items_changed', {
-        release_id: s.release_id,
-        removed: [`${s.item_kind}:${s.item_id}`],
-        consequence_of: args.decision,
-      });
-    }
-    consequences.swap_out = removed;
-  }
-  if (args.decision === 'next-release') {
-    const target = args.consequences?.target_release;
-    if (target) {
-      const rel = await ctx.store.getRelease({
-        workspace: ctx.workspace,
-        release_id: target,
-      });
-      if (!rel) throw notFound(`next-release: unknown release '${target}'`);
-      if (
-        rel.status === 'released' ||
-        rel.status === 'closed' ||
-        rel.status === 'abandoned'
-      ) {
-        throw badState(
-          `next-release: release ${target} is '${rel.status}' — not a live target`,
+        });
+        if (!rel)
+          throw notFound(`swap-scope: unknown release '${s.release_id}'`);
+        const items = await store.listReleaseItems({
+          workspace: ctx.workspace,
+          release_id: s.release_id,
+        });
+        const item = items.find(
+          (i) => i.item_kind === s.item_kind && i.item_id === s.item_id,
         );
+        if (!item) {
+          throw notFound(
+            `swap-scope: release ${s.release_id} has no ${s.item_kind} ${s.item_id}`,
+          );
+        }
+        await store.removeReleaseItem(
+          {
+            workspace: ctx.workspace,
+            release_id: s.release_id,
+            item_kind: s.item_kind,
+            item_id: s.item_id,
+          },
+          ts,
+        );
+        removed.push(s);
+        await emit(txCtx, current, 'release_items_changed', {
+          release_id: s.release_id,
+          removed: [`${s.item_kind}:${s.item_id}`],
+          consequence_of: args.decision,
+        });
       }
-      consequences.target_release = target;
+      consequences.swap_out = removed;
     }
-  }
+    if (args.decision === 'next-release') {
+      const target = args.consequences?.target_release;
+      if (target) {
+        const rel = await store.getRelease({
+          workspace: ctx.workspace,
+          release_id: target,
+        });
+        if (!rel) throw notFound(`next-release: unknown release '${target}'`);
+        if (
+          rel.status === 'released' ||
+          rel.status === 'closed' ||
+          rel.status === 'abandoned'
+        ) {
+          throw badState(
+            `next-release: release ${target} is '${rel.status}' — not a live target`,
+          );
+        }
+        consequences.target_release = target;
+      }
+    }
 
-  const reconciliation = {
-    ...(cs.reconciliation ?? {}),
-    consequence: {
-      decision: args.decision,
-      ...consequences,
-      decided_at: ts,
-    },
-  };
+    const reconciliation = {
+      ...(current.reconciliation ?? {}),
+      consequence: {
+        decision: args.decision,
+        ...consequences,
+        decided_at: ts,
+      },
+    };
 
-  const next = await writeState(
-    ctx,
-    cs,
-    {
-      status,
-      decision: args.decision,
-      decision_rationale: args.rationale ?? null,
-      decided_by: decidedBy,
-      decided_at: ts,
-      expires_on: expiresOn,
-      reconciliation,
-    },
-    'changeset_decided',
-    {
-      decision: args.decision,
-      decided_by: decidedBy,
-      emergency: cs.emergency,
-      consequences,
-      expires_on: expiresOn,
-    },
-  );
-  await clearDecisionGate(ctx, cs);
-  const analysis = (cs.analysis ?? null) as ChangesetAnalysis | null;
+    return writeState(
+      txCtx,
+      current,
+      {
+        status,
+        decision: args.decision,
+        decision_rationale: args.rationale ?? null,
+        decided_by: decidedBy,
+        decided_at: ts,
+        expires_on: expiresOn,
+        reconciliation,
+      },
+      'changeset_decided',
+      {
+        decision: args.decision,
+        decided_by: decidedBy,
+        emergency: current.emergency,
+        consequences,
+        expires_on: expiresOn,
+      },
+    );
+  });
+  await clearDecisionGate(ctx, next);
+  const analysis = (next.analysis ?? null) as ChangesetAnalysis | null;
   await notifyOwners(ctx, next, 'changeset:decided', analysis);
   return next;
 }
@@ -895,13 +917,37 @@ export async function applyChangeset(
     );
   }
 
-  await writeState(ctx, cs, { status: 'applying' });
+  cs = await writeState(ctx, cs, { status: 'applying' });
 
   const ts = nowIso(ctx);
   try {
     const outcome = await ctx.store.transaction(
       async (store): Promise<ApplyOutcome> => {
         const txCtx = { ...ctx, store };
+        // In-tx fence (TOCTOU): the 'applying' write above must still
+        // be the row's latest state — a concurrent decide/expire
+        // between the read and this tx aborts the apply.
+        const current = await store.getChangeset({
+          workspace: ctx.workspace,
+          changeset_id: cs.changeset_id,
+        });
+        if (
+          !current ||
+          current.status !== 'applying' ||
+          current.updated_at !== cs.updated_at
+        ) {
+          throw conflict(
+            `changeset ${cs.changeset_id} changed state mid-apply — aborting`,
+          );
+        }
+        // Sibling serialization re-checked inside the apply tx so a
+        // sibling approved/applying between the pre-check and the item
+        // loop is still caught. Best-effort: the Store interface has
+        // no advisory-lock/conditional-update primitive (pg's lockKey
+        // is store-internal), so a same-instant sibling commit can
+        // still interleave — the per-item base_version drift check
+        // below is the hard backstop.
+        await assertApplySerialized(txCtx, current);
         const items = await store.listChangesetItems({
           workspace: ctx.workspace,
           changeset_id: cs.changeset_id,

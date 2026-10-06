@@ -62,6 +62,33 @@ async function seedSource(id = 'otel-prod') {
   });
 }
 
+/** A resolvable deployment row — `resolve` evidence must reference a
+ *  real deployment id / ticket / pr_url (presence-only is refused). */
+async function seedDeployment(deploymentId: string) {
+  await store.upsertRelease({
+    workspace: WS,
+    release_id: 'REL-0001',
+    title: 'train',
+    status: 'released',
+    target: null,
+    created_by: 'ops',
+    created_at: NOW,
+    updated_at: NOW,
+  });
+  const dep: DeploymentRow = {
+    workspace: WS,
+    deployment_id: deploymentId,
+    release_id: 'REL-0001',
+    environment: 'prod',
+    sha: 'd'.repeat(40),
+    evidence: { type: 'manual', by: 'ops', note: 'shipped' },
+    confirmed_by: 'ops',
+    confirmed_at: NOW,
+    created_at: NOW,
+  };
+  await store.insertDeployment(dep);
+}
+
 const evt = (over: Record<string, unknown> = {}) => ({
   message: 'NullPointerException in checkout handler for user 42',
   exception_class: 'NullPointerException',
@@ -199,6 +226,7 @@ describe('ingest — dedupe + incident lifecycle', () => {
       events: [evt()],
     });
     const inc = r1.incidents_opened.at(0);
+    await seedDeployment('dep_9');
     await decideIncidentStatus(ctx(), {
       id: inc.id,
       action: 'resolve',
@@ -310,6 +338,7 @@ describe('validated resolution + decide lifecycle', () => {
     });
     expect(moved.status).toBe('investigating');
 
+    await seedDeployment('dep_7');
     const resolved = await decideIncidentStatus(ctx(), {
       id: inc.id,
       action: 'resolve',

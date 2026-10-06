@@ -234,6 +234,18 @@ export class DevinAdapter implements Adapter {
   /** ADAPTERS control: kill = SIGTERM → SIGKILL after grace; pause =
    *  SIGSTOP; resume = SIGCONT. */
   async control(handle: RunHandle, op: ControlOp): Promise<void> {
+    // Never signal pid 0/undefined — kill(0) targets this conductor's
+    // own process group. Devin is runtime:process — no container path.
+    if (
+      typeof handle.pid !== 'number' ||
+      !Number.isInteger(handle.pid) ||
+      handle.pid <= 0
+    ) {
+      if (op === 'kill') return; // nothing alive to kill
+      throw new DevinAdapterError(
+        `control '${op}': handle has no pid — nothing to signal`,
+      );
+    }
     const tracked = this.children.get(handle.pid);
     switch (op) {
       case 'pause':

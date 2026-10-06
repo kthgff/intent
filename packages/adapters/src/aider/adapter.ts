@@ -465,7 +465,12 @@ export class AiderAdapter implements Adapter {
       if (tracked.usageTimer !== null) clearInterval(tracked.usageTimer);
       this.runs.delete(handle.pid);
     } else {
-      while (this.alive(handle.pid)) await sleep(50);
+      // Untracked handle (conductor restart) — poll pid liveness, but
+      // bounded so a stale handle can't hang collect forever.
+      const deadline = Date.now() + COLLECT_PID_WAIT_MS;
+      while (this.alive(handle.pid) && Date.now() < deadline) {
+        await sleep(50);
+      }
     }
 
     const { sentinel, sentinel_raw } = parseSentinel(handle.log_path);
@@ -662,6 +667,9 @@ export class AiderAdapter implements Adapter {
   }
 
   private alive(pid: number): boolean {
+    if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) {
+      return false; // pid 0/undefined would probe our own process group
+    }
     try {
       process.kill(pid, 0);
       return true;
@@ -699,7 +707,13 @@ function readNewUsage(
   return out;
 }
 
+/** Bound on the collect() pid-poll fallback (untracked handle). */
+const COLLECT_PID_WAIT_MS = 60_000;
+
 function killPid(pid: number, signal: NodeJS.Signals): void {
+  // pid 0/undefined targets this conductor's own process group —
+  // never signal it.
+  if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) return;
   try {
     process.kill(pid, signal);
   } catch {

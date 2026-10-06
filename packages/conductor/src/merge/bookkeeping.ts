@@ -83,19 +83,23 @@ export async function recordMerged(
   const id = ticket.ticket_id;
   const ts = (deps.now?.() ?? new Date()).toISOString();
   const marker = markerFor(rows);
-  const note = await store.getDoc({
-    workspace: ws.name,
-    subject: id,
-    doc: IMPLEMENTATION_NOTE_DOC,
-  });
-  const noteContent = note?.content ?? `# Implementation note — ${id}\n\n`;
-  const alreadyNoted = noteContent.includes(marker);
-  const nextNote = alreadyNoted
-    ? noteContent
-    : `${noteContent.trimEnd()}\n\n${mergeNoteSection(status, rows)}`;
 
   let noteVersion: number | null = null;
   await store.transaction(async (s) => {
+    // 0. idempotency read INSIDE the tx — a concurrent merge handler
+    // must not double-append the note section.
+    const note = await s.getDoc({
+      workspace: ws.name,
+      subject: id,
+      doc: IMPLEMENTATION_NOTE_DOC,
+    });
+    const noteContent =
+      note?.content ?? `# Implementation note — ${id}\n\n`;
+    const alreadyNoted = noteContent.includes(marker);
+    const nextNote = alreadyNoted
+      ? noteContent
+      : `${noteContent.trimEnd()}\n\n${mergeNoteSection(status, rows)}`;
+
     // 1. status (row change + ticket.md frontmatter, D24/D29).
     const current = await s.getTicket({ workspace: ws.name, ticket_id: id });
     const from = current?.status ?? null;

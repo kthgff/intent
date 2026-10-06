@@ -93,7 +93,10 @@ export async function confirmAssumption(
     evidence?: string | null;
   },
 ): Promise<AssumptionRow> {
-  const actorKind = args.actorKind ?? 'human';
+  // Fail-closed default: an unspecified caller is an AGENT — the API
+  // passes 'human' explicitly; absence must never silently grant the
+  // human-only statuses.
+  const actorKind = args.actorKind ?? 'agent';
   if (
     actorKind !== 'human' &&
     (args.status === 'verified' || args.status === 'risk-accepted')

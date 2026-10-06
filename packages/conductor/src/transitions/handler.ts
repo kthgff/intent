@@ -343,6 +343,42 @@ export class RealTransitionHandler implements TransitionHandler {
               gate: DOR_GATE,
             });
             if (item && !item.cleared_at) return null;
+            if (item?.cleared_at) {
+              // The human CLEARED the gate without fixing the ticket —
+              // that clearance IS a waiver (same semantics as
+              // `forced:`): proceed, and record the accepted risk into
+              // the quality-debt register (§15.10). Without this branch
+              // surfaceGateItem noops on the cleared row (ON CONFLICT
+              // DO NOTHING) and the `dor-blocked` note re-emitted every
+              // tick with nothing visible.
+              await recordGateWaiver(
+                {
+                  store: ctx.store,
+                  workspace: ctx.workspace,
+                  actor: ctx.actor,
+                  now: ctx.now,
+                },
+                {
+                  subject: id,
+                  gate: DOR_GATE,
+                  actor: ctx.actor,
+                  reason: `DoR gate cleared without the missing checks being fixed (human waiver) — missing: ${dor.missing
+                    .map((c) => c.id)
+                    .join(', ')}`,
+                },
+              );
+              await emitEvent(tools, {
+                ticketId: id,
+                event: 'gate_overridden',
+                data: {
+                  gate: DOR_GATE,
+                  via: 'gate-cleared',
+                  missing: dor.missing.map((c) => c.id),
+                },
+              });
+              await this.#setStatus(ctx, id, 'prd-draft');
+              return { stage: 'prd' };
+            }
             await tools.surfaceGateItem({
               subject: id,
               gate: DOR_GATE,
