@@ -25,6 +25,8 @@ import {
   type GateMode,
   INTAKE_QUESTION_PREFIX,
   REVIEW_PASSES,
+  type RsQuality,
+  RsQualityError,
   type RunResult,
   type RunRow,
   type ScopeVerdict,
@@ -36,8 +38,10 @@ import {
   evaluateEvidence,
   gatherEvidenceSnapshot,
   latestClassification,
+  missingQualityDimensions,
   needsScopeApproval,
   severityRule,
+  validateRsQuality,
 } from '@sprint-runner/core';
 import { coverageLint, structuredDocLint } from '@sprint-runner/lints';
 import { specLint } from '@sprint-runner/lints';
@@ -460,6 +464,33 @@ export class RealTransitionHandler implements TransitionHandler {
         case 'prd-review':
         case 'tdd-review':
         case 'test-review': {
+          if (status === 'prd-review') {
+            // wp-111: an open `rs-quality` item (unresolved critical
+            // quality findings) parks the doc — mode-suppressed doc
+            // gates do NOT release it (criticals are never auto-
+            // approved). A cleared item records its approve/override
+            // event exactly once (the human's waive).
+            const rq = await ctx.store.getGateItem({
+              workspace: ctx.workspace,
+              subject: id,
+              gate: 'rs-quality',
+            });
+            if (rq && !rq.cleared_at) return null;
+            if (rq?.cleared_at) {
+              const recorded = (
+                await ctx.store.listEvents({
+                  workspace: ctx.workspace,
+                  ticket_id: id,
+                })
+              ).some(
+                (e) =>
+                  (e.event === 'gate_approved' ||
+                    e.event === 'gate_overridden') &&
+                  (e.data as Record<string, unknown>)?.gate === 'rs-quality',
+              );
+              if (!recorded) await clearedGateEvent('rs-quality');
+            }
+          }
           const gate = gateForStatus(status, this.gateMode);
           if (!gate) return null;
           if (gate.disposition === 'auto') {
@@ -1049,6 +1080,30 @@ export class RealTransitionHandler implements TransitionHandler {
     // -- doc stages --
     prdReview: async ({ outcome, tools }) => {
       const id = outcome.run.ticket_id ?? outcome.run.subject;
+      // wp-111: ingest the cited RS-quality pass BEFORE the doc gate —
+      // a missing/malformed/partial rs-quality.json fails closed into
+      // doc-repair while the ticket still sits at `prd-draft`.
+      // The pass is advisory by construction: it can hold approval via
+      // the `rs-quality` gate, never grant it (INTELLIGENCE §5).
+      if (this.#config.intelligence.prd_quality) {
+        const raw = await runArtifactText(
+          tools,
+          outcome.run.id,
+          id,
+          'rs-quality.json',
+        );
+        const parsed = this.#rsQualityParse(raw);
+        if (parsed.violations) {
+          await this.#requestDocRepair(
+            tools,
+            id,
+            'rs-quality.json',
+            parsed.violations,
+          );
+          return;
+        }
+        await this.#rsQualityRecord(outcome, tools, id, parsed.quality);
+      }
       await this.#docGate(outcome, tools, id, 'prd-review', 'rs.md');
     },
 
@@ -1597,6 +1652,32 @@ export class RealTransitionHandler implements TransitionHandler {
       // repair gate when the fix didn't take — CONDUCTOR doc-repair).
       // Repaired docs land as the LATEST doc_versions version / this
       // run's artifacts (D29).
+      if (status === 'prd-draft' && this.#config.intelligence.prd_quality) {
+        // wp-111: the repair targeted rs-quality.json — re-validate THIS
+        // run's artifact; still malformed → the repair gate (blocked
+        // agent, human eyes — never another blind repair loop); valid →
+        // record findings + resume the prd doc gate.
+        const raw = await runArtifactText(
+          tools,
+          outcome.run.id,
+          id,
+          'rs-quality.json',
+        );
+        const parsed = this.#rsQualityParse(raw);
+        if (parsed.violations) {
+          await tools.surfaceGateItem({
+            subject: id,
+            gate: 'repair',
+            kind: 'repair',
+            blockedAgent: true,
+            payload: { doc: 'rs-quality.json', violations: parsed.violations },
+          });
+          return;
+        }
+        await this.#rsQualityRecord(outcome, tools, id, parsed.quality);
+        await this.#docGate(outcome, tools, id, 'prd-review', 'rs.md');
+        return;
+      }
       const lintFor = async (): Promise<
         { rule: string; message: string }[] | null
       > => {
@@ -1970,6 +2051,110 @@ export class RealTransitionHandler implements TransitionHandler {
         LINT_VIOLATIONS: JSON.stringify(violations),
       },
     });
+  }
+
+  /**
+   * wp-111 RS-quality parse (INTELLIGENCE §5, SCHEMAS §24) — the
+   * fail-closed half of the ingest. `null` text = the prd contract was
+   * not honored (the artifact is REQUIRED, greenfield runs emit it with
+   * `evidence_ref: null`); a silent partial pass
+   * (`dimensions_checked` missing any of the 12) is malformed, never a
+   * soft skip.
+   */
+  #rsQualityParse(
+    raw: string | null,
+  ):
+    | { quality: RsQuality; violations?: never }
+    | { quality?: never; violations: { rule: string; message: string }[] } {
+    if (raw === null) {
+      return {
+        violations: [
+          {
+            rule: 'rs-quality.missing',
+            message:
+              'rs-quality.json not written — the prd contract requires ' +
+              'the cited quality pass (greenfield runs emit it with ' +
+              'evidence_ref: null)',
+          },
+        ],
+      };
+    }
+    try {
+      const quality = validateRsQuality(JSON.parse(raw));
+      const missing = missingQualityDimensions(quality);
+      if (missing.length > 0) {
+        return {
+          violations: [
+            {
+              rule: 'rs-quality.dimensions',
+              message: `rs-quality.json silently skipped dimensions: ${missing.join(', ')}`,
+            },
+          ],
+        };
+      }
+      return { quality };
+    } catch (e) {
+      return {
+        violations: [
+          {
+            rule:
+              e instanceof RsQualityError
+                ? 'rs-quality.schema'
+                : 'rs-quality.json',
+            message: e instanceof Error ? e.message : String(e),
+          },
+        ],
+      };
+    }
+  }
+
+  /**
+   * Record a VALIDATED rs-quality.json — `finding_created` event +
+   * the `rs-quality` gate item when `critical` findings exist and
+   * `intelligence.critical_prd_findings: block`. NEVER touches
+   * `tickets.spec_score`, never approves rs.md, never mutates a doc —
+   * the artifact is cited *advisory evidence* (INTELLIGENCE §5).
+   */
+  async #rsQualityRecord(
+    outcome: RunOutcome,
+    tools: TransitionTools,
+    id: string,
+    quality: RsQuality,
+  ): Promise<void> {
+    const criticals = quality.findings.filter((f) => f.severity === 'critical');
+    await emitEvent(tools, {
+      ticketId: id,
+      stage: outcome.run.stage,
+      event: 'finding_created',
+      run: outcome.run.id,
+      refs: [`run:${outcome.run.id}:rs-quality.json`],
+      data: {
+        artifact: 'rs-quality.json',
+        findings: quality.findings.length,
+        critical: criticals.length,
+        dimensions_checked: quality.dimensions_checked,
+      },
+    });
+    if (
+      criticals.length > 0 &&
+      this.#config.intelligence.critical_prd_findings === 'block'
+    ) {
+      await tools.surfaceGateItem({
+        subject: id,
+        gate: 'rs-quality',
+        kind: 'review',
+        payload: {
+          artifact: 'rs-quality.json',
+          criticals: criticals.map((f) => ({
+            id: f.id,
+            dimension: f.dimension,
+            claim: f.claim,
+            citations: f.citations,
+            ref: f.ref ?? null,
+          })),
+        },
+      });
+    }
   }
 
   /** Doc-gate tail: status → gate item per gate mode (+ doc_drafted). */

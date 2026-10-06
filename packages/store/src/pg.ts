@@ -1159,6 +1159,9 @@ export class PostgresStore implements Store {
 
   async listRelations(filter?: {
     subject?: string;
+    /** Ticket-scoped edge sets (wp-111): `subject = prefix OR subject
+     *  LIKE prefix || ':%'` so `SR-1` also matches `SR-1:ac:AC-2`. */
+    subject_prefix?: string;
     predicate?: string;
     object?: string;
   }): Promise<Relation[]> {
@@ -1167,7 +1170,13 @@ export class PostgresStore implements Store {
       predicate: filter?.predicate,
       object: filter?.object,
     });
-    const rows = await this.db.query(`SELECT * FROM relations ${where}`, args);
+    let sql = `SELECT * FROM relations ${where}`;
+    if (filter?.subject_prefix) {
+      args.push(filter.subject_prefix);
+      const p = `$${args.length}`;
+      sql += `${where ? ' AND' : ' WHERE'} (subject = ${p} OR subject LIKE ${p} || ':%')`;
+    }
+    const rows = await this.db.query(sql, args);
     return rows.map((r) => ({
       subject: r.subject as string,
       predicate: r.predicate as Relation['predicate'],
@@ -1179,6 +1188,36 @@ export class PostgresStore implements Store {
         (r.verification as Relation['verification'] | null) ?? undefined,
       valid_at: (r.valid_at as string | null) ?? undefined,
     }));
+  }
+
+  async decideRelation(
+    key: { subject: string; predicate: string; object: string },
+    expected: Relation['verification'],
+    next: NonNullable<Relation['verification']>,
+  ) {
+    // wp-111 OCC: the expected state rides in the WHERE clause, so two
+    // racing decisions resolve atomically — the loser updates 0 rows
+    // and re-reads to classify (never a check-then-write gap).
+    const rows = await this.db.query(
+      `UPDATE relations SET verification=$4
+       WHERE subject=$1 AND predicate=$2 AND object=$3
+         AND verification IS NOT DISTINCT FROM $5
+       RETURNING verification`,
+      [key.subject, key.predicate, key.object, next, expected ?? null],
+    );
+    if (rows.length > 0) {
+      return { state: 'updated' as const, prior: expected };
+    }
+    const cur = await this.db.query(
+      `SELECT verification FROM relations
+       WHERE subject=$1 AND predicate=$2 AND object=$3`,
+      [key.subject, key.predicate, key.object],
+    );
+    if (cur.length === 0) return { state: 'missing' as const };
+    const current =
+      (cur[0]?.verification as Relation['verification']) ?? undefined;
+    if (current === next) return { state: 'noop' as const };
+    return { state: 'conflict' as const, current };
   }
 
   async deleteRelation(r: Relation): Promise<void> {

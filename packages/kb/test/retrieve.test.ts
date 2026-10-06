@@ -1,11 +1,19 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { RetrievalRequest } from '@sprint-runner/core';
 import { PostgresStore } from '@sprint-runner/store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  type GoldenSuite,
   codeContentRef,
   evaluateGoldenSet,
   indexRepo,
@@ -13,6 +21,8 @@ import {
   resolveCodeHeads,
 } from '../src/index.js';
 import type { Embedder } from '../src/index.js';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
 
 let dir: string;
 let repoDir: string;
@@ -511,5 +521,41 @@ describe('evaluateGoldenSet — golden-set harness', () => {
     expect(
       await store.listRetrievalEvaluations({ suite_version: 'golden-v1' }),
     ).toHaveLength(1);
+  });
+
+  it('wp-111: integrated task queries — per-case task + golden fixture', async () => {
+    await buildFixture();
+    // The versioned golden set on disk IS the evaluated suite — the
+    // `intelligence.evaluation_suite` config setting points at this
+    // artifact, so the fixture and the harness can never drift.
+    const fixture = JSON.parse(
+      readFileSync(
+        join(HERE, '../../../fixtures/kb/wp111-workflow-tasks.json'),
+        'utf8',
+      ),
+    ) as GoldenSuite;
+    const { row, metrics, cases } = await evaluateGoldenSet(store, fixture, {
+      workspace: WS,
+      authorizedRepos: ACL,
+    });
+
+    // Every workflow task ran under ITS task label (per-case override).
+    expect(cases.map((c) => c.task)).toEqual([
+      'prd',
+      'impact',
+      'testplan',
+      'implement',
+      'review',
+      'implement',
+    ]);
+    // Exact-identifier relevance: every declared case fully surfaced.
+    expect(metrics.recall_at_k).toBe(1);
+    expect(metrics.exact_recall).toBe(1);
+    // Zero-result is a VALID explicit outcome, not an error.
+    expect(metrics.zero_result).toBe(1);
+    expect(metrics.unauthorized_count).toBe(0);
+    expect(metrics.citation_valid).toBe(1);
+    expect(metrics.citation_fresh).toBe(1);
+    expect(row.suite_version).toBe('wp111-workflow-tasks-v1');
   });
 });

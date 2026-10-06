@@ -10,6 +10,8 @@ import type { GateItem, TicketRow, TriageQuestion } from '@sprint-runner/core';
 import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import ChatEdit, { type ChatEditTarget } from '../ChatEdit';
+import RsQualityPanel from '../RsQuality';
+import Traceability from '../Traceability';
 import { type TicketDetail as Detail, client } from '../api';
 import { PHASE_LABEL } from '../board';
 import {
@@ -115,6 +117,7 @@ type TabId =
   | 'docs'
   | 'activity'
   | 'runs'
+  | 'links'
   | 'review'
   | 'failure'
   | 'split';
@@ -176,6 +179,7 @@ export default function TicketFocus() {
     { id: 'docs', label: 'Documentation' },
     { id: 'activity', label: 'Activity' },
     { id: 'runs', label: 'Runs' },
+    { id: 'links', label: 'Traceability' },
     ...(spotlight === 'review'
       ? [{ id: 'review' as TabId, label: 'Code review' }]
       : []),
@@ -234,6 +238,7 @@ export default function TicketFocus() {
           )}
           {tab === 'activity' && <ActivityTab ws={ws} id={id} />}
           {tab === 'runs' && <RunsTab ws={ws} id={id} />}
+          {tab === 'links' && <Traceability ws={ws} subject={id} />}
           {tab === 'review' && <CodeReview embedded />}
           {tab === 'failure' && (
             <FailureTab ws={ws} d={d} onDone={detail.reload} />
@@ -421,12 +426,36 @@ function NextAction({
       );
     }
 
+    // wp-111 — rs-quality gate: the cited AI quality pass surfaces
+    // critical findings here; clearing is a human waive (an honest
+    // gate_overridden ledger entry — never a doc approval).
+    if (gate === 'rs-quality') {
+      return (
+        <div>
+          <RsQualityPanel ws={ws} id={t.ticket_id} severity="critical" />
+          <div className="row" style={{ marginTop: 8 }}>
+            <button
+              type="button"
+              className="primary"
+              disabled={busy}
+              onClick={() => void act('waive_quality')}
+            >
+              Waive quality findings
+            </button>
+            <Link className="btn small" to={`${ref}/docs/rs`}>
+              Review rs.md →
+            </Link>
+          </div>
+        </div>
+      );
+    }
+
     // Document approval gates → approve inline, request changes via the
     // doc reviewer.
     const docForGate: Record<string, string> = {
-      'prd-review': 'prd',
+      'prd-review': 'rs',
       'tdd-review': 'tdd',
-      'test-review': 'test',
+      'test-review': 'vs',
     };
     const doc = docForGate[gate];
     if (doc) {
@@ -450,7 +479,7 @@ function NextAction({
     if (gate === 'plan-package') {
       const docs = (d.docs ?? [])
         .map((x) => x.doc)
-        .filter((x) => ['prd.md', 'tdd.md', 'test.md'].includes(x));
+        .filter((x) => ['rs.md', 'tdd.md', 'vs.md'].includes(x));
       return (
         <div>
           <p className="muted">Plan package approval — per doc:</p>
