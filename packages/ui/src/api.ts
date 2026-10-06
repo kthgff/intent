@@ -12,6 +12,7 @@ import type {
   Claim,
   DossierEntry,
   EventRow,
+  FeatureRow,
   GateItem,
   Relation,
   RelationVerification,
@@ -283,6 +284,116 @@ export interface InterviewSession {
   gate: { kind: string; surfaced_at: string } | null;
 }
 
+// ---- Feature Workspace (PRD §15.7, wp-152) ----
+
+export interface FeatureHealthFinding {
+  id: string;
+  kind:
+    | 'blocked_ticket'
+    | 'failed_ticket'
+    | 'open_gate'
+    | 'unverified_ac'
+    | 'stale_approval'
+    | 'undelivered_ticket'
+    | 'not_accepted'
+    | 'no_tickets';
+  severity: 'blocker' | 'warning' | 'info';
+  message: string;
+  refs: string[];
+}
+
+export interface FeatureAcRow {
+  ac_id: string;
+  criterion: string;
+  evidence: Relation[];
+  verified: boolean;
+}
+
+export interface FeatureDocMeta {
+  doc: string;
+  version: number;
+  edited_by: string | null;
+  created_at: string | null;
+}
+
+export interface FeatureAcceptance {
+  accepted: boolean;
+  at?: string;
+  by?: string;
+  exclusions?: string[];
+}
+
+export interface FeatureReleaseInfo {
+  memberships: {
+    release: {
+      release_id: string;
+      title: string;
+      status: string;
+    };
+    item: {
+      item_kind: string;
+      item_id: string;
+      partial_ac: string[] | null;
+      delivery_state: string;
+      approved_by: string | null;
+      removed_at: string | null;
+    };
+  }[];
+  exposure: {
+    environment: string;
+    state: string;
+    deployment_id: string | null;
+  }[];
+  deployments: {
+    deployment_id: string;
+    release_id: string;
+    environment: string;
+    confirmed_by: string | null;
+    confirmed_at: string | null;
+  }[];
+}
+
+export interface FeatureDetail {
+  feature: FeatureRow;
+  initiative: { initiative: string; title: string; status: string } | null;
+  docs: FeatureDocMeta[];
+  tickets: TicketRow[];
+  /** work_type → status → count (Tickets tab grouping). */
+  tickets_by_type: Record<string, Record<string, number>>;
+  requirements: {
+    /** First verified `documents` edge, else first documents edge —
+     *  server-chosen; the UI never re-derives primacy. */
+    primary: Relation | null;
+    edges: Relation[];
+  };
+  /** Explainable findings list — never an opaque score. */
+  health: FeatureHealthFinding[];
+  acceptance: FeatureAcceptance;
+  release: FeatureReleaseInfo;
+  events: EventRow[];
+}
+
+export interface AcceptancePackage {
+  feature: FeatureRow;
+  scope: {
+    doc: { version: number; content: string; created_at: string | null } | null;
+    approved_at: string | null;
+    approved_by: string | null;
+  };
+  acceptance_criteria: FeatureAcRow[];
+  docs: { doc: string; version: number; created_at: string | null }[];
+  tickets: {
+    ticket_id: string;
+    title: string;
+    status: string;
+    delivered: boolean;
+    merged_refs: string[];
+  }[];
+  exclusions: string[];
+  accepted: { at: string; by: string; exclusions: string[] } | null;
+  findings: FeatureHealthFinding[];
+}
+
 export interface DocResponse {
   name: string;
   doc: string;
@@ -392,6 +503,51 @@ export const client = {
       })}`,
     ),
   ticket: (ws: string, id: string) => api<TicketDetail>(ticketPath(ws, id)),
+  // ---- Feature Workspace (wp-152) ----
+  features: (f?: {
+    workspace?: string;
+    initiative?: string;
+    status?: string;
+  }) =>
+    api<{ features: FeatureRow[] }>(
+      `/api/v1/features${qs({
+        workspace: f?.workspace,
+        initiative: f?.initiative,
+        status: f?.status,
+      })}`,
+    ),
+  feature: (ws: string, id: string) =>
+    api<FeatureDetail>(
+      `/api/v1/features/${encodeURIComponent(ws)}/${encodeURIComponent(id)}`,
+    ),
+  featureDoc: (ws: string, id: string, name: string) =>
+    api<DocResponse>(
+      `/api/v1/features/${encodeURIComponent(ws)}/${encodeURIComponent(
+        id,
+      )}/docs/${encodeURIComponent(name)}`,
+    ),
+  featureAcceptance: (ws: string, id: string) =>
+    api<AcceptancePackage>(
+      `/api/v1/features/${encodeURIComponent(ws)}/${encodeURIComponent(
+        id,
+      )}/acceptance`,
+    ),
+  featureAcs: (ws: string, id: string) =>
+    api<{ acs: FeatureAcRow[] }>(
+      `/api/v1/features/${encodeURIComponent(ws)}/${encodeURIComponent(id)}/acs`,
+    ),
+  /** The explicit human acceptance gate — the only path to 'done'. */
+  featureAccept: (
+    ws: string,
+    id: string,
+    body?: { exclusions?: string[]; expected_status?: string },
+  ) =>
+    post<{ accepted: boolean; feature: FeatureRow }>(
+      `/api/v1/features/${encodeURIComponent(ws)}/${encodeURIComponent(
+        id,
+      )}/accept`,
+      body ?? {},
+    ),
   ticketDoc: (ws: string, id: string, name: string) =>
     api<DocResponse>(`${ticketPath(ws, id)}/docs/${encodeURIComponent(name)}`),
   ticketEvents: (ws: string, id: string) =>
@@ -543,9 +699,13 @@ export const client = {
    *  proposes a unified diff against one of the ticket's docs. */
   interviewEdit: (body: {
     workspace: string;
-    ticket_ref: string;
+    /** `ticket_ref` for ticket subjects; `subject_ref` generalizes to
+     *  feature subjects (F-NNNN — the "Ask About This Feature" scoped
+     *  assistant, wp-152). */
+    ticket_ref?: string;
+    subject_ref?: string;
     message: string;
-    target?: 'ticket' | 'rs' | 'tdd' | 'vs';
+    target?: 'ticket' | 'rs' | 'tdd' | 'vs' | 'feature' | 'ac' | 'notes';
     session_id?: string;
   }) =>
     post<{ session: string; run: string; subject: string; target: string }>(

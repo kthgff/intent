@@ -206,6 +206,9 @@ export default function TicketFocus() {
         {t.blocked_reason ? ` · blocked: ${t.blocked_reason}` : ''}
       </p>
       <p className="row page-sub">
+        {t.feature && (
+          <Link to={`/features/${ws}/${t.feature}`}>Feature {t.feature}</Link>
+        )}
         <Link to={`/tickets/${ws}/${id}/pr`}>PR panel</Link>
         <Link to={`/tickets/${ws}/${id}/ledger`}>Ledger</Link>
         <Link to={`/runs?subject=${encodeURIComponent(t.ticket_id)}`}>

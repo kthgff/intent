@@ -208,9 +208,12 @@ export async function recordMerged(
 }
 
 /**
- * Recompute a feature's evidence rollup from its tickets: every member
- * delivered (`merged|verifying|released`) → `done`; otherwise advance a
- * pre-delivery feature to `active`. Never downgrades `done`/`discarded`.
+ * Recompute a feature's evidence rollup from its tickets: any member
+ * delivered (`merged|verifying|released`) advances a pre-delivery
+ * feature to `active`. The rollup NEVER writes `done` — feature
+ * completion is explicit human acceptance (PRD §15.7, wp-152:
+ * `acceptFeature`), never implied by ticket completion. Never
+ * downgrades `done`/`discarded`.
  */
 export async function recalcFeatureEvidence(
   ctx: MergeCtx,
@@ -226,15 +229,8 @@ export async function recalcFeatureEvidence(
   const delivered = tickets.filter((t) =>
     ['merged', 'verifying', 'released'].includes(t.status),
   ).length;
-  const allDelivered = tickets.length > 0 && delivered === tickets.length;
   let next: FeatureStatus | null = null;
   if (
-    allDelivered &&
-    feature.status !== 'done' &&
-    feature.status !== 'discarded'
-  ) {
-    next = 'done';
-  } else if (
     delivered > 0 &&
     FEATURE_ADVANCE_FROM.has(feature.status as FeatureStatus) &&
     feature.status !== 'active'

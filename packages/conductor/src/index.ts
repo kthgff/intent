@@ -24,4 +24,5 @@ export * from './control/index.js';
 export * from './design/index.js';
 export * as design from './design/index.js';
 export * as decompose from './decompose/index.js';
+export * from './features/index.js';
 export * as interview from './interview/index.js';

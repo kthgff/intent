@@ -87,6 +87,7 @@ import {
   parseUnifiedDiff,
 } from './diff.js';
 import { registerEvidenceRoutes } from './evidence.js';
+import { registerFeatureRoutes } from './features.js';
 import { registerLinkRoutes } from './links.js';
 import { deviationMetrics, gateDwell } from './metrics.js';
 import { registerReleaseRoutes } from './releases.js';
@@ -1209,6 +1210,7 @@ export function createServer(opts: ServerOptions): ApiServer {
       workspace?: string;
       status?: string;
       repo?: string;
+      feature?: string;
     };
     let tickets = await store.listTickets({
       ...(q.workspace ? { workspace: q.workspace } : {}),
@@ -1216,6 +1218,7 @@ export function createServer(opts: ServerOptions): ApiServer {
     });
     if (q.repo)
       tickets = tickets.filter((t) => t.repos.includes(q.repo as string));
+    if (q.feature) tickets = tickets.filter((t) => t.feature === q.feature);
     return { tickets };
   });
 
@@ -2278,6 +2281,16 @@ export function createServer(opts: ServerOptions): ApiServer {
     'tdd.md',
     'vs.md',
   ]);
+  /** Feature-subject editable docs — the "Ask About This Feature"
+   *  scoped assistant (PRD §15.7, wp-152; API.md subject_ref
+   *  generalization D27) answers from, and diffs, the feature's own
+   *  doc evidence only. */
+  const EDITABLE_FEATURE_DOCS = new Set<DocKind>([
+    'feature.md',
+    'ac.md',
+    'vs.md',
+    'notes.md',
+  ]);
   const SESSION_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/;
   const editSessionSubject = (session: string) => `edit:${session}`;
 
@@ -2358,11 +2371,26 @@ export function createServer(opts: ServerOptions): ApiServer {
             `not '${ws.name}'`,
         );
       }
-      const ticket = await getTicketOr404(refWs, refId); // v1: ticket subjects only
-      const doc = docKindFor(body.target ?? 'ticket');
-      if (doc === null || !EDITABLE_TICKET_DOCS.has(doc)) {
+      // subject_ref generalizes to features (D27/API.md; PRD §15.7
+      // wp-152): an `F-*` subject edits feature docs via the same
+      // session machinery — the feature-scoped assistant answers
+      // from the feature's own doc evidence only.
+      const featureRef = await store.getFeature(refWs, refId);
+      let ticketIdForRun: string | undefined;
+      if (featureRef === null) {
+        const ticket = await getTicketOr404(refWs, refId);
+        ticketIdForRun = ticket.ticket_id;
+      }
+      const doc = docKindFor(
+        body.target ?? (featureRef !== null ? 'feature' : 'ticket'),
+      );
+      const editable =
+        featureRef !== null ? EDITABLE_FEATURE_DOCS : EDITABLE_TICKET_DOCS;
+      const targets =
+        featureRef !== null ? 'feature|ac|test|notes' : 'ticket|rs|tdd|vs';
+      if (doc === null || !editable.has(doc)) {
         throw badRequest(
-          `interview edit: target must be one of ticket|rs|tdd|vs (got '${body.target ?? 'ticket'}')`,
+          `interview edit: target must be one of ${targets} (got '${body.target ?? 'ticket'}')`,
         );
       }
       const session =
@@ -2409,7 +2437,7 @@ export function createServer(opts: ServerOptions): ApiServer {
       const run = await requestRun(ws.name, {
         subject: editSessionSubject(session),
         stage: 'interview',
-        ticketId: ticket.ticket_id,
+        ...(ticketIdForRun ? { ticketId: ticketIdForRun } : {}),
         tokens: {
           EDIT_SESSION: session,
           EDIT_TARGET: doc,
@@ -3322,6 +3350,15 @@ export function createServer(opts: ServerOptions): ApiServer {
         payload: e.payload,
       }),
     now,
+  });
+
+  // /features — Feature Workspace surface (PRD §15.7, wp-152): detail
+  // rollup, versioned docs, health findings, acceptance package +
+  // the explicit human acceptance gate.
+  registerFeatureRoutes(app, {
+    store,
+    workspace,
+    actor,
   });
 
   // /links — wp-111 traceability edges (D37): propose/record +

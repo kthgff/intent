@@ -339,3 +339,51 @@ requires the human gate even after a green smoke run. Board item
 `shipped` requires `released`. `verifying` renders in the Review
 board column; `released` joins Done. v1 may ship manual-gate-only;
 automated smoke is a fast-follow.
+
+## 9. Feature workspace semantics (wp-152, D46)
+
+S-17 (`/features/<ws>/<feature>`) landed ahead of the board screens —
+six tabs over a single server-computed rollup
+(`GET /features/<ref>`): **Overview** (objective/feature.md, status,
+owner, initiative, serves chips) · **Requirements** (`documents`/
+`implements` relations on the feature subject — multi-RS links with
+one **primary**: the first `verified` documents edge, else the first
+documents edge; server-chosen, the UI never re-derives; suggested
+edges are labeled, never trusted) · **Design** (versioned
+feature.md/ac.md/vs.md/mockup.json/adr.md + diffs) · **Tickets**
+(member tickets grouped by work_type×status) · **Quality** (AC
+evidence matrix — `ac.md` rows joined with verified
+`verified-by`/`tests`/`implements` edges on `ac:<id>` — plus open
+findings and bug/review-origin correction tickets) · **Release**
+(release_items memberships + feature_exposure + deployments + the
+acceptance package).
+
+- **Feature Health = findings, never a score.** Kinds:
+  `blocked_ticket` / `failed_ticket` / `open_gate` (feature or member
+  subject) / `unverified_ac` / `stale_approval` (doc_version newer
+  than its `doc_approved`) / `undelivered_ticket` / `not_accepted` /
+  `no_tickets`; severity `blocker|warning|info`; every finding carries
+  evidence `refs`. Deterministic — recomputed from live rows on every
+  read (`conductor/features` `featureHealth`).
+- **`done` = explicit human acceptance, full stop.** The merge
+  bookkeeping rollup (`recalcFeatureEvidence`) caps at `active` —
+  ticket completion never completes a feature. `POST
+  /features/<ref>/accept` is the only path to `done`: it appends a
+  durable `doc_approved` event (`data.doc='acceptance-package'`,
+  exclusions + member-ticket snapshot) then flips the row. Accepting
+  `done`/`discarded` is a 409, never a double-commit; known
+  exclusions are recorded verbatim — accepted-with-exclusions is
+  honest, never silent.
+- **Acceptance gates release assignment.** `addReleaseItem` throws
+  `not-approved` for a feature item whose status isn't `done` — the
+  Feature Acceptance Package must be human-accepted before a feature
+  enters release scope (PRD §15.7).
+- **"Ask About This Feature"** = the `/interview` edit mode
+  generalized to `F-*` subjects (D27 subject_ref): a chat-to-edit
+  session over the feature's own docs (targets `feature|ac|vs|notes`)
+  — proposals answer from feature-scoped evidence only and apply
+  through the same human approve/discard gate.
+- **Feature doc kinds** are `feature.md|ac.md|vs.md|notes.md|
+  mockup.json|adr.md|provenance.json` (DOC_KINDS has no `test.md` —
+  the verification spec is `vs.md`; DB-SCHEMA's prose list predates
+  the rename).
