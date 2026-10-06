@@ -105,7 +105,7 @@ Program plan for W16+ (PRD §14+§15): `docs/DEV-PLAN.md` + `docs/DELIVERY.md`.
 | W17 | wp-135 | Deployments, feature exposure, release notes (3 audiences), outcomes, retrospectives | wp-134 | done |
 | W17 | wp-136 | Delivery API: release/merge-center/exposure/notes routes + SSE + API.md backport | wp-134, wp-135 | done |
 | W17 | wp-137 | Merge Center + Release Center UI | wp-131, wp-136 | todo |
-| W17 | wp-138 | Delivery E2E: merge→release→deploy→retro vertical (mock adapter) | wp-133–136 | todo |
+| W17 | wp-138 | Delivery E2E: merge→release→deploy→retro vertical (mock adapter) | wp-133–136 | done |
 | W19 | wp-139 | Import reconciliation: provenance tri-state, clustering, reconciled-before-autonomy | wp-131, wp-144 | done |
 | W18 | wp-140 | ChangeSets: lifecycle, versioned spec diffs, apply/reconcile | wp-131 | done |
 | W18 | wp-141 | Run baseline pinning + mid-run reconciliation policy | wp-131, wp-140 | done |
