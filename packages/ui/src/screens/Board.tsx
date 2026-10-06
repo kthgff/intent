@@ -407,6 +407,16 @@ function CardView({
           {t.ticket_id}
         </Link>
         <StatusBadge status={t.status} />
+        {card.delivery && (
+          <Link
+            to={`/releases/${encodeURIComponent(t.workspace)}/${encodeURIComponent(card.delivery.release_id)}`}
+            className={`badge delivery-${card.delivery.state}`}
+            title={`delivery: ${card.delivery.state} (${card.delivery.release_id})`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {card.delivery.state}
+          </Link>
+        )}
         <span className="spacer" />
         {card.attention.some((g) => !g.cleared_at) && (
           <button

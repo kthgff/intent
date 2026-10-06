@@ -8,7 +8,12 @@
  * optimization: every fact is also durable, so subscribers re-read
  * state on (re)connect — no replay protocol.
  */
-import type { GateItem, Notification, RunRow } from '@sprint-runner/core';
+import type {
+  EventRow,
+  GateItem,
+  Notification,
+  RunRow,
+} from '@sprint-runner/core';
 import { getToken } from './api';
 
 export type StreamEventMap = {
@@ -25,6 +30,22 @@ export type StreamEventMap = {
   notification: Notification;
   /** A `tickets` row changed — refresh hint for board/focus (s-01). */
   ticket_updated: { workspace: string; ticket_id: string; status?: string };
+  // DELIVERY §5 (wp-136) — durable events mirrored onto the stream;
+  // payload is the appended `events` row.
+  merge_ready: EventRow;
+  merge_attempted: EventRow;
+  merge_conflict: EventRow;
+  release_created: EventRow;
+  release_items_changed: EventRow;
+  manifest_cut: EventRow;
+  release_approved: EventRow;
+  release_released: EventRow;
+  deployment_confirmed: EventRow;
+  feature_exposed: EventRow;
+  release_note_approved: EventRow;
+  retro_completed: EventRow;
+  correction_filed: EventRow;
+  dependent_revalidated: EventRow;
 };
 
 export type StreamEventType = keyof StreamEventMap;
@@ -38,6 +59,20 @@ const TYPES: StreamEventType[] = [
   'usage_partial',
   'notification',
   'ticket_updated',
+  'merge_ready',
+  'merge_attempted',
+  'merge_conflict',
+  'release_created',
+  'release_items_changed',
+  'manifest_cut',
+  'release_approved',
+  'release_released',
+  'deployment_confirmed',
+  'feature_exposed',
+  'release_note_approved',
+  'retro_completed',
+  'correction_filed',
+  'dependent_revalidated',
 ];
 
 export interface StreamHandlers {

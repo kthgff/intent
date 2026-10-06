@@ -62,22 +62,27 @@ import {
   markReleased,
   publishReleaseNote,
   recordDeployment,
+  releaseNotesRunRequest,
   removeReleaseItem,
   retroRunRequest,
+  saveReleaseNoteDraft,
   setFeatureExposure,
 } from '@sprint-runner/conductor';
 import {
   ACTOR_TYPES,
+  type DocKind,
   type EventRow,
   FEATURE_EXPOSURE_STATES,
   RELEASE_APPROVAL_DECISIONS,
   RELEASE_ITEM_KINDS,
+  RELEASE_NOTE_AUDIENCES,
   type Store,
   TICKET_PRIORITIES,
   TICKET_SEVERITIES,
 } from '@sprint-runner/core';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { lineDiff } from './diff.js';
 import { ApiError, parseBody } from './server.js';
 
 // ---------------------------------------------------------------------------
@@ -157,6 +162,13 @@ const NotesApproveBody = z
   .object({
     approver: z.string().optional(),
     actor_kind: z.enum(ACTOR_TYPES).optional(),
+  })
+  .passthrough();
+
+const NotesDraftBody = z
+  .object({
+    content: z.string().min(1),
+    edited_by: z.string().optional(),
   })
   .passthrough();
 
@@ -567,4 +579,127 @@ export function registerReleaseRoutes(
     });
     return { run };
   });
+
+  // ------------------------------------------------------------------
+  // release-subject docs + notes drafting (wp-137 — resolved read gaps:
+  // the Release Center UI must render `notes-<audience>.md` drafts and
+  // `retro.md`, which live in doc_versions on the REL-NNNN subject and
+  // are not reachable via /tickets/…/docs)
+  // ------------------------------------------------------------------
+
+  /** Queue the `release-notes` stage — requires a frozen manifest
+   *  (releaseNotesRunRequest enforces; 409 bad-state otherwise). */
+  app.post('/api/v1/releases/:workspace/:rel/notes', async (req) => {
+    const { workspace: wsName, rel } = req.params as {
+      workspace: string;
+      rel: string;
+    };
+    const ws = deps.workspace(wsName);
+    const runReq = await guard(() =>
+      releaseNotesRunRequest(releaseCtx(ws), rel),
+    );
+    const run = await deps.requestRun(ws.name, {
+      subject: runReq.subject,
+      stage: runReq.stage,
+      ...(runReq.ticketId ? { ticketId: runReq.ticketId } : {}),
+    });
+    return { run };
+  });
+
+  /** Human draft edit — append a `notes-<audience>.md` doc_version and
+   *  upsert the `release_notes` row, preserving the pinned approved
+   *  version (invariant 6). */
+  app.post(
+    '/api/v1/releases/:workspace/:rel/notes/:audience/draft',
+    async (req) => {
+      const {
+        workspace: wsName,
+        rel,
+        audience,
+      } = req.params as {
+        workspace: string;
+        rel: string;
+        audience: string;
+      };
+      const ws = deps.workspace(wsName);
+      const body = parseBody(NotesDraftBody, req.body, 'notes draft');
+      const note = await guard(() =>
+        saveReleaseNoteDraft(releaseCtx(ws), rel, {
+          audience,
+          content: body.content,
+          ...(body.edited_by ? { editedBy: body.edited_by } : {}),
+        }),
+      );
+      return { note };
+    },
+  );
+
+  /** Read a release-subject doc — restricted to `retro.md` and the
+   *  `notes-<audience>.md` kinds (fail-closed 400 otherwise). Returns
+   *  the same payload shape as /tickets/…/docs/:name. */
+  app.get('/api/v1/releases/:workspace/:rel/docs/:name', async (req) => {
+    const {
+      workspace: wsName,
+      rel,
+      name,
+    } = req.params as {
+      workspace: string;
+      rel: string;
+      name: string;
+    };
+    const ws = deps.workspace(wsName);
+    const doc = releaseDocFor(name);
+    if (doc === null) {
+      throw new ApiError(
+        400,
+        'bad_request',
+        `unknown release doc '${name}' (expected retro|${RELEASE_NOTE_AUDIENCES.map(
+          (a) => `notes-${a}`,
+        ).join('|')})`,
+      );
+    }
+    const dv = await deps.store.getDoc({
+      workspace: ws.name,
+      subject: rel,
+      doc,
+    });
+    if (!dv) {
+      throw new ApiError(404, 'not_found', `no ${doc} for ${ws.name}/${rel}`);
+    }
+    const all = await deps.store.listDocVersions({
+      workspace: ws.name,
+      subject: rel,
+      doc,
+    });
+    const diffs: { from: string; to: string; diff: string }[] = [];
+    for (let i = 1; i < all.length; i++) {
+      const prev = all.at(i - 1);
+      const cur = all.at(i);
+      if (!prev || !cur) continue;
+      diffs.push({
+        from: `v${prev.version}`,
+        to: `v${cur.version}`,
+        diff: lineDiff(prev.content, cur.content),
+      });
+    }
+    return {
+      name,
+      doc,
+      content: dv.content,
+      version: dv.version,
+      versions: all.map((v) => ({
+        version: v.version,
+        edited_by: v.edited_by,
+        created_at: v.created_at,
+      })),
+      diffs,
+    };
+  });
+}
+
+/** `retro.md` | `notes-<audience>.md` → DocKind, else null (fail-closed). */
+function releaseDocFor(name: string): DocKind | null {
+  if (name === 'retro' || name === 'retro.md') return 'retro.md';
+  const m = name.match(/^notes-(customer|stakeholder|technical)(\.md)?$/);
+  return m ? (`notes-${m[1]}.md` as DocKind) : null;
 }
