@@ -7,10 +7,7 @@
  * `ContractDocSchema` envelope). Both shapes lint fail-closed — a
  * malformed contract is a pipeline blocker, never a guess.
  */
-import {
-  ContractDocSchema,
-  ContractSpecSchema,
-} from '@sprint-runner/core';
+import { ContractDocSchema, ContractSpecSchema } from '@sprint-runner/core';
 import type { LintViolation } from './coverage.js';
 
 const v = (rule: string, message: string): LintViolation => ({

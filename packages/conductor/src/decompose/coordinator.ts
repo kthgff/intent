@@ -64,9 +64,7 @@ function contractNamesFromTicketMd(raw: string | null): string[] {
     raw ?? '',
   );
   if (!m?.[1]) return [];
-  const line = m[1]
-    .split('\n')
-    .find((l) => /^contract\s*:/.test(l));
+  const line = m[1].split('\n').find((l) => /^contract\s*:/.test(l));
   if (!line) return [];
   const value = line.replace(/^contract\s*:\s*/, '').trim();
   const t = value.replace(/^\[|\]$/g, '');

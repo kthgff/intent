@@ -99,7 +99,11 @@ export async function promoteContracts(args: {
       ctx.actor,
     );
     for (const s of specs) {
-      promoted.push({ name: s.name, consumers: [consumerId], version: v.version });
+      promoted.push({
+        name: s.name,
+        consumers: [consumerId],
+        version: v.version,
+      });
     }
   }
   return promoted;

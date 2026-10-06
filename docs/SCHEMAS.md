@@ -44,6 +44,13 @@ source_ref:                  # optional import provenance (wp-139) —
 parent: null                 # set on children produced by a split run
 depends_on: []               # ticket ids that must merge before this
                              # one can implement (topological ordering)
+contract: []                 # contract-first (wp-154): names of the
+                             # approved contract.json contracts this
+                             # ticket consumes — set at split
+                             # materialization from ## Contracts; each
+                             # must exist as a contract.json
+                             # doc_version before any repo-executing
+                             # run claims the ticket (fail-closed)
 serves: []                   # goal board_item ids this ticket serves
                              # (D33) — inherited feature→initiative
                              # chain or direct override; [] = goal-free
@@ -413,6 +420,16 @@ agent run.
 | child | title | repos | depends_on | covers |
 #  child = local label c1..cn (real ids assigned at materialization);
 #  depends_on = sibling labels, not ticket ids; covers = parent ac_ids
+## Decomposition             (MACHINE-READ — optional, wp-154)
+| child | boundary | ownership | tests | security | complexity | shared_files |
+#  per-child: boundary one-liner · repo/service ownership · test
+#  obligation · security ∈ standard|sensitive · complexity ∈
+#  low|medium|high · shared_files = predicted shared paths
+#  (repo:path or bare path — the merge-conflict risk input)
+## Contracts                 (MACHINE-READ — optional, wp-154)
+| contract | kind | consumers | artifact |
+#  contract = name · kind ∈ api|data|event · consumers = child labels ·
+#  artifact = contracts/<name>.json run artifact (ContractSpec)
 ## Rationale                 one line per boundary
 ```
 
@@ -425,6 +442,37 @@ On approval the conductor allocates real ids transactionally
 `depends_on` to sibling ids, and sets the parent → `split`
 (`split_materialized` event). On reject the plan stays on the parent's
 run_artifacts row and the ticket returns to triage.
+
+**wp-154 decomposition pass** (Work Decomposition Engine, PRD §15.10):
+
+- `## Decomposition` and `## Contracts` are OPTIONAL sections, but a
+  present section MUST carry its pinned table — a malformed table or
+  enum cell outside the vocabulary fails the doc lint and parks the
+  plan on doc-repair (fail-closed).
+- Each `## Contracts` row's `artifact` names a `contracts/<name>.json`
+  run artifact holding one **ContractSpec**:
+  `{schema: 1, name, kind: api|data|event, version: <int>, summary?,
+  consumers: [<labels>], terms: {…}}` — `terms` is the interface body
+  (endpoints / data fields / event envelope). A missing/invalid
+  artifact or a consumer naming no `## Children` label fails closed at
+  proposal, before the gate is ever surfaced.
+- On approval, materialization promotes every contract to a
+  `doc_versions(<child>, 'contract.json')` envelope
+  (`{schema: 1, contracts: [ContractSpec…]}`) on EACH consuming child —
+  inside the same transaction, so an approved plan can never
+  half-promote. Consuming children gain `contract: [<names>]`
+  frontmatter (§1).
+- Children get `tickets.parallel_safety` (`unknown|safe|caution|
+  exclusive` — sensitive OR shared-file overlap → exclusive, shared
+  repo → caution, disjoint → safe) and `tickets.execution_readiness`
+  (`unassessed|incomplete|ready|blocked` — recomputed over deps +
+  contracts + knowledge slots + statements at materialization and after
+  every dep merge; `dependent_revalidated` event, contract drift →
+  `baseline-drift` gate item).
+- `runs.request.baseline.contract_ver` (§20) pins the contract version
+  at launch; mid-run drift is a `baseline-drift` gate, and a declared
+  `contract:` with no pinned `contract.json` doc parks the claim
+  (`contract-missing` gate) — revalidation, never silent proceed.
 
 ## 15. Spec lint — runner rule set (spec_score)
 

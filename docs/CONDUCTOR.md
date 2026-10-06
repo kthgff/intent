@@ -95,6 +95,16 @@ gate actions, imports) and the conductor reads the DB directly.
      conductor queues a `probe` run itself (subject `probe:<repo>`);
      triage never deadlocks waiting for a card only a probe can
      produce.
+   - **Integration coordination (wp-154)**: repo-executing claims also
+     pass the Integration Coordinator — `parallel_safety: exclusive`
+     tickets never launch while another repo-executing run is live (and
+     vice versa); a declared `contract:` frontmatter without a pinned
+     `contract.json` doc parks the claim behind a `contract-missing`
+     gate; a predicted shared-file overlap with a live run's TDD file
+     plan parks it (`shared-file-conflict`). Every rejection lands in
+     the claim report's `skipped` list with a named reason — sequencing
+     is observable in claim order. The same fences apply to queued
+     `pending` rows re-claimed by the tick.
    - Order: ticket priority → oldest-first.
    - Acquire lease (DB row insert — contested → skip this tick).
 3. **LAUNCH**
@@ -201,6 +211,14 @@ conductor does. Missing/unparseable sentinel → `run_failed`.
   parallel tickets = N running containers, each independently
   CPU/memory-capped.
 - DAG: `depends_on` children park until parents `merged`.
+- Conservative default (wp-154): one AI execution per ticket;
+  `parallel_safety` only ever RESTRICTS parallel claims, never widens
+  them — parallelism expands only on measured low conflict rates.
+- **Post-merge revalidation (wp-154)**: when a ticket merges (or its
+  merge lands `reverted`), every non-terminal dependent's
+  `execution_readiness` is recomputed and its pinned contract
+  re-checked — drift surfaces a `baseline-drift` gate item +
+  `dependent_revalidated` event, never a silent proceed.
 - Stage timeouts per `timeouts:` block; kill = `aborted`-eligible.
 
 ## Run lifecycle
@@ -252,7 +270,12 @@ validated → committed → done | failed | blocked | killed`
   not a second agent run — allocates child ids transactionally,
   inserts the child `tickets` rows + `doc_versions` bodies (real
   `id`, `parent`, `depends_on` → sibling ids), sets the parent →
-  `split`. Reject → plan stays in `run_artifacts`, ticket returns to
+  `split`. wp-154: inside the same transaction it also promotes each
+  `## Contracts` artifact to the consumers' `contract.json`
+  doc_version (fail-closed — a missing/invalid artifact rolls the
+  whole materialization back) and stamps each child's
+  `execution_readiness` + `parallel_safety` from the `## Decomposition`
+  table. Reject → plan stays in `run_artifacts`, ticket returns to
   triage.
 - **Suggestions application**: when triage ends `READY`, the conductor
   writes `suggestions` (backend/model/priority/depth) onto the ticket

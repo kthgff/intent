@@ -44,7 +44,6 @@ import { contractLint } from '@sprint-runner/lints';
 import { specLint } from '@sprint-runner/lints';
 import { escalationModelFor } from '@sprint-runner/prompts';
 import { type ChangesCtx, createChangeset } from '../changes/index.js';
-import { parseDecompositionPlan } from '../decompose/plan.js';
 import {
   type ApplyStatusOptions,
   type NextTransition,
@@ -55,6 +54,7 @@ import {
   applyTicketStatus,
   rewriteFrontmatterStatus,
 } from '../contracts.js';
+import { parseDecompositionPlan } from '../decompose/plan.js';
 import { ensureTestEnvForStage } from '../envops/testenv.js';
 import { emitEvent } from '../events/index.js';
 import type { EmitArgs } from '../events/index.js';
@@ -1043,9 +1043,7 @@ export class RealTransitionHandler implements TransitionHandler {
       // must never surface a plan that cannot materialize (the
       // approval path promotes contracts fail-closed).
       const parsed =
-        plan && violations.length === 0
-          ? parseDecompositionPlan(plan)
-          : null;
+        plan && violations.length === 0 ? parseDecompositionPlan(plan) : null;
       if (plan && violations.length === 0 && parsed === null) {
         violations.push({
           rule: 'doc.table',
