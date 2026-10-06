@@ -30,15 +30,15 @@ evidence is labeled and cannot verify an AC.
 
 ## Acceptance criteria
 
-- [ ] Existing-product `prd-draft` obtains and validates a scoped evidence bundle before prompt rendering; greenfield/zero-result behavior is explicit
-- [ ] PRD quality findings cover ambiguity, contradiction, failure paths, accessibility, abuse/security, privacy/data, performance, operability, observability, rollout, rollback, and success measurement with citations
-- [ ] The AI quality pass never auto-approves a PRD and does not replace or alter deterministic `spec_score`
-- [ ] Design/test/implement/review prompts receive task-bounded evidence; implement/review still read current worktree files and run real commands
-- [ ] Goal/AC/ticket/PR/commit/code/test links show provenance, verification, confidence, and source version; suggested links cannot masquerade as verified
-- [ ] Human verify/reject actions are idempotent, evented, and exposed through the API/UI
-- [ ] Stale or unauthorized evidence cannot mark an AC/link verified
-- [ ] Source citations are navigable from document and review findings
-- [ ] `pnpm typecheck`, `pnpm test`, and `pnpm lint` pass
+- [x] Existing-product `prd-draft` obtains and validates a scoped evidence bundle before prompt rendering; greenfield/zero-result behavior is explicit
+- [x] PRD quality findings cover ambiguity, contradiction, failure paths, accessibility, abuse/security, privacy/data, performance, operability, observability, rollout, rollback, and success measurement with citations
+- [x] The AI quality pass never auto-approves a PRD and does not replace or alter deterministic `spec_score`
+- [x] Design/test/implement/review prompts receive task-bounded evidence; implement/review still read current worktree files and run real commands
+- [x] Goal/AC/ticket/PR/commit/code/test links show provenance, verification, confidence, and source version; suggested links cannot masquerade as verified
+- [x] Human verify/reject actions are idempotent, evented, and exposed through the API/UI
+- [x] Stale or unauthorized evidence cannot mark an AC/link verified
+- [x] Source citations are navigable from document and review findings
+- [x] `pnpm typecheck`, `pnpm test`, and `pnpm lint` pass
 
 ## Test plan
 
@@ -53,8 +53,24 @@ evidence is labeled and cannot verify an AC.
 
 ## Definition of Done
 
-- [ ] Existing S-05/S-06/S-08/S-14 designs document evidence interactions
-- [ ] No new opaque readiness score or permanent AI-chat chrome introduced
-- [ ] Retrieval evaluation includes the integrated task queries
-- [ ] Relevant prompt contracts and fixtures are versioned
+- [x] Existing S-05/S-06/S-08/S-14 designs document evidence interactions
+- [x] No new opaque readiness score or permanent AI-chat chrome introduced
+- [x] Retrieval evaluation includes the integrated task queries
+- [x] Relevant prompt contracts and fixtures are versioned
 
+
+## Completion notes (wp-111 close-out)
+
+- UI wiring: `Traceability` mounts as a TicketFocus tab; `RsQualityPanel`
+  mounts in DocReview's rail when the resolved doc is `rs.md` (all
+  findings) and in the `rs-quality` gate card in TicketFocus (criticals
+  only + human `waive_quality` action → `gate_overridden`; never an
+  approval).
+- Spec gap resolved + backported to API.md: doc routes accept legacy
+  aliases `prd`/`prd.md`→`rs.md` and `test`/`test.md`→`vs.md` because
+  stage/gate ids kept pre-rename vocabulary (wp-132). Stale UI doc names
+  (`prd`/`test`) in TicketFocus/Inbox were updated to `rs`/`vs`.
+- Assumption: the wp-111 task-eval golden fixture lives under
+  `fixtures/kb/` (not `fixtures/eval/`) — `loadGoldenCorpus` treats every
+  `*.json` in `fixtures/eval/` as a lints golden family, which this
+  retrieval suite is not.

@@ -26,6 +26,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MockAdapter } from '@sprint-runner/adapters';
 import { type EffectiveConfig, resolveConfig } from '@sprint-runner/config';
+import { RS_QUALITY_DIMENSIONS } from '@sprint-runner/core';
 import type {
   Adapter,
   CollectContext,
@@ -92,6 +93,9 @@ export interface ScriptedRunInfo {
   /** `<run_dir>/<ticket_id>/` — the agent's doc-write scope. */
   ticketDir?: string;
   runId: string;
+  /** The rendered prompt text handed to `adapter.run` (wp-111 grounding
+   *  assertions — populated on `seen`, absent inside `script` calls). */
+  prompt?: string;
 }
 
 export type ScriptFn = (run: ScriptedRunInfo) => MockScript;
@@ -156,7 +160,7 @@ export class ScriptedAdapter implements Adapter {
     };
     const rendered = this.#inner.prepare(subject, stage, ctx);
     this.#meta.set(rendered, info);
-    this.seen.push(info);
+    this.seen.push({ ...info, prompt: rendered.text });
     return rendered;
   }
 
@@ -246,6 +250,24 @@ export function testReport(pass = true): unknown {
   return {
     pass_pct: pass ? 100 : 0,
     cases: [{ case_id: 'case:c1', result: pass ? 'pass' : 'fail' }],
+  };
+}
+
+/** `rs-quality.json` (SCHEMAS §24) — a valid cited quality pass for the
+ *  prd stage. `findings` empty = the explicit clean pass; the runner
+ *  fails closed on a missing/malformed/partial artifact. */
+export function rsQualityDoc(
+  id: string,
+  findings: Record<string, unknown>[] = [],
+): unknown {
+  return {
+    schema: 1,
+    subject: id,
+    doc_version: 1,
+    evidence_ref: 'retrieval-evidence.json',
+    dimensions_checked: [...RS_QUALITY_DIMENSIONS],
+    findings,
+    generated_at: '2026-10-05T00:00:00Z',
   };
 }
 

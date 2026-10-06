@@ -17,6 +17,7 @@ import { resolveConfig } from '@sprint-runner/config';
 import {
   EVENT_NAMES,
   type EventName,
+  RS_QUALITY_DIMENSIONS,
   type RunResult,
   type RunRow,
   type Stage,
@@ -320,6 +321,20 @@ const events = (ticketId?: string) =>
     workspace: WS,
     ...(ticketId ? { ticket_id: ticketId } : {}),
   });
+
+/** A valid SCHEMAS §24 rs-quality.json payload (all 12 dimensions
+ *  checked; `findings` empty = the explicit clean pass). */
+function rsQuality(subject: string, findings: unknown[] = []): unknown {
+  return {
+    schema: 1,
+    subject,
+    doc_version: 1,
+    evidence_ref: 'retrieval-evidence.json',
+    dimensions_checked: [...RS_QUALITY_DIMENSIONS],
+    findings,
+    generated_at: NOW,
+  };
+}
 
 const gates = () => store.listGateItems({ workspace: WS });
 
@@ -669,6 +684,12 @@ describe('gate modes', () => {
       'test-seed',
     );
     const run = await makeRun('SR-0001', 'prd', 'PRD-WRITTEN', 'SR-0001');
+    // wp-111: a clean cited quality pass (empty findings is valid).
+    await putRunArtifact(
+      run.id,
+      'rs-quality.json',
+      `${JSON.stringify(rsQuality('SR-0001'))}\n`,
+    );
     await handler.onRunComplete(outcome(run, 'PRD-WRITTEN'), tools());
     expect(await ticketMd('SR-0001')).toMatch(/^status: prd-review$/m);
     expect((await gates()).filter((g) => g.gate === 'prd-review')).toHaveLength(
@@ -689,6 +710,11 @@ describe('gate modes', () => {
       'test-seed',
     );
     const run = await makeRun('SR-0001', 'prd', 'PRD-WRITTEN', 'SR-0001');
+    await putRunArtifact(
+      run.id,
+      'rs-quality.json',
+      `${JSON.stringify(rsQuality('SR-0001'))}\n`,
+    );
     await handler.onRunComplete(outcome(run, 'PRD-WRITTEN'), tools());
     const g = (await gates()).find((x) => x.gate === 'prd-review');
     expect(g?.kind).toBe('review');

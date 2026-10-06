@@ -43,6 +43,10 @@ export interface GoldenCase {
   query: string;
   /** Optional retrieval subject (explicit-link queries). */
   subject?: string;
+  /** wp-111: per-case retrieval task — an integrated suite can mix
+   *  prd/impact/testplan/implement/review queries (the evaluation row's
+   *  `task` stays the suite-level label; each case reports its own). */
+  task?: RetrievalTask;
   /** Repo-relative paths that MUST surface. */
   relevant_paths?: string[];
   /** Symbols that MUST surface. */
@@ -76,6 +80,8 @@ export interface GoldenEvalOptions {
 
 export interface GoldenCaseReport {
   id: string;
+  /** The task the case actually ran under (case override or suite). */
+  task: RetrievalTask;
   hits: number;
   relevant: number;
   recall_at_k: number | null;
@@ -147,10 +153,11 @@ export async function evaluateGoldenSet(
   const exactSamples: number[] = [];
 
   for (const c of suite.cases) {
+    const caseTask = c.task ?? suite.task;
     const request: RetrievalRequest = {
       workspace: opts.workspace,
       subject: c.subject ?? null,
-      task: suite.task,
+      task: caseTask,
       query: c.query,
       repos: opts.repos ?? [],
       source_types: ['code'],
@@ -222,6 +229,7 @@ export async function evaluateGoldenSet(
 
     reports.push({
       id: c.id,
+      task: caseTask,
       hits,
       relevant: declared,
       recall_at_k: recall,

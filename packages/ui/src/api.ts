@@ -13,6 +13,9 @@ import type {
   DossierEntry,
   EventRow,
   GateItem,
+  Relation,
+  RelationVerification,
+  RsQuality,
   RunRow,
   TicketRepoRow,
   TicketRow,
@@ -295,6 +298,53 @@ export interface DocResponse {
   diffs: { from: string; to: string; diff: string }[];
 }
 
+// ---- wp-111 — traceability links + pinned citations -----------------
+
+/** POST /links/decide body — OCC `expected` is the state the human saw. */
+export interface LinkDecisionBody {
+  workspace: string;
+  subject: string;
+  predicate: string;
+  object: string;
+  action: 'verify' | 'reject';
+  expected: RelationVerification | null;
+  run?: string | null;
+}
+
+/** GET /evidence/source — a `code:` citation resolved to its pinned
+ *  unit. `freshness: 'stale'` means the index head has moved past the
+ *  pin — render as historical evidence, never as current. */
+export interface EvidenceSource {
+  ref: string;
+  repo: string;
+  commit_sha: string;
+  path: string;
+  freshness: 'current' | 'stale';
+  current_head: string | null;
+  unit: {
+    symbol: string | null;
+    symbol_kind: string | null;
+    start_line: number;
+    end_line: number;
+    content_hash: string;
+    content: string;
+  } | null;
+}
+
+/** GET /repositories/<ws>/<repo>/index — index heads. */
+export interface RepoIndexState {
+  repo: string;
+  current: { commit_sha: string } | null;
+  heads: { commit_sha: string }[];
+}
+
+/** GET …/rs-quality — latest cited AI quality pass for the PRD. */
+export interface RsQualityResponse {
+  run_id: string;
+  name: string;
+  quality: RsQuality;
+}
+
 export interface WorkspaceInfo {
   name: string;
   root_path: string;
@@ -516,6 +566,24 @@ export const client = {
       `/api/v1/interview/${encodeURIComponent(session)}`,
       { method: 'DELETE' },
     ),
+  // wp-111 — traceability links (suggested ≠ verified; decide is OCC)
+  links: (ws: string, subject: string) =>
+    api<{ relations: Relation[] }>(
+      `/api/v1/links${qs({ workspace: ws, subject })}`,
+    ),
+  decideLink: (body: LinkDecisionBody) =>
+    post<{ relation: Relation }>('/api/v1/links/decide', body),
+  // wp-111 — navigable citations + repo index head
+  evidenceSource: (ws: string, ref: string) =>
+    api<EvidenceSource>(`/api/v1/evidence/source${qs({ workspace: ws, ref })}`),
+  repoIndex: (ws: string, repo: string) =>
+    api<RepoIndexState>(
+      `/api/v1/repositories/${encodeURIComponent(ws)}/${encodeURIComponent(
+        repo,
+      )}/index`,
+    ),
+  rsQuality: (ws: string, id: string) =>
+    api<RsQualityResponse>(`${ticketPath(ws, id)}/rs-quality`),
   /** D27 capture tray ingress — creates a `board: null` board_item. */
   capture: (body: {
     workspace: string;

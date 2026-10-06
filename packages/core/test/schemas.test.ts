@@ -461,10 +461,11 @@ describe('config.yaml (SETTINGS)', () => {
 });
 
 describe('prompt templates', () => {
-  it('ships all 26 templates at PROMPT_VERSION 3', () => {
+  it('ships all 26 templates at PROMPT_VERSION 4', () => {
     // v2: wp-081 added interview-edit (chat-to-edit, s-01 D25).
-    // v3: wp-135 added release-notes (three-audience notes draft).
-    expect(PROMPT_VERSION).toBe(3);
+    // v3: wp-111 prd template emits rs-quality.json (INTELLIGENCE §5).
+    // v4: wp-135 added release-notes (three-audience notes draft).
+    expect(PROMPT_VERSION).toBe(4);
     expect(Object.keys(PROMPT_TEMPLATES).length).toBe(26);
     expect(PROMPT_TEMPLATES.retro.length).toBeGreaterThan(0);
     expect(PROMPT_TEMPLATES['release-notes'].length).toBeGreaterThan(0);

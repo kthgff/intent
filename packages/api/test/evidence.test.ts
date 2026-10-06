@@ -184,3 +184,109 @@ describe('repositories/<repo>/index (D37)', () => {
     await app.close();
   });
 });
+
+describe('GET /evidence/source (wp-111 — navigable pinned citations)', () => {
+  async function indexHead(app: ApiServer): Promise<string> {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/v1/repositories/${WS}/api/index`,
+      headers: AUTH,
+      payload: {},
+    });
+    expect(res.statusCode).toBe(201);
+    return (res.json() as { repoIndex: { commit_sha: string } }).repoIndex
+      .commit_sha;
+  }
+
+  it('resolves a code: citation to the pinned unit, labeled current', async () => {
+    const app = makeServer();
+    const sha = await indexHead(app);
+    const res = await app.inject({
+      method: 'GET',
+      url:
+        `/api/v1/evidence/source?workspace=${WS}` +
+        `&ref=code:api:${sha}:prefs.ts:savePreferences`,
+      headers: AUTH,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      repo: string;
+      commit_sha: string;
+      path: string;
+      freshness: string;
+      current_head: string;
+      unit: { symbol: string; content: string; start_line: number };
+    };
+    expect(body).toMatchObject({
+      repo: 'api',
+      commit_sha: sha,
+      path: 'prefs.ts',
+      freshness: 'current',
+      current_head: sha,
+    });
+    expect(body.unit.symbol).toBe('savePreferences');
+    expect(body.unit.content).toContain('savePreferences');
+    await app.close();
+  });
+
+  it('a superseded pin is labeled stale, never current', async () => {
+    const app = makeServer();
+    const sha1 = await indexHead(app);
+    // Advance the head — the sha1 citation must now render stale.
+    writeFileSync(
+      join(repoDir, 'prefs.ts'),
+      'export function savePreferences(u: string) {\n  return `${u}!`;\n}\n',
+    );
+    execFileSync('git', ['add', '-A'], { cwd: repoDir });
+    execFileSync('git', ['commit', '-qm', 'advance'], { cwd: repoDir });
+    const sha2 = await indexHead(app);
+    expect(sha2).not.toBe(sha1);
+
+    const res = await app.inject({
+      method: 'GET',
+      url:
+        `/api/v1/evidence/source?workspace=${WS}` +
+        `&ref=code:api:${sha1}:prefs.ts:savePreferences`,
+      headers: AUTH,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      freshness: string;
+      current_head: string;
+    };
+    expect(body.freshness).toBe('stale');
+    expect(body.current_head).toBe(sha2);
+    await app.close();
+  });
+
+  it('fail-closed: 400 unparseable · 403 unconfigured repo · 404 missing unit', async () => {
+    const app = makeServer();
+    const sha = await indexHead(app);
+
+    const bad = await app.inject({
+      method: 'GET',
+      url: `/api/v1/evidence/source?workspace=${WS}&ref=not-a-ref`,
+      headers: AUTH,
+    });
+    expect(bad.statusCode).toBe(400);
+
+    const forbidden = await app.inject({
+      method: 'GET',
+      url:
+        `/api/v1/evidence/source?workspace=${WS}` +
+        `&ref=code:nope:${sha}:prefs.ts:savePreferences`,
+      headers: AUTH,
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const missing = await app.inject({
+      method: 'GET',
+      url:
+        `/api/v1/evidence/source?workspace=${WS}` +
+        `&ref=code:api:${sha}:absent.ts:ghost`,
+      headers: AUTH,
+    });
+    expect(missing.statusCode).toBe(404);
+    await app.close();
+  });
+});

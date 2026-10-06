@@ -4,6 +4,7 @@
  */
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import RsQualityPanel from '../RsQuality';
 import { client } from '../api';
 import { DiffView, Empty, ErrorBox, Loading, Markdown } from '../components';
 import { useLoad } from '../hooks';
@@ -57,6 +58,7 @@ export default function DocReview() {
             <Markdown text={doc.data.content} />
           </div>
           <aside className="rail">
+            {doc.data.doc === 'rs.md' && <RsQualityPanel ws={ws} id={id} />}
             <div className="card">
               <strong>Versions ({doc.data.diffs.length + 1})</strong>
               {doc.data.diffs.length === 0 && (

@@ -43,6 +43,9 @@ export const ALL_GATES = [
   'repair',
   'plan-package',
   'test-env',
+  /** wp-111: unresolved `critical` RS-quality findings hold prd-review
+   *  until a human resolves/waives them (INTELLIGENCE §5). */
+  'rs-quality',
 ] as const;
 export type Gate = (typeof ALL_GATES)[number];
 
@@ -57,7 +60,14 @@ export const PLAN_PACKAGE_GATES = [
 /** Gates that always surface regardless of mode (fail-closed). The
  *  `test-env` provisioning gate is a hard block (wp-157) — it is never
  *  suppressed by a gate mode. */
-const ALWAYS_SURFACE = new Set(['repair', 'escalated', 'test-env']);
+const ALWAYS_SURFACE = new Set([
+  'repair',
+  'escalated',
+  'test-env',
+  // wp-111: a critical spec-quality finding is fail-closed machinery —
+  // gate modes can compress doc REVIEWS, never an unresolved critical.
+  'rs-quality',
+]);
 
 const MODE_GATES: Record<GateMode, ReadonlySet<string>> = {
   full: new Set(ALL_GATES),
@@ -149,6 +159,7 @@ export function gateKindFor(gate: string): GateKind {
     case 'test-review':
     case 'plan-package':
     case 'changes-requested':
+    case 'rs-quality':
       return 'review';
     case 'test-approved':
     case 'approved':

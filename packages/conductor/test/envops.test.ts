@@ -5,6 +5,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   rm,
   writeFile,
 } from 'node:fs/promises';
@@ -231,6 +232,33 @@ describe('collect', () => {
       readFile(join(scratch, 'triage.json'), 'utf8'),
     ).rejects.toThrow();
     expect(git(['status', '--porcelain'], worktree)).toBe('');
+  });
+
+  it('purges emptied ancestor dirs for multi-segment run ids', async () => {
+    // Real run ids are `ws/<subject>/<attempt>-<stage>` — the scratch
+    // leaf sits under `.sprint-runner/ws/<subject>/`, which must not
+    // survive as residue (wp-098 container e2e regression).
+    const worktree = join(root, 'wt-ms');
+    await initRepo(worktree);
+    await writeFile(join(worktree, '.gitignore'), '.sprint-runner/\n');
+    git(['add', '-A'], worktree);
+    git(['commit', '-m', 'init'], worktree);
+
+    const runId = 'ws/SR-1/001-implement';
+    const scratch = scratchPath(worktree, runId);
+    await mkdir(scratch, { recursive: true });
+    await writeFile(join(scratch, 'result.json'), '{"ok":true}\n');
+
+    const res = await collectArtifacts({
+      worktree,
+      runId,
+      runDir: join(root, 'runs', ...runId.split('/')),
+      canWriteOutsideTree: false,
+    });
+
+    expect(res.ok).toBe(true);
+    expect(res.residue).toEqual([]);
+    await expect(readdir(join(worktree, '.sprint-runner'))).rejects.toThrow();
   });
 
   it('is a no-op (besides scratch purge) for outside-tree backends', async () => {

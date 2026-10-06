@@ -27,6 +27,7 @@ import {
   findingsFragment,
   makeFixtureWorld,
   rsDoc,
+  rsQualityDoc,
   tddDoc,
   testReport,
   ticketMd,
@@ -75,7 +76,12 @@ function happyScript(r: ScriptedRunInfo): MockScript {
     case 'prd':
       return {
         sentinel: 'PRD-WRITTEN',
-        files: { [join(td, 'rs.md')]: rsDoc(id) },
+        files: {
+          [join(td, 'rs.md')]: rsDoc(id),
+          // wp-111: the prd contract requires the cited quality pass —
+          // a run without rs-quality.json fails closed into doc-repair.
+          [join(td, 'rs-quality.json')]: rsQualityDoc(id),
+        },
       };
     case 'design':
       if (r.attempt === 1) {

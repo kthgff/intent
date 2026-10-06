@@ -15,6 +15,11 @@
  *                                                          // (ticket dir etc.)
  *                         hang?: boolean,             // never exits
  *                         delayMs?: number,           // work delay
+ *                         waitFor?: string,           // poll for this file
+ *                                                     // (bind-mounted
+ *                                                     // worktree → the
+ *                                                     // test releases
+ *                                                     // the run on demand)
  *                         exit?: number,              // exit code
  *                       }
  *                     Content values may be strings (written verbatim)
@@ -27,7 +32,7 @@
  * killing so the run_killed → retry path is exercised for real.
  * The LAST non-empty stdout line is the sentinel (CONDUCTOR contract).
  */
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 const scenario = process.env.MOCK_SCENARIO || 'done';
@@ -104,6 +109,12 @@ for (const [path, content] of Object.entries(spec.files ?? {}))
   writeFile(path, content);
 
 await sleep(Number(spec.delayMs ?? 30));
+
+if (typeof spec.waitFor === 'string' && spec.waitFor.length > 0) {
+  // Poll for a host-written file — the bind mount is path-identical,
+  // so the file the test drops in the worktree releases this run.
+  while (!existsSync(spec.waitFor)) await sleep(50);
+}
 
 if (spec.hang === true) {
   // Never exits — the conductor's timeout sweep must kill us.
