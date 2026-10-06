@@ -194,11 +194,8 @@ export async function evaluateReadiness(
   // is unpushed/un-PR'd work, and a closed-unmerged PR is just as much
   // "not proposed for review" as no PR at all.
   const closed = openRows
-    .filter((r) => {
-      const s = prInfos.get(r.repo)?.state;
-      return s !== undefined && s !== 'OPEN';
-    })
-    .map((r) => r.repo);
+    .map((r) => ({ repo: r.repo, state: prInfos.get(r.repo)?.state }))
+    .filter((r) => r.state !== undefined && r.state !== 'OPEN');
   items.push({
     id: 'prs-open',
     label: 'Every repo has an open PR',
@@ -210,9 +207,7 @@ export async function evaluateReadiness(
             ...(noPr.length > 0
               ? [`no PR for ${noPr.join(', ')} — work unpushed`]
               : []),
-            ...(closed.length > 0
-              ? [`PR closed/merged for ${closed.join(', ')}`]
-              : []),
+            ...closed.map((c) => `PR ${c.state?.toLowerCase()} for ${c.repo}`),
           ].join('; '),
   });
 

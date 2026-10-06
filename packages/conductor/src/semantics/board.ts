@@ -528,6 +528,30 @@ export async function setBoardStatus(
     status: assertBoardStatus(args.status),
   };
   await store.upsertBoard(next);
+  // Audit trail — `status_changed` events are append-only truth, so a
+  // board 'approved' transition records WHO approved (the board row
+  // itself carries no approver field; under the single-token trust
+  // model the actor is the human principal).
+  if (next.status !== board.status) {
+    const ts = (args.now?.() ?? new Date()).toISOString();
+    await store.appendEvent({
+      workspace: args.workspace,
+      ticket_id: null,
+      ts,
+      stage: null,
+      actor_type: args.actor.type,
+      actor_id: args.actor.id,
+      event: 'status_changed',
+      run: null,
+      refs: [`board:${args.board}`],
+      data: {
+        kind: 'board-status',
+        board: args.board,
+        from: board.status ?? null,
+        to: next.status,
+      },
+    });
+  }
   return next;
 }
 

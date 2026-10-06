@@ -709,6 +709,14 @@ export class PostgresStore implements Store {
     return rows.map(rowToTicketRepo);
   }
 
+  async listWorkspaceTicketRepos(workspace: string): Promise<TicketRepoRow[]> {
+    const rows = await this.db.query(
+      'SELECT * FROM ticket_repos WHERE workspace=$1 ORDER BY ticket_id, repo',
+      [workspace],
+    );
+    return rows.map(rowToTicketRepo);
+  }
+
   async deleteTicketRepos(key: TicketKey): Promise<void> {
     await this.db.query(
       'DELETE FROM ticket_repos WHERE workspace=$1 AND ticket_id=$2',
@@ -1914,10 +1922,10 @@ export class PostgresStore implements Store {
   async upsertRelease(row: ReleaseRow): Promise<void> {
     await this.db.query(
       `INSERT INTO releases (workspace, org, release_id, title, status,
-         target, created_by, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         target, client_ref, created_by, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
        ON CONFLICT (workspace, release_id) DO UPDATE SET
-         org=$2, title=$4, status=$5, target=$6, updated_at=$9`,
+         org=$2, title=$4, status=$5, target=$6, updated_at=$10`,
       [
         row.workspace,
         row.org ?? null,
@@ -1925,11 +1933,48 @@ export class PostgresStore implements Store {
         row.title,
         row.status,
         row.target ?? null,
+        row.client_ref ?? null,
         row.created_by ?? null,
         row.created_at ?? null,
         row.updated_at ?? null,
       ],
     );
+  }
+
+  /** Insert-only — no upsert. Returns null on ANY constraint conflict
+   *  (fresh release_id ⇒ only possible on a client_ref collision, i.e.
+   *  an idempotent retry; caller re-fetches by client_ref). */
+  async insertRelease(row: ReleaseRow): Promise<ReleaseRow | null> {
+    const rows = await this.db.query(
+      `INSERT INTO releases (workspace, org, release_id, title, status,
+         target, client_ref, created_by, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+       ON CONFLICT DO NOTHING RETURNING *`,
+      [
+        row.workspace,
+        row.org ?? null,
+        row.release_id,
+        row.title,
+        row.status,
+        row.target ?? null,
+        row.client_ref ?? null,
+        row.created_by ?? null,
+        row.created_at ?? null,
+        row.updated_at ?? null,
+      ],
+    );
+    return rows[0] ? rowToRelease(rows[0]) : null;
+  }
+
+  async getReleaseByClientRef(key: {
+    workspace: string;
+    client_ref: string;
+  }): Promise<ReleaseRow | null> {
+    const rows = await this.db.query(
+      'SELECT * FROM releases WHERE workspace=$1 AND client_ref=$2',
+      [key.workspace, key.client_ref],
+    );
+    return rows[0] ? rowToRelease(rows[0]) : null;
   }
 
   async getRelease(key: {
@@ -2063,29 +2108,41 @@ export class PostgresStore implements Store {
   }
 
   async appendReleaseApproval(row: ReleaseApprovalRow): Promise<void> {
-    await this.db.query(
-      `INSERT INTO release_approvals (workspace, org, release_id,
-         manifest_version, approver, decision, rationale, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-       -- A re-verdict by the same approver on the same manifest version
-       -- IS a new decision — DO NOTHING would drop it while the release
-       -- status still flips, leaving audit contradicting state. (The
-       -- append-only UPDATE trigger on this table is dropped in 0009;
-       -- DELETE stays blocked.)
-       ON CONFLICT (workspace, release_id, manifest_version, approver)
-       DO UPDATE SET
-         org=$2, decision=$6, rationale=$7, created_at=$8`,
-      [
-        row.workspace,
-        row.org ?? null,
-        row.release_id,
-        row.manifest_version,
-        row.approver,
-        row.decision,
-        row.rationale ?? null,
-        row.created_at ?? null,
-      ],
-    );
+    const p = [
+      row.workspace,
+      row.org ?? null,
+      row.release_id,
+      row.manifest_version,
+      row.approver,
+      row.decision,
+      row.rationale ?? null,
+      row.created_at ?? null,
+    ];
+    await this.db.transaction(async (tx) => {
+      await tx.query(
+        `INSERT INTO release_approvals (workspace, org, release_id,
+           manifest_version, approver, decision, rationale, created_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+         -- A re-verdict by the same approver on the same manifest version
+         -- IS a new decision — DO NOTHING would drop it while the release
+         -- status still flips, leaving audit contradicting state. (The
+         -- append-only UPDATE trigger on this table is dropped in 0009;
+         -- DELETE stays blocked.)
+         ON CONFLICT (workspace, release_id, manifest_version, approver)
+         DO UPDATE SET
+           org=$2, decision=$6, rationale=$7, created_at=$8`,
+        p,
+      );
+      // Superseded verdicts must not be lost — every append (first
+      // verdict AND each re-verdict) writes an immutable history row
+      // in the same tx (0010_approval_history.sql).
+      await tx.query(
+        `INSERT INTO release_approval_history (workspace, org, release_id,
+           manifest_version, approver, decision, rationale, created_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        p,
+      );
+    });
   }
 
   async listReleaseApprovals(key: {
@@ -2216,6 +2273,17 @@ export class PostgresStore implements Store {
        WHERE workspace=$1 AND deployment_id=$2`,
       [key.workspace, key.deployment_id, confirmed_by, at],
     );
+  }
+
+  async getDeployment(key: {
+    workspace: string;
+    deployment_id: string;
+  }): Promise<DeploymentRow | null> {
+    const rows = await this.db.query(
+      'SELECT * FROM deployments WHERE workspace=$1 AND deployment_id=$2',
+      [key.workspace, key.deployment_id],
+    );
+    return rows[0] ? rowToDeployment(rows[0]) : null;
   }
 
   async listDeployments(filter: {
@@ -2354,6 +2422,56 @@ export class PostgresStore implements Store {
         row.updated_at ?? null,
       ],
     );
+  }
+
+  async updateChangesetExpected(
+    row: ChangesetRow,
+    expected: { statuses?: string[]; updated_at?: string | undefined },
+  ): Promise<ChangesetRow | null> {
+    const conds: string[] = [];
+    // Every param must appear in the statement — PGlite cannot infer
+    // the type of an unused placeholder, so org/request (insert-only
+    // columns) are not bound here.
+    const p: unknown[] = [
+      row.workspace,
+      row.changeset_id,
+      row.title ?? null,
+      row.classification ?? null,
+      row.status,
+      row.analysis ? j(row.analysis) : null,
+      row.decision ?? null,
+      row.decision_rationale ?? null,
+      row.decided_by ?? null,
+      row.decided_at ?? null,
+      row.expires_on ?? null,
+      row.emergency ? 1 : 0,
+      row.retro_ref ?? null,
+      row.reconciliation ? j(row.reconciliation) : null,
+      row.updated_at ?? null,
+    ];
+    if (expected.statuses !== undefined) {
+      const ph = expected.statuses.map((s) => {
+        p.push(s);
+        return `$${p.length}`;
+      });
+      conds.push(`status IN (${ph.join(',')})`);
+    }
+    if (expected.updated_at !== undefined) {
+      p.push(expected.updated_at);
+      conds.push(`updated_at = $${p.length}`);
+    }
+    const rows = await this.db.query(
+      `UPDATE changesets SET
+         title=$3, classification=$4, status=$5, analysis=$6, decision=$7,
+         decision_rationale=$8, decided_by=$9, decided_at=$10,
+         expires_on=$11, emergency=$12, retro_ref=$13, reconciliation=$14,
+         updated_at=$15
+       WHERE workspace=$1 AND changeset_id=$2
+         ${conds.length ? `AND ${conds.join(' AND ')}` : ''}
+       RETURNING *`,
+      p,
+    );
+    return rows[0] ? rowToChangeset(rows[0]) : null;
   }
 
   async getChangeset(key: {
@@ -5391,6 +5509,7 @@ function rowToRelease(row: Row): ReleaseRow {
     title: row.title as string,
     status: row.status as ReleaseRow['status'],
     target: (row.target as string | null) ?? null,
+    client_ref: (row.client_ref as string | null) ?? null,
     created_by: (row.created_by as string | null) ?? null,
     created_at: (row.created_at as string | null) ?? null,
     updated_at: (row.updated_at as string | null) ?? null,

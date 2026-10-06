@@ -301,8 +301,19 @@ async function writeState(
   patch: Partial<ChangesetRow>,
   event?: EventName,
   data: Record<string, unknown> = {},
+  expected?: { statuses?: string[]; updated_at?: string | undefined },
 ): Promise<ChangesetRow> {
   const next: ChangesetRow = { ...cs, ...patch, updated_at: nowIso(ctx) };
+  if (expected) {
+    const updated = await ctx.store.updateChangesetExpected(next, expected);
+    if (!updated) {
+      throw conflict(
+        `changeset ${cs.changeset_id} changed state mid-transition — aborting`,
+      );
+    }
+    if (event) await emit(ctx, updated, event, data);
+    return updated;
+  }
   await ctx.store.upsertChangeset(next);
   if (event) await emit(ctx, next, event, data);
   return next;
@@ -777,27 +788,37 @@ export async function decideChangeset(
       },
     };
 
-    return writeState(
-      txCtx,
-      current,
-      {
-        status,
-        decision: args.decision,
-        decision_rationale: args.rationale ?? null,
-        decided_by: decidedBy,
-        decided_at: ts,
-        expires_on: expiresOn,
-        reconciliation,
-      },
-      'changeset_decided',
-      {
-        decision: args.decision,
-        decided_by: decidedBy,
-        emergency: current.emergency,
-        consequences,
-        expires_on: expiresOn,
-      },
-    );
+    const next: ChangesetRow = {
+      ...current,
+      status,
+      decision: args.decision,
+      decision_rationale: args.rationale ?? null,
+      decided_by: decidedBy,
+      decided_at: ts,
+      expires_on: expiresOn,
+      reconciliation,
+      updated_at: nowIso(ctx),
+    };
+    // The UPDATE predicate is the fence — two concurrent decides can
+    // both pass the SELECT re-check above, but only one satisfies
+    // `status ∈ decidable` at write time. The loser throws here and
+    // its whole tx (consequences included) rolls back.
+    const updated = await store.updateChangesetExpected(next, {
+      statuses: [...decidable],
+    });
+    if (!updated) {
+      throw badState(
+        `changeset ${cs.changeset_id} was decided concurrently — losing decision rolled back`,
+      );
+    }
+    await emit(txCtx, updated, 'changeset_decided', {
+      decision: args.decision,
+      decided_by: decidedBy,
+      emergency: current.emergency,
+      consequences,
+      expires_on: expiresOn,
+    });
+    return updated;
   });
   await clearDecisionGate(ctx, next);
   const analysis = (next.analysis ?? null) as ChangesetAnalysis | null;
@@ -886,6 +907,7 @@ export async function applyChangeset(
       },
       'note_added',
       { kind: 'changeset-approval-expired', expires_on: cs.expires_on },
+      { updated_at: cs.updated_at ?? undefined },
     );
     await surfaceDecisionGate(ctx, cs);
     await notifyOwners(
@@ -917,7 +939,17 @@ export async function applyChangeset(
     );
   }
 
-  cs = await writeState(ctx, cs, { status: 'applying' });
+  cs = await writeState(
+    ctx,
+    cs,
+    { status: 'applying' },
+    undefined,
+    {},
+    {
+      statuses: ['approved', 'applying', 'apply-failed'],
+      updated_at: cs.updated_at ?? undefined,
+    },
+  );
 
   const ts = nowIso(ctx);
   try {

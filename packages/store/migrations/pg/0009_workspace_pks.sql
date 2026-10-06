@@ -14,6 +14,12 @@
 --   * the wp-132 doc-kind rename backfill moves here out of
 --     0001_init.sql — migrate() checksums applied files, so editing
 --     0001 in place drift-failed every existing database at boot.
+--
+--   REMEDIATION: a dev database that applied the mid-window amended
+--   0001 (its stored checksum won't match canonical 0001) fails the
+--   drift check at boot BEFORE reaching this migration. The fix is a
+--   rebuild (drop + re-migrate) — do NOT hand-edit schema_meta to skip
+--   the check, since the row hash also guards real tampering.
 
 ALTER TABLE incidents DROP CONSTRAINT IF EXISTS incidents_pkey;
 ALTER TABLE incidents ADD PRIMARY KEY (workspace, id);

@@ -217,10 +217,25 @@ async function recutAfterScopeChange(
 /** Create a `draft` release (REL-NNNN from projects.next_release_seq). */
 export async function createRelease(
   ctx: ReleaseCtx,
-  args: { title: string; target?: string | null; createdBy?: string },
+  args: {
+    title: string;
+    target?: string | null;
+    createdBy?: string;
+    clientRef?: string | null;
+  },
 ): Promise<ReleaseRow> {
   if (!args.title?.trim()) {
     throw new ReleaseError('bad-item', 'release title is required');
+  }
+  const clientRef = args.clientRef?.trim() || null;
+  if (clientRef) {
+    const existing = await ctx.store.getReleaseByClientRef({
+      workspace: ctx.workspace,
+      client_ref: clientRef,
+    });
+    // Idempotent retry — the original row answers; no second draft,
+    // no second release_created event.
+    if (existing) return existing;
   }
   const ts = ctx.now().toISOString();
   const release_id = await ctx.store.allocReleaseId(ctx.workspace);
@@ -230,16 +245,33 @@ export async function createRelease(
     title: args.title,
     status: 'draft',
     target: args.target ?? null,
+    client_ref: clientRef,
     created_by: args.createdBy ?? ctx.actor,
     created_at: ts,
     updated_at: ts,
   };
-  await ctx.store.upsertRelease(row);
+  const inserted = await ctx.store.insertRelease(row);
+  if (!inserted) {
+    // Lost the race — a concurrent create with the same client_ref
+    // committed first (release_id is freshly allocated, so nothing
+    // else can collide).
+    const winner = clientRef
+      ? await ctx.store.getReleaseByClientRef({
+          workspace: ctx.workspace,
+          client_ref: clientRef,
+        })
+      : null;
+    if (winner) return winner;
+    throw new ReleaseError(
+      'bad-state',
+      `release create lost a constraint race and no client_ref '${clientRef}' row exists — cannot map to a conflict-free response`,
+    );
+  }
   await releaseEvent(ctx, release_id, 'release_created', {
     title: args.title,
     target: args.target ?? null,
   });
-  return row;
+  return inserted;
 }
 
 /**

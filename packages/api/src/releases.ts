@@ -93,6 +93,8 @@ const CreateReleaseBody = z
   .object({
     title: z.string().min(1),
     target: z.string().nullish(),
+    /** Idempotency key — a retried create returns the original row. */
+    client_ref: z.string().min(1).nullish(),
   })
   .passthrough();
 
@@ -253,7 +255,14 @@ export function registerReleaseRoutes(
   /** ReleaseCtx for a workspace — the same shape the conductor's
    *  transition tools carry (workspace + store + actor + clock). The
    *  wrapped store mirrors DELIVERY §5 durable events onto the SSE
-   *  stream. */
+   *  stream.
+   *
+   *  Scope note: this wrap is release-route-local ON PURPOSE — the
+   *  STREAMED_EVENTS names are emitted only by the delivery engine.
+   *  Other route families (discovery, registers, board) either append
+   *  non-streamed events or notify through their own env.notify; if a
+   *  streamed event ever starts firing outside delivery, move this
+   *  proxy up to server.ts rather than cloning it per router. */
   function releaseCtx(ws: ConductorWorkspace): ReleaseCtx {
     const base: Store = deps.store;
     // Proxy (not a spread) — store impls are class instances; methods
@@ -384,6 +393,7 @@ export function registerReleaseRoutes(
       createRelease(releaseCtx(ws), {
         title: body.title,
         target: body.target ?? null,
+        clientRef: body.client_ref ?? null,
       }),
     );
     return reply.status(201).send({ release });

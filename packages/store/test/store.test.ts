@@ -41,8 +41,8 @@ const run = (over: Partial<RunRow> = {}): RunRow => ({
 });
 
 describe('migrations + meta', () => {
-  it('applies pg/0001_init through 0009 and records schema_meta', async () => {
-    expect(await s().getSchemaVersion()).toBe(9);
+  it('applies pg/0001_init through 0011 and records schema_meta', async () => {
+    expect(await s().getSchemaVersion()).toBe(11);
     const rows = await s().db.query<{ table_name: string }>(
       `SELECT table_name FROM information_schema.tables
        WHERE table_schema='public' ORDER BY table_name`,
@@ -131,12 +131,14 @@ describe('migrations + meta', () => {
       'incidents',
       'incident_decisions',
       'incident_ticket_proposals',
+      // review-fix waves (D56)
+      'release_approval_history',
     ]) {
       expect(tables).toContain(t);
     }
     // re-running migrations is idempotent
     await s().migrate();
-    expect(await s().getSchemaVersion()).toBe(9);
+    expect(await s().getSchemaVersion()).toBe(11);
   });
 });
 
@@ -871,5 +873,155 @@ describe('parseStorageUrl', () => {
       /unsupported storage_url/,
     );
     expect(() => parseStorageUrl('./data')).toThrow(/unsupported storage_url/);
+  });
+});
+
+describe('review wave D56', () => {
+  it('updateChangesetExpected: the status predicate IS the fence', async () => {
+    await s().upsertChangeset({
+      workspace: 'ws1',
+      changeset_id: 'CS-1',
+      request: 'also oauth',
+      status: 'awaiting-decision',
+      updated_at: '2026-10-05T00:00:00Z',
+    });
+    // match → update lands
+    const won = await s().updateChangesetExpected(
+      {
+        workspace: 'ws1',
+        changeset_id: 'CS-1',
+        request: 'also oauth',
+        status: 'approved',
+        decision: 'add-now',
+        updated_at: '2026-10-05T01:00:00Z',
+      },
+      { statuses: ['awaiting-decision'] },
+    );
+    expect(won?.status).toBe('approved');
+    // stale predicate → null, row untouched
+    const lost = await s().updateChangesetExpected(
+      {
+        workspace: 'ws1',
+        changeset_id: 'CS-1',
+        request: 'also oauth',
+        status: 'rejected',
+        updated_at: '2026-10-05T02:00:00Z',
+      },
+      { statuses: ['awaiting-decision'] },
+    );
+    expect(lost).toBeNull();
+    expect(
+      (await s().getChangeset({ workspace: 'ws1', changeset_id: 'CS-1' }))
+        ?.status,
+    ).toBe('approved');
+    // updated_at fence rejects a stale-writer too
+    expect(
+      await s().updateChangesetExpected(
+        {
+          workspace: 'ws1',
+          changeset_id: 'CS-1',
+          request: 'also oauth',
+          status: 'applying',
+          updated_at: '2026-10-05T03:00:00Z',
+        },
+        { updated_at: '2026-10-05T00:00:00Z' },
+      ),
+    ).toBeNull();
+  });
+
+  it('insertRelease + getReleaseByClientRef: retried creates dedupe', async () => {
+    const row = {
+      workspace: 'ws1',
+      release_id: 'REL-0001',
+      title: 'october train',
+      status: 'draft' as const,
+      client_ref: 'cli-abc',
+    };
+    const first = await s().insertRelease(row);
+    expect(first?.release_id).toBe('REL-0001');
+    // same client_ref, different allocated id → conflict, no second row
+    const retry = await s().insertRelease({ ...row, release_id: 'REL-0002' });
+    expect(retry).toBeNull();
+    const winner = await s().getReleaseByClientRef({
+      workspace: 'ws1',
+      client_ref: 'cli-abc',
+    });
+    expect(winner?.release_id).toBe('REL-0001');
+    expect((await s().listReleases({ workspace: 'ws1' })).length).toBe(1);
+  });
+
+  it('release_approval_history: every verdict is preserved + immutable', async () => {
+    const base = {
+      workspace: 'ws1',
+      release_id: 'REL-1',
+      manifest_version: 1,
+      approver: 'keith',
+    };
+    await s().appendReleaseApproval({
+      ...base,
+      decision: 'rejected',
+      rationale: 'scope too big',
+      created_at: '2026-10-05T00:00:00Z',
+    });
+    await s().appendReleaseApproval({
+      ...base,
+      decision: 'approved',
+      rationale: 'split landed',
+      created_at: '2026-10-05T01:00:00Z',
+    });
+    // approvals table = latest verdict
+    const current = await s().listReleaseApprovals({
+      workspace: 'ws1',
+      release_id: 'REL-1',
+      manifest_version: 1,
+    });
+    expect(current).toHaveLength(1);
+    expect(current[0].decision).toBe('approved');
+    // history = both verdicts, append-only enforced at the DB layer
+    const hist = await s().db.query<{ decision: string }>(
+      `SELECT decision FROM release_approval_history
+       WHERE workspace='ws1' ORDER BY seq`,
+    );
+    expect(hist.map((h) => h.decision)).toEqual(['rejected', 'approved']);
+    await expect(
+      s().db.query(
+        `UPDATE release_approval_history SET decision='approved' WHERE seq=1`,
+      ),
+    ).rejects.toThrow(/append-only/);
+    await expect(
+      s().db.query('DELETE FROM release_approval_history WHERE seq=1'),
+    ).rejects.toThrow(/append-only/);
+  });
+
+  it('getDeployment + listWorkspaceTicketRepos: key lookups', async () => {
+    await s().insertDeployment({
+      workspace: 'ws1',
+      deployment_id: 'dep_1',
+      release_id: 'REL-1',
+      environment: 'staging',
+      sha: 'abc123',
+      evidence: {},
+    });
+    expect(
+      (await s().getDeployment({ workspace: 'ws1', deployment_id: 'dep_1' }))
+        ?.sha,
+    ).toBe('abc123');
+    expect(
+      await s().getDeployment({ workspace: 'ws1', deployment_id: 'dep_9' }),
+    ).toBeNull();
+    await s().upsertTicketRepo({
+      workspace: 'ws1',
+      ticket_id: 'SR-1',
+      repo: 'app',
+      pr_url: 'https://gh/pr/9',
+    });
+    await s().upsertTicketRepo({
+      workspace: 'ws2',
+      ticket_id: 'SR-1',
+      repo: 'x',
+    });
+    const repos = await s().listWorkspaceTicketRepos('ws1');
+    expect(repos).toHaveLength(1);
+    expect(repos[0].pr_url).toBe('https://gh/pr/9');
   });
 });

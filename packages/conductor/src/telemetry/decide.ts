@@ -110,14 +110,30 @@ export async function decideIncidentStatus(
     // a real deployment id, a real ticket, or a non-empty PR url.
     // Anything else fails closed (400) — a fabricated ref list can
     // never settle an incident.
-    let resolvable = prRefs.length > 0;
-    if (!resolvable && deploymentRefs.length > 0) {
+    let resolvable = false;
+    if (prRefs.length > 0) {
+      // Presence alone isn't evidence — a pr_ref must match a recorded
+      // ticket_repos.pr_url in this workspace (no PR table exists; the
+      // repo rows shepherd wrote ARE the authoritative PR registry).
       const known = new Set(
-        (await ctx.store.listDeployments({ workspace: ctx.workspace })).map(
-          (d) => d.deployment_id,
-        ),
+        (await ctx.store.listWorkspaceTicketRepos(ctx.workspace))
+          .map((r) => r.pr_url)
+          .filter((u): u is string => typeof u === 'string' && u !== ''),
       );
-      resolvable = deploymentRefs.some((r) => known.has(r));
+      resolvable = prRefs.some((r) => known.has(r));
+    }
+    if (!resolvable && deploymentRefs.length > 0) {
+      // Key lookup per ref — not a full deployments scan.
+      for (const ref of deploymentRefs) {
+        const dep = await ctx.store.getDeployment({
+          workspace: ctx.workspace,
+          deployment_id: ref,
+        });
+        if (dep) {
+          resolvable = true;
+          break;
+        }
+      }
     }
     if (!resolvable) {
       for (const t of ticketRefs) {
@@ -134,7 +150,7 @@ export async function decideIncidentStatus(
     if (!resolvable) {
       throw new TelemetryServiceError(
         'invalid',
-        `resolve evidence for ${args.id} does not resolve — no listed deployment id, ticket, or PR exists in this workspace`,
+        `resolve evidence for ${args.id} does not resolve — no listed deployment id, ticket, or PR url exists in this workspace`,
       );
     }
   }

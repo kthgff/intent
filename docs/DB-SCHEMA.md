@@ -372,7 +372,8 @@ incident_ticket_proposals(                 -- the draft-ticket gate:
 -- --- delivery / releases (DELIVERY §3, wp-131/133-135) ---
 releases(workspace, org, release_id,      -- REL-NNNN (next_release_seq)
   title, status,                          -- draft|ready|approved|released|closed|abandoned
-  target, created_by, created_at, updated_at,
+  target, client_ref,                     -- client idempotency key; UNIQUE(ws, client_ref) (0011)
+  created_by, created_at, updated_at,
   PRIMARY KEY(workspace, release_id));
 release_items(workspace, org, release_id, item_kind,    -- feature|ticket
   item_id, partial_ac,                    -- json ac_ids; non-null ⇒ approved_by (inv.5)
@@ -384,11 +385,15 @@ release_manifests(                        -- append-only (0002 trigger)
   digest,                                 -- sha256 of item→repo→sha map
   items,                                  -- json [{item_kind,item_id,repos:[{repo,merged_sha}]}]
   created_at);
-release_approvals(                        -- append-only
+release_approvals(                        -- latest verdict per approver (upsert, 0009)
   workspace, org, release_id, manifest_version,
   approver, decision,                     -- approved|rejected
   rationale, created_at,
   PRIMARY KEY(workspace, release_id, manifest_version, approver));
+release_approval_history(                 -- append-only (0010) — EVERY verdict incl.
+  seq IDENTITY, workspace, org,           -- superseded re-verdicts; upd/del trigger-blocked
+  release_id, manifest_version, approver,
+  decision, rationale, created_at);
 release_notes(workspace, org, release_id,
   audience,                               -- customer|stakeholder|technical
   doc_version,                            -- notes-<audience>.md revision

@@ -1119,6 +1119,9 @@ export const ReleaseRowSchema = z.object({
   status: enumOf(RELEASE_STATUSES),
   /** Free-text target (version label, train, date). */
   target: z.string().nullish(),
+  /** Client-supplied idempotency key — retried creates dedupe on it
+   *  (unique per workspace, 0011_release_client_ref.sql). */
+  client_ref: z.string().nullish(),
   created_by: z.string().nullish(),
   created_at: z.string().nullish(),
   updated_at: z.string().nullish(),

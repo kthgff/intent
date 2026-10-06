@@ -285,6 +285,9 @@ export interface Store {
   upsertTicketRepo(row: TicketRepoRow): Promise<void>;
   getTicketRepo(key: TicketRepoKey): Promise<TicketRepoRow | null>;
   listTicketRepos(key: TicketKey): Promise<TicketRepoRow[]>;
+  /** All repo rows in a workspace — used for evidence validation
+   *  (incident `pr_refs` resolve against recorded `pr_url`s). */
+  listWorkspaceTicketRepos(workspace: string): Promise<TicketRepoRow[]>;
   deleteTicketRepos(key: TicketKey): Promise<void>;
 
   // ---- events (append-only TRUTH — DB-SCHEMA events; SCHEMAS §7) ----
@@ -523,6 +526,14 @@ export interface Store {
   allocReleaseId(workspace: string): Promise<string>;
 
   upsertRelease(row: ReleaseRow): Promise<void>;
+  /** Insert-only create — returns null on a constraint conflict so a
+   *  retried POST (same `client_ref`) yields the existing row instead
+   *  of a second draft (deployment-style idempotency). */
+  insertRelease(row: ReleaseRow): Promise<ReleaseRow | null>;
+  getReleaseByClientRef(key: {
+    workspace: string;
+    client_ref: string;
+  }): Promise<ReleaseRow | null>;
   getRelease(key: {
     workspace: string;
     release_id: string;
@@ -603,6 +614,10 @@ export interface Store {
     confirmed_by: string,
     at: string,
   ): Promise<void>;
+  getDeployment(key: {
+    workspace: string;
+    deployment_id: string;
+  }): Promise<DeploymentRow | null>;
   listDeployments(filter: {
     workspace: string;
     release_id?: string;
@@ -636,6 +651,16 @@ export interface Store {
   allocChangesetId(workspace: string): Promise<string>;
 
   upsertChangeset(row: ChangesetRow): Promise<void>;
+  /** OCC write — updates only while the stored row still satisfies
+   *  `expected` (status ∈ `statuses`, and/or `updated_at` equal). The
+   *  predicate IS the fence: under READ COMMITTED two concurrent
+   *  decides can both pass a SELECT re-check, but only one can satisfy
+   *  the UPDATE predicate (the loser's row moved on) — null → caller
+   *  maps to conflict/bad-state, never a silent double-write. */
+  updateChangesetExpected(
+    row: ChangesetRow,
+    expected: { statuses?: string[]; updated_at?: string | undefined },
+  ): Promise<ChangesetRow | null>;
   getChangeset(key: {
     workspace: string;
     changeset_id: string;
