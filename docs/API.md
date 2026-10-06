@@ -41,7 +41,7 @@ payload shapes come from `SCHEMAS.md`/`DB-SCHEMA.md`.
 | Path | Verbs | Backs |
 | --- | --- | --- |
 | `/inbox` | GET | S-01 inbox tab — unified `gate_items`, ranked human-anxiety-first → priority → age (D21); `?workspace=` filter |
-| `/board` | GET | S-01 board tab — tickets grouped by `phase` column (Backlog·Spec·Build·Review·Done), each card carrying `attention` (open gate_items) and `drop_targets` (allowed drag actions — server-computed, UI only highlights; invalid drops rejected, never trusted client-side); `?workspace=` filter |
+| `/board` | GET | S-01 board tab — tickets grouped by `phase` column (Backlog·Spec·Build·Review·Done), each card carrying `attention` (open gate_items), `drop_targets` (allowed drag actions — server-computed, UI only highlights; invalid drops rejected, never trusted client-side), and `delivery` (wp-137, DELIVERY §8 — the ticket's strongest `release_items.delivery_state` + release id, or null; the two-dimension card display); `?workspace=` filter |
 | `/tickets` | GET | S-01/S-05 lists — `tickets` rows (filters: status, repo, workspace, feature) |
 | `/boards`, `/initiatives` | — | **Draft (D26/D27, FEATURES.md §7):** S-15/S-16/S-18 — idea boards, board items, scoped synthesize, entity CRUD, re-plan/re-parent, provenance amendments. Not implemented; contract TBD in the board work package |
 | `/features` | GET | S-17 (wp-152) — feature rows (`?workspace=&initiative=&status=` filters) |
@@ -83,7 +83,7 @@ payload shapes come from `SCHEMAS.md`/`DB-SCHEMA.md`.
 | `/gate-items/<id>/claim` `/release` | POST, DELETE | shared-queue claiming |
 | `/gate-items/<ws>/<subject>/<gate>/snooze` | POST | D20 snooze — `{until}` ISO (or `{for_minutes}`) → `snoozed_until`; hidden from `/inbox` + badge until then (`?include_snoozed=1` reveals) |
 | `/releases/<ws>` | GET, POST | DELIVERY §3 (wp-136). GET lists `releases` rows (`?status=` filter). POST `{title, target?}` → 201 draft `REL-NNNN` + `release_created`. 400 malformed |
-| `/releases/<ws>/<rel>` | GET | Release detail (wp-136): `{release, items, manifests, manifest, approvals, approvalHistory, gates, notes}` — approvals/gates bind to the latest manifest cut. 404 unknown release |
+| `/releases/<ws>/<rel>` | GET | Release detail (wp-136; wp-137 added `deployments` + `noteDrafts` — per-audience latest draft doc_version so a draft newer than the pinned approval renders as unapproved): `{release, items, manifests, manifest, approvals, approvalHistory, gates, notes, deployments, noteDrafts}` — approvals/gates bind to the latest manifest cut. 404 unknown release |
 | `/releases/<ws>/<rel>/items` | POST, DELETE | Scope membership (wp-136). POST `{item_kind: feature\|ticket, item_id, partial_ac?, approved_by?}` — `partial_ac` REQUIRES `approved_by` (invariant 5); a post-freeze add/remove cuts a NEW `release_manifests` version and reverts `approved`→`ready` (§4.1). DELETE `{item_kind, item_id}` soft-removes (audit row stays). 400 bad item/partial-unapproved · 403 agent-approved partial · 404 unknown ticket/feature · 409 non-editable status |
 | `/releases/<ws>/<rel>/freeze` | POST | Cut an immutable manifest + `draft→ready` (wp-136). Idempotent on unchanged digest. `expected_status` OCC → 409 stale. 400 empty scope |
 | `/releases/<ws>/<rel>/approve` | POST | `{decision: approved\|rejected, rationale?, approver?, actor_kind?, expected_status?}` (wp-136) — human-only, binds the LATEST manifest digest; `rejected` → `draft`. `actor_kind: 'agent'` → **403** (invariant 6). OCC → 409 |
@@ -94,6 +94,9 @@ payload shapes come from `SCHEMAS.md`/`DB-SCHEMA.md`.
 | `/tickets/<ws>/<t>/corrections` | POST | `{title, severity?, priority?, repos?, feature?, description?}` → 201 `origin:'correction'`, `work_type:'bug'` ticket with `parent:` the merged ticket + `correction_filed` on the parent (wp-136). 404 unknown parent · 409 parent not `merged\|released` |
 | `/releases/<ws>/<rel>/notes/<audience>/approve` | POST | Human-only approval of the current `notes-<audience>.md` draft (`customer\|stakeholder\|technical`) — pins `doc_version` + `release_note_approved` (wp-136). `actor_kind:'agent'` → 403 · 409 no draft · 400 bad audience |
 | `/releases/<ws>/<rel>/notes/<audience>/publish` | POST | `published_at` on an approved note (wp-136) — requires a human-approved `doc_version` (409 otherwise); the pinned approved revision is what ships, newer drafts don't launder in |
+| `/releases/<ws>/<rel>/notes` | POST | Queue the `release-notes` stage run (wp-137 UI gap — the three-audience draft trigger). Requires a frozen manifest → 409 otherwise. `{run}` pending row |
+| `/releases/<ws>/<rel>/notes/<audience>/draft` | POST | Human draft edit (wp-137): `{content, edited_by?}` appends `notes-<audience>.md` and upserts the `release_notes` row preserving the pinned approved `doc_version` — a re-draft never launders unapproved content. 400 empty/bad audience |
+| `/releases/<ws>/<rel>/docs/<name>` | GET | Release-subject doc read (wp-137): `retro`/`retro.md` and `notes-<audience>` only — the Release Center renders drafts + the retrospective. Same payload as `/tickets/…/docs/<name>` (`{name, doc, content, version, versions, diffs}`). 400 other kinds · 404 absent |
 | `/releases/<ws>/<rel>/retro` | POST | Queues a `retro` run on a `released\|closed` release (wp-136) → `{run}` pending row; a live run fences a duplicate → 409. 409 on a non-shipped release |
 
 ## Live channel — `GET /api/v1/stream` (SSE)

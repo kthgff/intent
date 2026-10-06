@@ -1119,6 +1119,44 @@ export function createServer(opts: ServerOptions): ApiServer {
       tickets.map((t) => `${t.workspace}/${t.ticket_id}`),
     );
 
+    // DELIVERY §8 / wp-137: the delivery dimension (planned→released→
+    // deployed→exposed, materialized on release_items) rides the card
+    // next to the dev status — one release_items scan per workspace,
+    // strongest state wins when a ticket sits in several releases.
+    const DELIVERY_RANK: Record<string, number> = {
+      planned: 0,
+      released: 1,
+      deployed: 2,
+      exposed: 3,
+    };
+    const deliveryByTicket = new Map<
+      string,
+      { release_id: string; state: string }
+    >();
+    for (const wsName of new Set(tickets.map((t) => t.workspace))) {
+      const releases = await store.listReleases({ workspace: wsName });
+      for (const rel of releases) {
+        for (const item of await store.listReleaseItems({
+          workspace: wsName,
+          release_id: rel.release_id,
+        })) {
+          if (item.item_kind !== 'ticket' || item.removed_at) continue;
+          const key = `${wsName}/${item.item_id}`;
+          const prev = deliveryByTicket.get(key);
+          if (
+            !prev ||
+            (DELIVERY_RANK[item.delivery_state] ?? -1) >
+              (DELIVERY_RANK[prev.state] ?? -1)
+          ) {
+            deliveryByTicket.set(key, {
+              release_id: rel.release_id,
+              state: item.delivery_state,
+            });
+          }
+        }
+      }
+    }
+
     const cards = await Promise.all(
       tickets.map(async (ticket) => {
         const key = `${ticket.workspace}/${ticket.ticket_id}`;
@@ -1164,6 +1202,7 @@ export function createServer(opts: ServerOptions): ApiServer {
             liveRun !== null,
             attention,
           ),
+          delivery: deliveryByTicket.get(key) ?? null,
         };
       }),
     );

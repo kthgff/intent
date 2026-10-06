@@ -142,11 +142,14 @@ async function seedTicket(id: string, status: TicketRow['status']) {
 }
 
 async function seedFeature(id: string) {
+  // wp-152 acceptance gate: release assignment requires a human-accepted
+  // feature — `done` is reachable only via POST /features/…/accept, so the
+  // seed models the already-accepted state directly.
   await store.upsertFeature({
     workspace: WS,
     feature: id,
     title: `${id} feature`,
-    status: 'active',
+    status: 'done',
   });
 }
 

@@ -214,6 +214,9 @@ export default function TicketFocus() {
         <Link to={`/runs?subject=${encodeURIComponent(t.ticket_id)}`}>
           Runs
         </Link>
+        {(t.status === 'merged' || t.status === 'released') && (
+          <FileCorrection ws={ws} d={d} onDone={detail.reload} />
+        )}
       </p>
 
       <div className="split">
@@ -1248,6 +1251,124 @@ function StatusRail({
           {fmtAge(t.updated_at)} ago
         </div>
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// File correction — DELIVERY §2 post-merge defect entry point. The new
+// ticket is origin:'correction', work_type:'bug', parent: this ticket;
+// the merged ticket's history and AC verdicts are never rewritten.
+// ---------------------------------------------------------------------------
+
+function FileCorrection({
+  ws,
+  d,
+  onDone,
+}: {
+  ws: string;
+  d: Detail;
+  onDone: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState('');
+  const [severity, setSeverity] = useState('');
+  const [description, setDescription] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<unknown>(null);
+  const [filed, setFiled] = useState<string | null>(null);
+  const t = d.ticket;
+
+  if (filed) {
+    return (
+      <span className="muted">
+        correction{' '}
+        <Link
+          to={`/tickets/${encodeURIComponent(ws)}/${encodeURIComponent(filed)}`}
+        >
+          {filed}
+        </Link>{' '}
+        filed
+      </span>
+    );
+  }
+  if (!open) {
+    return (
+      <button
+        type="button"
+        className="small"
+        title="file a post-merge defect — correction ticket, parented here"
+        onClick={() => setOpen(true)}
+      >
+        File correction…
+      </button>
+    );
+  }
+
+  const submit = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await client.fileCorrection(ws, t.ticket_id, {
+        title: title.trim(),
+        ...(severity ? { severity } : {}),
+        ...(t.repos.length ? { repos: t.repos } : {}),
+        ...(t.feature ? { feature: t.feature } : {}),
+        ...(description.trim() ? { description: description.trim() } : {}),
+      });
+      setFiled(r.ticket.ticket_id);
+      onDone();
+    } catch (e) {
+      setErr(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="card" style={{ flexBasis: '100%' }}>
+      <div className="card-title">
+        <strong>File correction on {t.ticket_id}</strong>
+        <span className="muted">origin: correction · work_type: bug</span>
+      </div>
+      {err != null && <ErrorBox error={err} />}
+      <div className="row">
+        <input
+          aria-label="correction title"
+          placeholder="defect title"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+        />
+        <select
+          aria-label="severity"
+          value={severity}
+          onChange={(e) => setSeverity(e.target.value)}
+        >
+          <option value="">severity (ungraded = material)</option>
+          {['blocker', 'critical', 'major', 'minor', 'trivial'].map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          className="primary"
+          disabled={busy || !title.trim()}
+          onClick={() => void submit()}
+        >
+          File
+        </button>
+        <button type="button" className="small" onClick={() => setOpen(false)}>
+          cancel
+        </button>
+      </div>
+      <input
+        aria-label="correction description"
+        placeholder="description (optional)"
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+      />
     </div>
   );
 }

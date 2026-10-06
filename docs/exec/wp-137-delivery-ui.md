@@ -2,7 +2,7 @@
 schema: 1
 id: wp-137
 title: Merge Center + Release Center UI
-status: todo
+status: done
 priority: high
 depth: standard
 repos: []
@@ -28,10 +28,17 @@ lands (UI-lane rule).
 under `docs/design/mockups/`
 
 ## Acceptance criteria
-- [ ] Both surfaces render end-to-end on the real API
-- [ ] Stale-approval + partial-release states are visually distinct
-- [ ] Screens listed in UI-INVENTORY (S-20+)
-- [ ] `pnpm typecheck && pnpm test && pnpm lint` green
+- [x] Both surfaces render end-to-end on the real API (`/merge-center`,
+  `/releases` + `/releases/:ws/:rel` — see D48 for the additive read
+  routes the UI needed: release docs, notes draft/run, deployments +
+  noteDrafts on the detail payload)
+- [x] Stale-approval + partial-release states are visually distinct
+  (stale-approval badge on superseded manifest approvals; `unapproved-draft`
+  note state when a draft outruns the pinned doc_version; `partial (ac-ids)`
+  warn chip on scope items)
+- [x] Screens listed in UI-INVENTORY (S-21 Merge Center, S-22 Release
+  Center)
+- [x] `pnpm typecheck && pnpm test && pnpm lint` green
 
 ## Contract change
 None.
