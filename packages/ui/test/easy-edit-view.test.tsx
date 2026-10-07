@@ -14,6 +14,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import type { BoardItem } from '@veto/core';
 import React from 'react';
@@ -105,7 +106,7 @@ describe('EasyEdit view', () => {
     const p = props();
     render(<EasyEdit {...p} />);
     fireEvent.click(screen.getByRole('button', { name: 'Edit Alpha' }));
-    const drawer = await screen.findByRole('complementary');
+    const drawer = await screen.findByRole('dialog');
     expect(drawer).toBeTruthy();
     fireEvent.change(screen.getByLabelText('Importance'), {
       target: { value: 'must' },
@@ -163,12 +164,23 @@ describe('EasyEdit view', () => {
       surface(item({ id: `m-${i}`, title: `Item ${i}` })),
     );
     const p = props({ surfaces: many });
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     render(<EasyEdit {...p} />);
     fireEvent.click(screen.getByLabelText('Select all visible items'));
     fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
-    expect(confirm).toHaveBeenCalled();
+    // The confirm dialog names the count; cancelling keeps everything.
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog.textContent).toContain('Discard 12 items?');
     expect(p.mutate).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    // Confirming issues exactly one batch mutation for all 12 rows.
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
+    const dialog2 = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog2).getByRole('button', { name: 'Discard' }));
+    await waitFor(() => expect(p.mutate).toHaveBeenCalledTimes(1));
+    const mutations = (p.mutate as ReturnType<typeof vi.fn>).mock
+      .calls[0]?.[0] as { id: string }[];
+    expect(mutations).toHaveLength(12);
   });
 
   it('+ New creates a positionless item — case:easy-edit-07/10', async () => {
@@ -189,6 +201,6 @@ describe('EasyEdit view', () => {
     fireEvent.keyDown(document.querySelector('.ee-root') as Element, {
       key: 'Enter',
     });
-    expect(await screen.findByRole('complementary')).toBeTruthy();
+    expect(await screen.findByRole('dialog')).toBeTruthy();
   });
 });

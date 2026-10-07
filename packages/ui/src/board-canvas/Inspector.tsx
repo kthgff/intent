@@ -2,10 +2,11 @@
  * Inspector.tsx — the right-side semantic inspector (S-16).
  *
  * Common formatting lives on the selection toolbar; this panel owns
- * Veto-only semantics: taxonomy (note kind), importance, provenance,
- * lifecycle moves (park / defer / tray / discard), extracted statements
- * with confirm/dispute/correct, and produced-artifact links. Corrections
- * write a new statement + supersedes edge — never a silent overwrite.
+ * Veto-only semantics, organized into four sections: Properties
+ * (taxonomy + importance), Lifecycle (park / defer / tray / discard),
+ * Details (id, status, provenance, frame, age), and Statements with
+ * confirm/dispute/correct. Corrections write a new statement +
+ * supersedes edge — never a silent overwrite.
  */
 import type { BoardItem, StatementRow } from '@veto/core';
 import { Lock, X } from 'lucide-react';
@@ -93,6 +94,14 @@ export function BoardInspector({
   const consumed = isConsumedItem(item);
   const frozen = item.status === 'frozen';
   const ro = readOnly || consumed || frozen;
+  const meta = noteKindMeta(item.note_kind);
+  const kindLabel =
+    item.kind === 'note'
+      ? meta.label
+      : item.kind === 'zone'
+        ? 'Frame'
+        : item.kind.charAt(0).toUpperCase() + item.kind.slice(1);
+  const kindIcon = item.kind === 'note' ? meta.icon : '◦';
   return (
     <aside
       className="canvas-inspector"
@@ -114,6 +123,12 @@ export function BoardInspector({
           <X size={16} aria-hidden />
         </button>
       </div>
+      <div className="inspector-subtitle">
+        <span className="inspector-kind-chip">
+          {kindIcon} {kindLabel}
+        </span>
+        <StatusBadge status={item.status} />
+      </div>
       {ro && (
         <p className="canvas-inspector-lock">
           <Lock size={14} aria-hidden />
@@ -123,215 +138,223 @@ export function BoardInspector({
         </p>
       )}
       {item.body && <p className="inspector-body">{item.body}</p>}
-      <dl className="inspector-meta">
-        <dt>ID</dt>
-        <dd className="mono">{item.id}</dd>
-        <dt>Status</dt>
-        <dd>
-          {item.status}
-          {consumed && item.consumed_by && (
-            <>
-              {' '}
-              → <span className="mono">{item.consumed_by}</span>
-            </>
-          )}
-        </dd>
-        {item.provenance && (
-          <>
-            <dt>Provenance</dt>
-            <dd>{item.provenance}</dd>
-          </>
-        )}
-        {item.zone && (
-          <>
-            <dt>Frame</dt>
-            <dd>{item.zone}</dd>
-          </>
-        )}
-        <dt>Updated</dt>
-        <dd>{fmtAge(item.updated_at ?? item.created_at ?? '')}</dd>
-      </dl>
 
       {!readOnly && (
         <>
-          <div className="row">
-            <label className="muted" htmlFor="note-kind">
-              Type
-            </label>
-            <select
-              id="note-kind"
-              style={{ width: 'auto' }}
-              value={item.note_kind ?? ''}
-              disabled={ro || busy}
-              onChange={(e) => onPatch({ note_kind: e.target.value || null })}
-            >
-              <option value="">Untyped</option>
-              {taxonomy.map((k) => (
-                <option key={k} value={k}>
-                  {noteKindMeta(k).label}
-                </option>
-              ))}
-            </select>
-            <label className="muted" htmlFor="note-imp">
-              Importance
-            </label>
-            <select
-              id="note-imp"
-              style={{ width: 'auto' }}
-              value={item.importance ?? 'undecided'}
-              disabled={ro || busy}
-              onChange={(e) => onPatch({ importance: e.target.value })}
-            >
-              {['must', 'should', 'nice', 'undecided'].map((i) => (
-                <option key={i} value={i}>
-                  {i.charAt(0).toUpperCase() + i.slice(1)}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="row">
-            <button
-              type="button"
-              className="small"
-              disabled={busy || ro}
-              onClick={() => onPatch({ status: 'icebox' })}
-            >
-              Park
-            </button>
-            {item.note_status === 'deferred' ? (
+          <section className="inspector-section">
+            <h3 className="inspector-section-title">Properties</h3>
+            <div className="inspector-grid">
+              <label className="inspector-field">
+                <span>Type</span>
+                <select
+                  value={item.note_kind ?? ''}
+                  disabled={ro || busy}
+                  onChange={(e) =>
+                    onPatch({ note_kind: e.target.value || null })
+                  }
+                >
+                  <option value="">Untyped</option>
+                  {taxonomy.map((k) => (
+                    <option key={k} value={k}>
+                      {noteKindMeta(k).label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="inspector-field">
+                <span>Importance</span>
+                <select
+                  value={item.importance ?? 'undecided'}
+                  disabled={ro || busy}
+                  onChange={(e) => onPatch({ importance: e.target.value })}
+                >
+                  {['must', 'should', 'nice', 'undecided'].map((i) => (
+                    <option key={i} value={i}>
+                      {i.charAt(0).toUpperCase() + i.slice(1)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </section>
+
+          <section className="inspector-section">
+            <h3 className="inspector-section-title">Lifecycle</h3>
+            <div className="inspector-actions">
               <button
                 type="button"
                 className="small"
                 disabled={busy || ro}
-                onClick={() => onPatch({ note_status: 'resurfaced' })}
+                onClick={() => onPatch({ status: 'icebox' })}
               >
-                Resurface
+                Park
               </button>
-            ) : (
-              <button
-                type="button"
-                className="small"
-                disabled={busy || ro}
-                onClick={() => onPatch({ note_status: 'deferred' })}
-              >
-                Defer
-              </button>
-            )}
-            {item.board !== null && (
-              <button
-                type="button"
-                className="small"
-                disabled={busy || ro}
-                onClick={() => onPatch({ board: null })}
-              >
-                Move to tray
-              </button>
-            )}
-            {!ro && item.status !== 'discarded' && (
-              <button
-                type="button"
-                className="small danger"
-                disabled={busy}
-                onClick={() => {
-                  onPatch({ status: 'discarded' });
-                  onClose();
-                }}
-              >
-                Discard
-              </button>
-            )}
-          </div>
+              {item.note_status === 'deferred' ? (
+                <button
+                  type="button"
+                  className="small"
+                  disabled={busy || ro}
+                  onClick={() => onPatch({ note_status: 'resurfaced' })}
+                >
+                  Resurface
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="small"
+                  disabled={busy || ro}
+                  onClick={() => onPatch({ note_status: 'deferred' })}
+                >
+                  Defer
+                </button>
+              )}
+              {item.board !== null && (
+                <button
+                  type="button"
+                  className="small"
+                  disabled={busy || ro}
+                  onClick={() => onPatch({ board: null })}
+                >
+                  Move to tray
+                </button>
+              )}
+              {!ro && item.status !== 'discarded' && (
+                <button
+                  type="button"
+                  className="small danger"
+                  disabled={busy}
+                  onClick={() => {
+                    onPatch({ status: 'discarded' });
+                    onClose();
+                  }}
+                >
+                  Discard
+                </button>
+              )}
+            </div>
+          </section>
         </>
       )}
 
-      <h3>Statements</h3>
-      {statements.length === 0 && (
-        <p className="muted">No statements extracted from this item yet.</p>
-      )}
-      <ul className="list">
-        {statements.map((s) => (
-          <li key={s.statement_id} className="statement-row">
-            <StatusBadge status={s.status} /> {s.text}
-            <div
-              className="muted"
-              title={statementProvenance(s)}
-              style={{ fontSize: '0.85em' }}
-            >
-              {statementProvenance(s)}
-            </div>
-            {!readOnly &&
-              (editing === s.statement_id ? (
-                <div className="row">
-                  <input
-                    ref={correctionRef}
-                    aria-label="correction"
-                    value={correction}
-                    onChange={(e) => setCorrection(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Escape') {
-                        setEditing(null);
-                        setCorrection('');
-                      }
-                    }}
-                  />
-                  <button
-                    type="button"
-                    className="small primary"
-                    onClick={() => void correct(s)}
-                  >
-                    Save correction
-                  </button>
-                  <button
-                    type="button"
-                    className="small"
-                    onClick={() => setEditing(null)}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              ) : (
-                <div className="row">
-                  {s.status !== 'confirmed' && (
+      <section className="inspector-section">
+        <h3 className="inspector-section-title">Details</h3>
+        <dl className="inspector-meta">
+          <dt>ID</dt>
+          <dd className="mono">{item.id}</dd>
+          <dt>Status</dt>
+          <dd>
+            {item.status}
+            {consumed && item.consumed_by && (
+              <>
+                {' '}
+                → <span className="mono">{item.consumed_by}</span>
+              </>
+            )}
+          </dd>
+          {item.provenance && (
+            <>
+              <dt>Provenance</dt>
+              <dd>{item.provenance}</dd>
+            </>
+          )}
+          {item.zone && (
+            <>
+              <dt>Frame</dt>
+              <dd>{item.zone}</dd>
+            </>
+          )}
+          <dt>Updated</dt>
+          <dd>{fmtAge(item.updated_at ?? item.created_at ?? '')}</dd>
+        </dl>
+      </section>
+
+      <section className="inspector-section">
+        <h3 className="inspector-section-title">Statements</h3>
+        {statements.length === 0 && (
+          <p className="muted">No statements extracted from this item yet.</p>
+        )}
+        <ul className="list">
+          {statements.map((s) => (
+            <li key={s.statement_id} className="statement-row">
+              <StatusBadge status={s.status} /> {s.text}
+              <div
+                className="muted"
+                title={statementProvenance(s)}
+                style={{ fontSize: '0.85em' }}
+              >
+                {statementProvenance(s)}
+              </div>
+              {!readOnly &&
+                (editing === s.statement_id ? (
+                  <div className="row">
+                    <input
+                      ref={correctionRef}
+                      aria-label="correction"
+                      value={correction}
+                      onChange={(e) => setCorrection(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') {
+                          setEditing(null);
+                          setCorrection('');
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="small primary"
+                      onClick={() => void correct(s)}
+                    >
+                      Save correction
+                    </button>
                     <button
                       type="button"
                       className="small"
-                      onClick={() => void decide(s, 'confirm')}
+                      onClick={() => setEditing(null)}
                     >
-                      Confirm
+                      Cancel
                     </button>
-                  )}
-                  <button
-                    type="button"
-                    className="small"
-                    onClick={() => {
-                      setEditing(s.statement_id);
-                      setCorrection(s.text);
-                    }}
-                  >
-                    Correct
-                  </button>
-                  <button
-                    type="button"
-                    className="small"
-                    onClick={() => void dispute(s)}
-                  >
-                    Dispute
-                  </button>
-                  <button
-                    type="button"
-                    className="small danger"
-                    onClick={() => void decide(s, 'reject')}
-                  >
-                    Reject
-                  </button>
-                </div>
-              ))}
-          </li>
-        ))}
-      </ul>
-      {consumed && item.consumed_by && (
-        <p className="muted">Produced work: {item.consumed_by}</p>
-      )}
+                  </div>
+                ) : (
+                  <div className="row actions">
+                    {s.status !== 'confirmed' && (
+                      <button
+                        type="button"
+                        className="small"
+                        onClick={() => void decide(s, 'confirm')}
+                      >
+                        Confirm
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="small"
+                      onClick={() => {
+                        setEditing(s.statement_id);
+                        setCorrection(s.text);
+                      }}
+                    >
+                      Correct
+                    </button>
+                    <button
+                      type="button"
+                      className="small"
+                      onClick={() => void dispute(s)}
+                    >
+                      Dispute
+                    </button>
+                    <button
+                      type="button"
+                      className="small danger"
+                      onClick={() => void decide(s, 'reject')}
+                    >
+                      Reject
+                    </button>
+                  </div>
+                ))}
+            </li>
+          ))}
+        </ul>
+      </section>
     </aside>
   );
 }

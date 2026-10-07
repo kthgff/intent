@@ -2228,6 +2228,63 @@ th {
 .canvas-inspector .statement-row {
   overflow-wrap: anywhere;
 }
+/* Inspector sections — the panel reads as an organized form, not a
+   wall of controls: Properties / Lifecycle / Details / Statements. */
+.inspector-subtitle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0 4px;
+}
+.inspector-kind-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-dim);
+}
+.inspector-section {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--canvas-chrome-border);
+}
+.inspector-section-title {
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+.inspector-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.inspector-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.inspector-field > span {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.inspector-field select {
+  width: 100%;
+}
+.inspector-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.inspector-actions .danger {
+  grid-column: 1 / -1;
+}
 
 /* ---- board objects (non-spatial access) ---- */
 .canvas-objects {
@@ -2443,7 +2500,10 @@ th {
 }
 
 /* ---- EASY-EDIT — non-spatial board-object table (D62, EASY-EDIT-TDD).
-   Rides the canvas chrome tokens; dense 32px rows, one line per item. */
+   The table area is the always-white canvas surface, so its text and
+   borders ride --canvas-ink* (never --text/--text-dim, which are
+   light-on-dark in dark mode). Floating chrome (bulk bar, undo, hint,
+   drawer) keeps --canvas-chrome + --text like the rest of the canvas. */
 
 .ee-root {
   position: absolute;
@@ -2454,6 +2514,7 @@ th {
   gap: 0;
   overflow: hidden;
   background: var(--canvas-bg, #fff);
+  color: var(--canvas-ink);
 }
 
 .ee-toolbar {
@@ -2461,7 +2522,7 @@ th {
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  border-bottom: 1px solid var(--canvas-chrome-border, #d1d9e0);
+  border-bottom: 1px solid var(--canvas-node-border, rgba(28, 25, 23, 0.18));
   flex-wrap: wrap;
 }
 
@@ -2471,9 +2532,10 @@ th {
   gap: 6px;
   padding: 0 8px;
   height: 28px;
-  border: 1px solid var(--canvas-chrome-border, #d1d9e0);
+  border: 1px solid var(--canvas-node-border, rgba(28, 25, 23, 0.18));
   border-radius: 6px;
-  color: var(--muted);
+  background: var(--canvas-bg, #fff);
+  color: var(--canvas-ink-dim);
 }
 .ee-search input {
   border: 0;
@@ -2481,11 +2543,27 @@ th {
   padding: 0;
   height: 100%;
   min-width: 180px;
-  color: inherit;
+  color: var(--canvas-ink);
 }
 .ee-toolbar select {
   height: 28px;
   width: auto;
+  background: var(--canvas-bg, #fff);
+  color: var(--canvas-ink);
+  border-color: var(--canvas-node-border, rgba(28, 25, 23, 0.18));
+}
+.ee-toolbar .canvas-icon-button {
+  color: var(--canvas-ink);
+}
+.ee-toolbar .canvas-icon-button:hover {
+  border-color: var(--canvas-node-border, rgba(28, 25, 23, 0.18));
+  background: color-mix(in srgb, var(--canvas-ink) 6%, transparent);
+}
+/* The app-wide .muted rides theme --text-dim — too faint on the white
+   surface in dark mode. Surface text uses the canvas ink scale. */
+.ee-toolbar .muted,
+.ee-table-wrap .muted {
+  color: var(--canvas-ink-dim);
 }
 .ee-tray-toggle {
   display: inline-flex;
@@ -2508,8 +2586,10 @@ th {
 .ee-new > button:nth-child(2) {
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
-  border-left: 1px solid var(--canvas-chrome-border, #d1d9e0);
+  border-color: var(--canvas-node-border, rgba(28, 25, 23, 0.18));
   padding: 0 6px;
+  background: var(--canvas-bg, #fff);
+  color: var(--canvas-ink);
 }
 .ee-new-menu {
   position: absolute;
@@ -2540,7 +2620,7 @@ th {
   margin: 6px 12px;
   padding: 8px 12px;
   font-size: 0.85em;
-  color: var(--muted);
+  color: var(--text-dim);
   background: var(--canvas-chrome, #fff);
   border: 1px solid var(--canvas-chrome-border, #d1d9e0);
   border-radius: 8px;
@@ -2580,9 +2660,9 @@ th {
   z-index: 5;
   text-align: left;
   font-weight: 600;
-  color: var(--muted);
+  color: var(--canvas-ink-dim);
   background: var(--canvas-bg, #fff);
-  border-bottom: 1px solid var(--canvas-chrome-border, #d1d9e0);
+  border-bottom: 1px solid var(--canvas-node-border, rgba(28, 25, 23, 0.18));
   padding: 4px 8px;
 }
 .ee-th {
@@ -2600,7 +2680,7 @@ th {
   height: 32px;
   padding: 0 8px;
   border-bottom: 1px solid
-    color-mix(in srgb, var(--canvas-chrome-border, #d1d9e0) 45%, transparent);
+    color-mix(in srgb, var(--canvas-ink) 8%, transparent);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2609,10 +2689,18 @@ th {
 .ee-row {
   cursor: default;
 }
-.ee-row:hover td {
-  background: color-mix(in srgb, var(--canvas-chrome, #fff) 55%, transparent);
+/* Row rhythm at 32px density: whisper zebra, ink hover, selection
+   focus — equal specificity, source order decides. */
+.ee-table tbody tr.ee-row:nth-child(even) td {
+  background: color-mix(in srgb, var(--canvas-ink) 2.5%, transparent);
 }
-.ee-row.focused td {
+.ee-table tbody tr.ee-row.tray td {
+  background: color-mix(in srgb, var(--canvas-ink) 5%, transparent);
+}
+.ee-table tbody tr.ee-row:hover td {
+  background: color-mix(in srgb, var(--canvas-ink) 6%, transparent);
+}
+.ee-table tbody tr.ee-row.focused td {
   background: color-mix(
     in srgb,
     var(--canvas-selection, #315efb) 10%,
@@ -2627,7 +2715,7 @@ th {
   opacity: 0.5;
 }
 .ee-row.locked {
-  color: var(--muted);
+  color: var(--canvas-ink-dim);
 }
 .ee-check {
   width: 28px;
@@ -2654,12 +2742,12 @@ th {
 }
 .ee-lock {
   display: inline-flex;
-  color: var(--muted);
+  color: var(--canvas-ink-dim);
 }
 
 .ee-tray-head td {
   padding: 0;
-  border-bottom: 1px solid var(--canvas-chrome-border, #d1d9e0);
+  border-bottom: 1px solid var(--canvas-node-border, rgba(28, 25, 23, 0.18));
 }
 .ee-tray-toggle-row {
   all: unset;
@@ -2670,27 +2758,39 @@ th {
   box-sizing: border-box;
   padding: 6px 8px;
   font-weight: 600;
-  color: var(--muted);
+  color: var(--canvas-ink-dim);
   cursor: pointer;
 }
 .ee-tray-toggle-row:hover {
-  color: inherit;
+  color: var(--canvas-ink);
 }
 .ee-tray-toggle-row:focus-visible {
   outline: 2px solid var(--canvas-selection, #315efb);
   outline-offset: -2px;
-}
-.ee-row.tray td {
-  background: color-mix(in srgb, var(--canvas-chrome, #fff) 35%, transparent);
 }
 
 .ee-empty,
 .ee-cap {
   padding: 18px 8px;
   text-align: center;
+  color: var(--canvas-ink-dim);
+}
+.ee-empty p {
+  margin: 0 0 10px;
 }
 
 /* ---- edit drawer ---- */
+.ee-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 39;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: rgba(10, 13, 18, 0.18);
+  cursor: default;
+}
 .ee-drawer {
   position: absolute;
   top: 0;
@@ -2712,6 +2812,19 @@ th {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.ee-save-hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.ee-section-title {
+  margin: 4px 0 0;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
 }
 .ee-field {
   display: flex;
@@ -2747,6 +2860,13 @@ th {
 }
 .ee-swatch.on {
   border-color: var(--canvas-selection, #315efb);
+}
+.ee-provenance {
+  font-size: 12px;
+}
+.ee-provenance summary {
+  cursor: pointer;
+  color: var(--text-dim);
 }
 .ee-drawer-actions {
   margin-top: auto;

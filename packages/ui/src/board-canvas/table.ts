@@ -25,6 +25,17 @@ export type SortKey =
   | 'importance'
   | 'updated_at';
 
+/** Every valid sort key — persisted view state validates against this
+ *  so a corrupt localStorage entry falls back to the default. */
+export const SORT_KEYS: readonly SortKey[] = [
+  'kind',
+  'text',
+  'note_kind',
+  'status',
+  'importance',
+  'updated_at',
+];
+
 export type SortDir = 'asc' | 'desc';
 
 export interface ViewFilter {

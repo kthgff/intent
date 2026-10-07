@@ -27,7 +27,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { StatusBadge, fmtAge } from '../components';
+import { ConfirmDialog, StatusBadge, fmtAge } from '../components';
 import { noteKindMeta } from '../discovery';
 import { EditDrawer } from './EditDrawer';
 import {
@@ -40,6 +40,7 @@ import {
 import {
   DEFAULT_FILTER,
   ROW_CAP,
+  SORT_KEYS,
   type SortDir,
   type SortKey,
   type TableRow,
@@ -81,15 +82,41 @@ interface PersistedView {
   filter: Partial<ViewFilter>;
 }
 
+const SORT_KEY_SET = new Set<string>(SORT_KEYS);
+const FILTER_KEYS = [
+  'search',
+  'kind',
+  'note_kind',
+  'status',
+  'importance',
+  'showTray',
+] as const;
+
+/** Guarded parse — a corrupt entry falls back to defaults per key,
+ *  never to a comparator that breaks on an unknown sort. */
 function loadView(ws: string, board: string): PersistedView | null {
   try {
     const raw = localStorage.getItem(storageKey(ws, board));
     if (!raw) return null;
     const v = JSON.parse(raw) as Partial<PersistedView>;
+    const filter: Partial<ViewFilter> = {};
+    if (typeof v.filter === 'object' && v.filter) {
+      for (const k of FILTER_KEYS) {
+        const val = (v.filter as Record<string, unknown>)[k];
+        if (k === 'showTray') {
+          if (typeof val === 'boolean') filter.showTray = val;
+        } else if (typeof val === 'string' || val === null) {
+          (filter as Record<string, unknown>)[k] = val;
+        }
+      }
+    }
     return {
-      sort: typeof v.sort === 'string' ? (v.sort as SortKey) : 'updated_at',
+      sort:
+        typeof v.sort === 'string' && SORT_KEY_SET.has(v.sort)
+          ? (v.sort as SortKey)
+          : 'updated_at',
       dir: v.dir === 'asc' ? 'asc' : 'desc',
-      filter: typeof v.filter === 'object' && v.filter ? v.filter : {},
+      filter,
     };
   } catch {
     return null;
@@ -147,10 +174,13 @@ export default function EasyEdit({
   const [undo, setUndo] = useState<{ label: string; cmd: BoardCommand } | null>(
     null,
   );
+  const [confirmDiscard, setConfirmDiscard] = useState<number | null>(null);
   const history = useRef(new CommandHistory());
   const searchRef = useRef<HTMLInputElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** A freshly created row to DOM-focus once it renders. */
+  const pendingFocus = useRef<string | null>(null);
 
   const rows = useMemo(() => projectRows(surfaces, tray), [surfaces, tray]);
   const view = useMemo(
@@ -162,11 +192,22 @@ export default function EasyEdit({
   const capped = boardRows.length > ROW_CAP;
   const shownBoard = capped ? boardRows.slice(0, ROW_CAP) : boardRows;
   const visibleRows = [...shownBoard, ...(trayOpen ? trayRows : [])];
-  const moveFocus = (id: string | null) => {
+  const moveFocus = useCallback((id: string | null) => {
     setFocusId(id);
-    const target = Array.from(rootRef.current?.querySelectorAll<HTMLElement>('[data-row-id]') ?? []).find((el) => el.dataset.rowId === id);
+    const target = Array.from(
+      rootRef.current?.querySelectorAll<HTMLElement>('[data-row-id]') ?? [],
+    ).find((el) => el.dataset.rowId === id);
     target?.focus();
-  };
+  }, []);
+
+  // A created row receives real DOM focus once it renders (EE-E).
+  useEffect(() => {
+    const id = pendingFocus.current;
+    if (id && visibleRows.some((r) => r.item.id === id)) {
+      pendingFocus.current = null;
+      moveFocus(id);
+    }
+  }, [visibleRows, moveFocus]);
 
   // Persist view state (fail-soft).
   useEffect(() => {
@@ -260,12 +301,16 @@ export default function EasyEdit({
   /** Bulk OCC batch — one request for every checked mutable row. */
   const bulk = async (patch: ItemMutation['patch'], label: string) => {
     if (busy) return;
-    const targets = shownBoard.filter((r) => checked.has(r.item.id) && !r.locked);
+    const targets = shownBoard.filter(
+      (r) => checked.has(r.item.id) && !r.locked,
+    );
     if (targets.length === 0) return;
     const mutations: ItemMutation[] = [];
     for (const r of targets) {
       if (r.item.updated_at == null) {
-        notice(`Nothing changed: ${r.item.id} has no saved version. Refresh before trying again.`);
+        notice(
+          `Nothing changed: ${r.item.id} has no saved version. Refresh before trying again.`,
+        );
         return;
       }
       mutations.push({
@@ -300,19 +345,36 @@ export default function EasyEdit({
   };
 
   const bulkDiscard = () => {
-    if (
-      checked.size >= 10 &&
-      !window.confirm(
-        `Discard ${checked.size} items? They'll move to Discarded status.`,
-      )
-    ) {
+    if (checked.size >= 10) {
+      setConfirmDiscard(checked.size);
       return;
     }
     void bulk({ status: 'discarded' }, `discard ${checked.size} items`);
   };
 
+  const createNote = useCallback(() => {
+    if (busy) return;
+    setOpBusy(true);
+    add({ kind: 'note', note_kind: 'idea' })
+      .then((item) => {
+        pendingFocus.current = item.id;
+        setFocusId(item.id);
+      })
+      .catch((e) =>
+        notice(
+          `Create failed: ${e instanceof Error ? e.message : String(e)}`,
+        ),
+      )
+      .finally(() => setOpBusy(false));
+  }, [add, notice, busy]);
+
   const onKeyDown = (e: KeyboardEvent) => {
-    if (isTypingTarget(e.target) || (e.target instanceof HTMLElement && e.target.closest('button, .ee-drawer'))) return;
+    if (
+      isTypingTarget(e.target) ||
+      (e.target instanceof HTMLElement &&
+        e.target.closest('button, .ee-drawer'))
+    )
+      return;
     const ids = visibleRows.map((r) => r.item.id);
     const idx = focusId ? ids.indexOf(focusId) : -1;
     switch (e.key) {
@@ -395,8 +457,9 @@ export default function EasyEdit({
         key={item.id}
         data-row-id={item.id}
         className={cls}
-        tabIndex={focused || (!focusId && visibleRows[0]?.item.id === item.id) ? 0 : -1}
-        aria-selected={checked.has(item.id)}
+        tabIndex={
+          focused || (!focusId && visibleRows[0]?.item.id === item.id) ? 0 : -1
+        }
         onClick={() => moveFocus(item.id)}
         onFocus={() => setFocusId(item.id)}
         onKeyDown={(e) => {
@@ -428,7 +491,9 @@ export default function EasyEdit({
         <td className="ee-text" title={item.title ?? item.body ?? ''}>
           {item.title || item.body || item.ref || 'Untitled'}
         </td>
-        <td className="ee-type">{item.kind === 'note' ? noteKindMeta(item.note_kind).label : '—'}</td>
+        <td className="ee-type">
+          {item.kind === 'note' ? noteKindMeta(item.note_kind).label : '—'}
+        </td>
         <td>
           <StatusBadge status={item.status} />
         </td>
@@ -438,11 +503,15 @@ export default function EasyEdit({
         </td>
         <td className="ee-act">
           {row.locked ? (
-            <button type="button"
+            <button
+              type="button"
               className="ee-lock"
               title={`Locked — ${item.status}`}
               aria-label={`Locked — ${item.status}`}
-              onClick={(e) => { e.stopPropagation(); setDrawerId(item.id); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setDrawerId(item.id);
+              }}
             >
               <Lock size={14} aria-hidden />
             </button>
@@ -474,7 +543,9 @@ export default function EasyEdit({
     >
       <button type="button" className="ee-th" onClick={() => toggleSort(key)}>
         {label}
-        {sort === key && <span aria-hidden>{dir === 'asc' ? ' ▲' : ' ▼'}</span>}
+        {sort === key && (
+          <span aria-hidden>{dir === 'asc' ? ' ▲' : ' ▼'}</span>
+        )}
       </button>
     </th>
   );
@@ -570,17 +641,7 @@ export default function EasyEdit({
           <button
             type="button"
             className="primary small"
-            onClick={() => {
-              setOpBusy(true);
-              add({ kind: 'note', note_kind: 'idea' })
-                .then((item) => setFocusId(item.id))
-                .catch((e) =>
-                  notice(
-                    `Create failed: ${e instanceof Error ? e.message : String(e)}`,
-                  ),
-                )
-                .finally(() => setOpBusy(false));
-            }}
+            onClick={createNote}
             disabled={busy}
           >
             <Plus size={14} aria-hidden /> New
@@ -603,7 +664,10 @@ export default function EasyEdit({
                   setNewOpen(false);
                   setOpBusy(true);
                   add({ kind: 'text' })
-                    .then((item) => setFocusId(item.id))
+                    .then((item) => {
+                      pendingFocus.current = item.id;
+                      setFocusId(item.id);
+                    })
                     .catch((e) =>
                       notice(
                         `Create failed: ${e instanceof Error ? e.message : String(e)}`,
@@ -748,6 +812,22 @@ export default function EasyEdit({
         </div>
       )}
 
+      {confirmDiscard !== null && (
+        <ConfirmDialog
+          title={`Discard ${confirmDiscard} items?`}
+          body="They'll move to Discarded status — the undo bar can restore them right after."
+          confirmLabel="Discard"
+          danger
+          busy={busy}
+          onConfirm={() => {
+            const n = confirmDiscard;
+            setConfirmDiscard(null);
+            void bulk({ status: 'discarded' }, `discard ${n} items`);
+          }}
+          onCancel={() => setConfirmDiscard(null)}
+        />
+      )}
+
       {undo && (
         <output className="ee-undo" aria-live="polite">
           {undo.label}
@@ -786,7 +866,21 @@ export default function EasyEdit({
             {shownBoard.length === 0 && trayRows.length === 0 && (
               <tr>
                 <td colSpan={8} className="muted ee-empty">
-                  Nothing matches — adjust filters or create an item.
+                  {rows.length === 0 ? (
+                    <>
+                      <p>No items on this board yet.</p>
+                      <button
+                        type="button"
+                        className="primary small"
+                        onClick={createNote}
+                        disabled={busy}
+                      >
+                        <Plus size={14} aria-hidden /> Add the first item
+                      </button>
+                    </>
+                  ) : (
+                    'Nothing matches — adjust filters or create an item.'
+                  )}
                 </td>
               </tr>
             )}
@@ -878,11 +972,11 @@ function TrayRowView({
   const { item } = row;
   return (
     <tr
+      data-row-id={item.id}
       className={`ee-row tray${focused ? ' focused' : ''}${
         item.status === 'discarded' ? ' discarded' : ''
       }${row.locked ? ' locked' : ''}`}
       tabIndex={focused ? 0 : -1}
-      aria-selected={checked}
       onClick={onFocus}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {

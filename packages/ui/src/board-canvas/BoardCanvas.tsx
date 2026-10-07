@@ -688,15 +688,18 @@ function InnerCanvas({
           setTimeout(() => saveText(id, field, text), 500),
         );
       },
-      commitText: (id, field, text) => {
+      commitText: (id, field, text, baseline) => {
         const t = draftTimers.current.get(id);
         if (t) clearTimeout(t);
         draftTimers.current.delete(id);
         lastDraft.current.delete(id);
         setEditingId(null);
-        const item = currentRow(id);
-        const current = field === 'title' ? item?.title : item?.body;
-        if ((current ?? '') !== text) saveText(id, field, text);
+        // The editor passes the text it was seeded with (its display
+        // fallback, e.g. title ?? body) — an unchanged draft issues no
+        // write. Comparing against the raw field instead turned a
+        // title-less sticky's untouched blur into a spurious
+        // title = body write.
+        if (baseline !== text) saveText(id, field, text);
       },
       setColor: (id, color) => {
         const m = fencedMutation(id, { color });

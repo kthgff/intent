@@ -39,8 +39,11 @@ export interface CanvasActions {
   startEdit(id: string): void;
   /** Debounced text autosave while editing (500 ms). */
   saveDraft(id: string, field: TextField, text: string): void;
-  /** Blur/commit — flush pending save and leave editing. */
-  commitText(id: string, field: TextField, text: string): void;
+  /** Blur/commit — flush pending save and leave editing. `baseline`
+   *  is the text the editor was seeded with, so an unchanged edit
+   *  issues no write (display fallbacks like `title ?? body` must not
+   *  become spurious cross-field writes). */
+  commitText(id: string, field: TextField, text: string, baseline: string): void;
   /** Explicit color override; null restores the type-derived color. */
   setColor(id: string, color: CanvasColor | null): void;
   /** Create a copy of the item offset beside the original. */
@@ -196,12 +199,15 @@ export function EditableText({
 }) {
   const actions = useCanvasActions();
   const [draft, setDraft] = useState(text);
+  /** The text the editor was seeded with — the commit baseline. */
+  const baseline = useRef(text);
   const ref = useRef<HTMLTextAreaElement>(null);
   const wasEditing = useRef(false);
   const canEdit = editing && !locked && actions.editable;
   useEffect(() => {
     if (canEdit && !wasEditing.current && ref.current) {
       setDraft(text);
+      baseline.current = text;
       ref.current.focus();
       ref.current.select();
     }
@@ -227,16 +233,16 @@ export function EditableText({
         setDraft(e.target.value);
         actions.saveDraft(id, field, e.target.value);
       }}
-      onBlur={() => actions.commitText(id, field, draft)}
+      onBlur={() => actions.commitText(id, field, draft, baseline.current)}
       onKeyDown={(e) => {
         if (e.key === 'Escape') {
           e.stopPropagation();
-          actions.commitText(id, field, draft);
+          actions.commitText(id, field, draft, baseline.current);
         }
         if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
           e.preventDefault();
           e.stopPropagation();
-          actions.commitText(id, field, draft);
+          actions.commitText(id, field, draft, baseline.current);
         }
       }}
     />
