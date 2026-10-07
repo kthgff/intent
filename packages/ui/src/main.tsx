@@ -8,6 +8,8 @@ import '@fontsource/jetbrains-mono/400.css';
 import '@fontsource/jetbrains-mono/600.css';
 import App from './App';
 import { bootstrapAuth } from './api';
+// React Flow base styles load once, before Veto overrides (S-16).
+import '@xyflow/react/dist/style.css';
 import './styles.css';
 import './demo/demo.css';
 
