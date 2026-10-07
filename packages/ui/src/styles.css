@@ -1399,7 +1399,8 @@ th {
 
 :root {
   --canvas-bg: #ffffff;
-  --canvas-grid: #d4d8de;
+  --canvas-grid: #e3e6ea;
+  --canvas-grid-major: #c9ced6;
   --canvas-chrome: #161b22;
   --canvas-chrome-border: #303944;
   --canvas-selection: #315efb;

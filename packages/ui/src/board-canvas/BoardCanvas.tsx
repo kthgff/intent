@@ -1193,7 +1193,20 @@ function InnerCanvas({
             'handle.ariaLabel': 'connector endpoint',
           }}
         >
-          <Background variant={BackgroundVariant.Dots} gap={24} size={1} />
+          <Background
+            id="grid-minor"
+            variant={BackgroundVariant.Lines}
+            gap={24}
+            lineWidth={1}
+            color="var(--canvas-grid)"
+          />
+          <Background
+            id="grid-major"
+            variant={BackgroundVariant.Lines}
+            gap={96}
+            lineWidth={1}
+            color="var(--canvas-grid-major)"
+          />
         </ReactFlow>
 
         {nodes.length === 0 && (
