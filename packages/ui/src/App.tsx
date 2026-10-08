@@ -3,10 +3,26 @@
  * app is a needs-attention inbox; badge counts drive the daily loop).
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, NavLink, Route, Routes, useLocation } from 'react-router-dom';
+import {
+  Link,
+  NavLink,
+  Navigate,
+  Route,
+  Routes,
+  matchPath,
+  useLocation,
+} from 'react-router-dom';
 import { type IdeaBoardRow, client } from './api';
+import { Modal } from './components';
 import DemoApp, { isDemoMode } from './demo/DemoApp';
-import { useEscapeKey } from './hooks';
+import {
+  FlatRedirect,
+  IndexRedirect,
+  LegacyProjectRedirect,
+  LegacyRunRedirect,
+  ProjectLayout,
+  projectPath,
+} from './project';
 import Boards from './screens/Boards';
 import Capture, { CaptureForm } from './screens/Capture';
 import CodeReview from './screens/CodeReview';
@@ -38,6 +54,52 @@ interface Toast {
   text: string;
 }
 
+/** Primary nav — grouped by workflow phase (mirrors the demo shell's
+ *  d-nav-group structure). Items are project-relative; the shell
+ *  prefixes them with the current project. */
+const NAV_GROUPS: {
+  label: string;
+  items: { sub: string; label: string }[];
+}[] = [
+  {
+    label: 'Discover',
+    items: [
+      { sub: '/boards', label: 'Boards' },
+      { sub: '/capture', label: 'Capture' },
+      { sub: '/tray', label: 'Tray' },
+      { sub: '/new', label: 'Create / Import' },
+    ],
+  },
+  {
+    label: 'Deliver',
+    items: [
+      { sub: '/runs', label: 'Runs' },
+      { sub: '/queue', label: 'Failures' },
+      { sub: '/merge-center', label: 'Merge' },
+      { sub: '/releases', label: 'Releases' },
+    ],
+  },
+  {
+    label: 'Intelligence',
+    items: [
+      { sub: '/kb', label: 'Knowledge base' },
+      { sub: '/metrics', label: 'Metrics' },
+      { sub: '/ledger', label: 'Ledger' },
+    ],
+  },
+  {
+    label: 'System',
+    items: [{ sub: '/settings', label: 'Settings' }],
+  },
+];
+
+/** Current project from the URL — every project route lives under
+ *  `/projects/:ws/…`. */
+function currentProject(pathname: string): string | null {
+  const m = matchPath('/projects/:ws/*', pathname);
+  return m?.params.ws ? decodeURIComponent(m.params.ws) : null;
+}
+
 function ProductionApp() {
   const [openCount, setOpenCount] = useState<number | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -47,9 +109,12 @@ function ProductionApp() {
     boards: IdeaBoardRow[];
     noteKinds: string[];
   } | null>(null);
+  const [captureErr, setCaptureErr] = useState(false);
+  const [live, setLive] = useState<boolean | null>(null);
+  const [helpOpen, setHelpOpen] = useState(false);
   const toastSeq = useRef(0);
-  useEscapeKey(captureOpen, () => setCaptureOpen(false));
   const location = useLocation();
+  const ws = currentProject(location.pathname);
 
   // ⌘⇧C — the compact Quick Capture modal (S-19; same component as
   // /capture, loaded lazily so it never carries the canvas runtime).
@@ -62,37 +127,57 @@ function ProductionApp() {
       ) {
         e.preventDefault();
         setCaptureOpen((o) => !o);
+        return;
+      }
+      // `?` — shortcut help (skipped while typing in a field).
+      const el = e.target as HTMLElement | null;
+      const typing =
+        el &&
+        (el.tagName === 'INPUT' ||
+          el.tagName === 'TEXTAREA' ||
+          el.tagName === 'SELECT' ||
+          el.isContentEditable);
+      if (!typing && e.key === '?' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        setHelpOpen((o) => !o);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  useEffect(() => {
-    if (!captureOpen || captureData) return;
+  const loadCaptureData = useCallback(() => {
+    setCaptureErr(false);
     client
       .workspaces()
       .then(async (r) => {
         const names = r.workspaces.map((w) => w.name);
         const t = await client.boardTaxonomy();
+        const boardsWs = ws ?? names[0];
         let boards: IdeaBoardRow[] = [];
-        if (names[0]) {
-          boards = (await client.ideaBoards(names[0])).boards;
+        if (boardsWs) {
+          boards = (await client.ideaBoards(boardsWs)).boards;
         }
         setCaptureData({
-          workspaces: names,
+          workspaces: ws ? [ws] : names,
           boards,
           noteKinds: t.note_kinds,
         });
       })
-      .catch(() =>
-        setCaptureData({ workspaces: [], boards: [], noteKinds: [] }),
-      );
-  }, [captureOpen, captureData]);
+      .catch(() => setCaptureErr(true));
+  }, [ws]);
+
+  // Project switch invalidates the cached capture destinations.
+  useEffect(() => setCaptureData(null), [ws]);
+
+  useEffect(() => {
+    if (!captureOpen || captureData) return;
+    loadCaptureData();
+  }, [captureOpen, captureData, loadCaptureData]);
 
   const refreshBadge = useCallback(() => {
     client
-      .inbox()
+      .inbox(ws ?? undefined)
       .then((r) => {
         // D20: snoozed items stay open but leave the badge count.
         const now = new Date().toISOString();
@@ -102,7 +187,7 @@ function ProductionApp() {
         );
       })
       .catch(() => setOpenCount(null));
-  }, []);
+  }, [ws]);
 
   const pushToast = useCallback((text: string) => {
     const id = ++toastSeq.current;
@@ -114,6 +199,7 @@ function ProductionApp() {
   useEffect(() => {
     return subscribeStream({
       onOpen: refreshBadge, // reconnect → re-read durable state
+      onState: setLive,
       onEvent: (type, payload) => {
         if (type === 'gate_surfaced' || type === 'gate_cleared') {
           refreshBadge();
@@ -127,96 +213,181 @@ function ProductionApp() {
 
   return (
     <div className="shell">
+      <a href="#main" className="skip">
+        Skip to content
+      </a>
       <nav className="nav" aria-label="primary">
         <div className="brand">veto</div>
-        <NavLink to="/" end>
-          Home
-          {openCount !== null && openCount > 0 && (
-            <span className="count" aria-label="open items">
-              {openCount}
-            </span>
-          )}
+        <NavLink to="/projects" end>
+          Projects
         </NavLink>
-        <NavLink to="/boards">Boards</NavLink>
-        <NavLink to="/capture">Capture</NavLink>
-        <NavLink to="/tray">Tray</NavLink>
-        <NavLink to="/new">Create / Import</NavLink>
-        <NavLink to="/runs">Runs</NavLink>
-        <NavLink to="/queue">Failures</NavLink>
-        <NavLink to="/merge-center">Merge</NavLink>
-        <NavLink to="/releases">Releases</NavLink>
-        <NavLink to="/workspaces">Workspaces</NavLink>
-        <NavLink to="/kb">Knowledge base</NavLink>
-        <NavLink to="/metrics">Metrics</NavLink>
-        <NavLink to="/ledger">Ledger</NavLink>
-        <NavLink to="/settings">Settings</NavLink>
+        {ws && (
+          <NavLink to={projectPath(ws)} end>
+            Home
+            {openCount !== null && openCount > 0 && (
+              <span className="count" aria-label="open items">
+                {openCount}
+              </span>
+            )}
+          </NavLink>
+        )}
+        {ws &&
+          NAV_GROUPS.map((group) => (
+            <div className="nav-group" key={group.label}>
+              <div className="nav-group-label">{group.label}</div>
+              {group.items.map((item) => (
+                <NavLink key={item.sub} to={projectPath(ws, item.sub)}>
+                  {item.label}
+                </NavLink>
+              ))}
+            </div>
+          ))}
+        {live !== null && (
+          <output
+            className={`conn${live ? '' : ' off'}`}
+            title={
+              live
+                ? 'live — stream connected'
+                : 'offline — stream disconnected, retrying'
+            }
+          >
+            <span className="conn-dot" aria-hidden="true" />
+            {live ? 'live' : 'offline'}
+          </output>
+        )}
+        <button
+          type="button"
+          className="link nav-help"
+          title="keyboard shortcuts"
+          aria-label="keyboard shortcuts"
+          onClick={() => setHelpOpen(true)}
+        >
+          ?
+        </button>
       </nav>
-      <main className="main" key={location.key}>
+      <main
+        id="main"
+        className={`main${
+          matchPath('/projects/:ws/boards/:board', location.pathname)
+            ? ' route-board'
+            : ''
+        }`}
+        key={location.pathname}
+      >
         <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/settings" element={<Settings />} />
-          <Route path="/new" element={<CreateImport />} />
-          <Route path="/boards" element={<Boards />} />
-          <Route path="/boards/:ws/:board" element={<IdeaBoard />} />
-          <Route path="/capture" element={<Capture />} />
-          <Route path="/tray" element={<Tray />} />
+          <Route path="/" element={<IndexRedirect />} />
+          <Route path="/projects" element={<Workspaces />} />
+          <Route path="/projects/:ws" element={<ProjectLayout />}>
+            <Route index element={<Home />} />
+            <Route path="boards" element={<Boards />} />
+            <Route path="boards/:board" element={<IdeaBoard />} />
+            <Route path="capture" element={<Capture />} />
+            <Route path="tray" element={<Tray />} />
+            <Route path="new" element={<CreateImport />} />
+            <Route path="discovery/:session" element={<DiscoverySession />} />
+            <Route path="features/:id" element={<FeatureWorkspace />} />
+            <Route path="tickets/:id" element={<TicketFocus />} />
+            <Route path="tickets/:id/wizard" element={<Wizard />} />
+            <Route path="tickets/:id/docs/:name" element={<DocReview />} />
+            <Route path="tickets/:id/review" element={<CodeReview />} />
+            <Route path="tickets/:id/pr" element={<PrPanel />} />
+            <Route path="tickets/:id/ledger" element={<Ledger />} />
+            <Route path="runs" element={<RunsList />} />
+            <Route path="runs/:id" element={<RunMonitor />} />
+            <Route path="queue" element={<Escalations />} />
+            <Route path="merge-center" element={<MergeCenter />} />
+            <Route path="releases" element={<ReleaseCenter />} />
+            <Route path="releases/:rel" element={<ReleaseCenter />} />
+            <Route path="ledger" element={<Ledger />} />
+            <Route path="metrics" element={<Metrics />} />
+            <Route path="kb" element={<KnowledgeBase />} />
+            <Route path="settings" element={<Settings />} />
+          </Route>
+          {/* Pre-project-first URLs: ws-bearing paths map 1:1, flat
+              paths land in the remembered project (or the picker). */}
+          <Route path="/boards" element={<FlatRedirect to="boards" />} />
+          <Route path="/boards/:ws/*" element={<LegacyProjectRedirect />} />
+          <Route path="/capture" element={<FlatRedirect to="capture" />} />
+          <Route path="/tray" element={<FlatRedirect to="tray" />} />
+          <Route path="/new" element={<FlatRedirect to="new" />} />
+          <Route path="/discovery/:ws/*" element={<LegacyProjectRedirect />} />
+          <Route path="/features/:ws/*" element={<LegacyProjectRedirect />} />
+          <Route path="/tickets/:ws/*" element={<LegacyProjectRedirect />} />
+          <Route path="/runs" element={<FlatRedirect to="runs" />} />
+          <Route path="/runs/:id" element={<LegacyRunRedirect />} />
+          <Route path="/queue" element={<FlatRedirect to="queue" />} />
           <Route
-            path="/discovery/:ws/:session"
-            element={<DiscoverySession />}
+            path="/merge-center"
+            element={<FlatRedirect to="merge-center" />}
           />
-          <Route path="/features/:ws/:id" element={<FeatureWorkspace />} />
-          <Route path="/tickets/:ws/:id" element={<TicketFocus />} />
-          <Route path="/tickets/:ws/:id/wizard" element={<Wizard />} />
-          <Route path="/tickets/:ws/:id/docs/:name" element={<DocReview />} />
-          <Route path="/tickets/:ws/:id/review" element={<CodeReview />} />
-          <Route path="/tickets/:ws/:id/pr" element={<PrPanel />} />
-          <Route path="/tickets/:ws/:id/ledger" element={<Ledger />} />
-          <Route path="/runs" element={<RunsList />} />
-          <Route path="/runs/:id" element={<RunMonitor />} />
-          <Route path="/queue" element={<Escalations />} />
-          <Route path="/merge-center" element={<MergeCenter />} />
-          <Route path="/releases" element={<ReleaseCenter />} />
-          <Route path="/releases/:ws/:rel" element={<ReleaseCenter />} />
-          <Route path="/ledger" element={<Ledger />} />
-          <Route path="/metrics" element={<Metrics />} />
-          <Route path="/workspaces" element={<Workspaces />} />
-          <Route path="/kb" element={<KnowledgeBase />} />
-          <Route path="*" element={<Home />} />
+          <Route path="/releases" element={<FlatRedirect to="releases" />} />
+          <Route path="/releases/:ws/*" element={<LegacyProjectRedirect />} />
+          <Route path="/ledger" element={<FlatRedirect to="ledger" />} />
+          <Route path="/metrics" element={<FlatRedirect to="metrics" />} />
+          <Route path="/kb" element={<FlatRedirect to="kb" />} />
+          <Route path="/settings" element={<FlatRedirect to="settings" />} />
+          <Route
+            path="/workspaces"
+            element={<Navigate to="/projects" replace />}
+          />
+          <Route path="*" element={<IndexRedirect />} />
         </Routes>
       </main>
       {captureOpen && (
-        <div
-          className="modal-back"
-          role="presentation"
-          onClick={() => setCaptureOpen(false)}
-          onKeyDown={(e) => e.key === 'Escape' && setCaptureOpen(false)}
-        >
-          <dialog
-            open
-            className="modal"
-            aria-label="quick capture"
-            onClick={(e) => e.stopPropagation()}
-            onKeyDown={(e) => {
-              // Escape must still dismiss — swallowing every keydown
-              // here blocked the backdrop's handler.
-              e.stopPropagation();
-              if (e.key === 'Escape') setCaptureOpen(false);
-            }}
-          >
-            <strong>Quick capture</strong>
-            {captureData ? (
-              <CaptureForm
-                compact
-                workspaces={captureData.workspaces}
-                boards={captureData.boards}
-                noteKinds={captureData.noteKinds}
-                onSaved={() => pushToast('captured → tray')}
-              />
-            ) : (
-              <p className="muted">Loading…</p>
-            )}
-          </dialog>
-        </div>
+        <Modal label="quick capture" onClose={() => setCaptureOpen(false)} wide>
+          <strong>Quick capture</strong>
+          {captureData ? (
+            <CaptureForm
+              compact
+              workspaces={captureData.workspaces}
+              boards={captureData.boards}
+              noteKinds={captureData.noteKinds}
+              onSaved={() => pushToast('captured → tray')}
+              onNavigate={() => setCaptureOpen(false)}
+            />
+          ) : captureErr ? (
+            <p className="muted">
+              couldn't load projects —{' '}
+              <button type="button" className="link" onClick={loadCaptureData}>
+                retry
+              </button>
+            </p>
+          ) : (
+            <p className="muted">
+              <span className="spinner" aria-hidden="true" />
+              Loading…
+            </p>
+          )}
+        </Modal>
+      )}
+      {helpOpen && (
+        <Modal label="keyboard shortcuts" onClose={() => setHelpOpen(false)}>
+          <strong>Keyboard shortcuts</strong>
+          <table className="kv-table">
+            <tbody>
+              <tr>
+                <td className="mono">⌘⇧C</td>
+                <td>quick capture — open/close the capture modal</td>
+              </tr>
+              <tr>
+                <td className="mono">?</td>
+                <td>this help</td>
+              </tr>
+              <tr>
+                <td className="mono">Esc</td>
+                <td>close modal / inspector / dialog</td>
+              </tr>
+              <tr>
+                <td className="mono">← →</td>
+                <td>switch tabs (when a tab bar is focused)</td>
+              </tr>
+            </tbody>
+          </table>
+          <p className="muted">
+            Buttons and links are fully keyboard-reachable — Tab moves, Enter
+            activates.
+          </p>
+        </Modal>
       )}
       <div className="toasts" aria-live="polite">
         {toasts.map((t) => (

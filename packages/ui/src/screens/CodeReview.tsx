@@ -8,9 +8,18 @@ import type { Finding, FindingSeverity } from '@veto/core';
  */
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Citation, isCodeRef } from '../Evidence';
 import { client } from '../api';
-import { Empty, ErrorBox, Loading, StatusBadge } from '../components';
+import {
+  ConfirmDialog,
+  Empty,
+  ErrorBox,
+  Loading,
+  StatusBadge,
+  fmtAge,
+} from '../components';
 import { useLoad, useStreamRefresh } from '../hooks';
+import { projectPath } from '../project';
 
 const SEVS: FindingSeverity[] = [
   'blocker',
@@ -19,6 +28,15 @@ const SEVS: FindingSeverity[] = [
   'nit',
   'question',
 ];
+
+/** nit/question are noise-level — neutral badge, not amber alarm. */
+const SEV_TONE: Record<FindingSeverity, string> = {
+  blocker: 'spec-bad',
+  major: 'spec-bad',
+  minor: 'spec-warn',
+  nit: 'spec-dim',
+  question: 'spec-dim',
+};
 
 interface ReviewLike {
   findings?: Finding[];
@@ -36,6 +54,8 @@ export default function CodeReview({
   useStreamRefresh(detail.reload, ['run_status', 'gate_cleared']);
   const [sevFilter, setSevFilter] = useState<string>('');
   const [busy, setBusy] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [confirmPr, setConfirmPr] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
   // review.json isn't directly exposed; triage/events may carry the
@@ -63,7 +83,7 @@ export default function CodeReview({
   const t = detail.data?.ticket;
 
   const doVerdict = async (fid: string, verdict: string) => {
-    setBusy(true);
+    setBusyId(fid);
     setError(null);
     try {
       await client.verdict(ws, id, fid, verdict);
@@ -71,7 +91,7 @@ export default function CodeReview({
     } catch (e) {
       setError(e);
     } finally {
-      setBusy(false);
+      setBusyId(null);
     }
   };
 
@@ -84,7 +104,7 @@ export default function CodeReview({
         expected_status: t?.status,
         ...extra,
       });
-      navigate(`/tickets/${encodeURIComponent(ws)}/${encodeURIComponent(id)}`);
+      navigate(projectPath(ws, `/tickets/${encodeURIComponent(id)}`));
     } catch (e) {
       setError(e);
       setBusy(false);
@@ -101,7 +121,7 @@ export default function CodeReview({
         <>
           <h1 className="page-title">Code review — {id}</h1>
           <p className="page-sub">
-            <Link to={`/tickets/${ws}/${id}`}>← ticket</Link> ·{' '}
+            <Link to={projectPath(ws, `/tickets/${id}`)}>← ticket</Link> ·{' '}
             <StatusBadge status={t.status} /> ·{' '}
             {review?.round != null ? `round ${review.round}` : 'round —'}
           </p>
@@ -111,7 +131,7 @@ export default function CodeReview({
         <p className="page-sub">
           <StatusBadge status={t.status} /> ·{' '}
           {review?.round != null ? `round ${review.round}` : 'round —'} ·{' '}
-          <Link to={`/tickets/${ws}/${id}/review`}>full view →</Link>
+          <Link to={projectPath(ws, `/tickets/${id}/review`)}>full view →</Link>
         </p>
       )}
       {error != null && <ErrorBox error={error} />}
@@ -152,7 +172,12 @@ export default function CodeReview({
           type="button"
           className="primary"
           disabled={busy}
-          onClick={() => void act('open_pr')}
+          onClick={() => {
+            const open =
+              review?.findings?.filter((f) => f.status === 'open').length ?? 0;
+            if (open > 0) setConfirmPr(true);
+            else void act('open_pr');
+          }}
         >
           Approve → open PR
         </button>
@@ -164,6 +189,21 @@ export default function CodeReview({
         >
           Send back to fix
         </button>
+        {confirmPr && (
+          <ConfirmDialog
+            title="Open PR with open findings?"
+            body={`${
+              review?.findings?.filter((f) => f.status === 'open').length ?? 0
+            } finding(s) still open — human override is recorded in the ledger.`}
+            confirmLabel="Open PR anyway"
+            busy={busy}
+            onConfirm={() => {
+              setConfirmPr(false);
+              void act('open_pr');
+            }}
+            onCancel={() => setConfirmPr(false)}
+          />
+        )}
       </div>
 
       {findings.length === 0 && (
@@ -173,7 +213,7 @@ export default function CodeReview({
         <div className="card" key={f.thread_id}>
           <div className="card-title">
             <span
-              className={`badge spec-${f.severity === 'blocker' || f.severity === 'major' ? 'bad' : 'warn'}`}
+              className={`badge ${SEV_TONE[f.severity as FindingSeverity] ?? 'spec-dim'}`}
             >
               {f.severity}
             </span>
@@ -189,26 +229,26 @@ export default function CodeReview({
                 <button
                   type="button"
                   className="small"
-                  disabled={busy}
+                  disabled={busy || busyId === f.thread_id}
                   onClick={() => void doVerdict(f.thread_id, 'accept')}
                 >
-                  accept
+                  Accept
                 </button>
                 <button
                   type="button"
                   className="small"
-                  disabled={busy}
+                  disabled={busy || busyId === f.thread_id}
                   onClick={() => void doVerdict(f.thread_id, 'dismiss')}
                 >
-                  dismiss
+                  Dismiss
                 </button>
                 <button
                   type="button"
                   className="small"
-                  disabled={busy}
+                  disabled={busy || busyId === f.thread_id}
                   onClick={() => void doVerdict(f.thread_id, 'wontfix')}
                 >
-                  wontfix
+                  Won't fix
                 </button>
               </>
             )}
@@ -217,9 +257,17 @@ export default function CodeReview({
           {f.suggested_fix && (
             <p className="muted">suggested fix: {f.suggested_fix}</p>
           )}
+          {f.evidence &&
+            (isCodeRef(f.evidence) ? (
+              <p className="muted">
+                <Citation ws={ws} ref={f.evidence} />
+              </p>
+            ) : (
+              <p className="muted">evidence: {f.evidence}</p>
+            ))}
           {f.replies.map((r) => (
             <div key={`${r.ts}-${r.actor}`} className="card-meta">
-              {r.actor} @ {r.ts.slice(0, 16)}: {r.body}
+              {r.actor} · <span title={r.ts}>{fmtAge(r.ts)} ago</span>: {r.body}
             </div>
           ))}
         </div>
@@ -236,8 +284,8 @@ export default function CodeReview({
                 PR ↗
               </a>
             )}
-            <span className="badge">ci: {r.ci_state ?? '—'}</span>
-            <span className="badge">pr: {r.pr_state ?? '—'}</span>
+            <span className="badge">CI: {r.ci_state ?? '—'}</span>
+            <span className="badge">PR: {r.pr_state ?? '—'}</span>
           </div>
         </div>
       ))}

@@ -8,8 +8,16 @@ import type { TicketRow } from '@veto/core';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { client } from '../api';
-import { Empty, ErrorBox, Loading, StatusBadge, fmtAge } from '../components';
+import {
+  ConfirmDialog,
+  Empty,
+  ErrorBox,
+  Loading,
+  StatusBadge,
+  fmtAge,
+} from '../components';
 import { useLoad, useStreamRefresh } from '../hooks';
+import { projectPath, useProject } from '../project';
 
 const FILTERS = [
   'all',
@@ -22,10 +30,12 @@ const FILTERS = [
 const BROKEN = FILTERS.slice(1) as readonly string[];
 
 export default function Escalations() {
+  const ws = useProject();
   const [filter, setFilter] = useState<string>('all');
-  const tickets = useLoad(() => client.tickets({}), []);
+  const tickets = useLoad(() => client.tickets({ workspace: ws }), [ws]);
   const [busy, setBusy] = useState<string>('');
   const [error, setError] = useState<unknown>(null);
+  const [confirmKill, setConfirmKill] = useState<TicketRow | null>(null);
   useStreamRefresh(tickets.reload, ['gate_surfaced', 'gate_cleared']);
 
   const list = (tickets.data?.tickets ?? []).filter((t) =>
@@ -63,10 +73,15 @@ export default function Escalations() {
           <button
             key={f}
             type="button"
+            aria-pressed={filter === f}
             className={`small ${filter === f ? 'primary' : ''}`}
             onClick={() => setFilter(f)}
           >
-            {f}
+            {f === 'all' ? 'all' : f} (
+            {f === 'all'
+              ? list.length
+              : list.filter((t) => t.status === f).length}
+            )
           </button>
         ))}
       </div>
@@ -82,7 +97,7 @@ export default function Escalations() {
           <div className="card" key={key}>
             <div className="card-title">
               <StatusBadge status={t.status} />
-              <Link to={`/tickets/${t.workspace}/${t.ticket_id}`}>
+              <Link to={projectPath(t.workspace, `/tickets/${t.ticket_id}`)}>
                 {t.ticket_id} — {t.title}
               </Link>
               <span className="muted">{t.workspace}</span>
@@ -91,34 +106,52 @@ export default function Escalations() {
               <button
                 type="button"
                 className="small"
+                title="Re-run the last failed run"
                 disabled={busy === key}
                 onClick={() => void act(t, 'retry')}
               >
-                retry
+                Retry run
               </button>
               <button
                 type="button"
                 className="small"
+                title="Resume the ticket's pipeline without re-running"
                 disabled={busy === key}
                 onClick={() => void act(t, 'resume')}
               >
-                resume
+                Resume ticket
               </button>
               <button
                 type="button"
                 className="small danger"
+                title="Abandon this ticket — leaves the pipeline"
                 disabled={busy === key}
-                onClick={() => void act(t, 'wont_do')}
+                onClick={() => setConfirmKill(t)}
               >
-                wont-do
+                Won't do
               </button>
             </div>
             {t.blocked_reason && (
-              <div className="card-meta">reason: {t.blocked_reason}</div>
+              <div className="card-meta">Blocked: {t.blocked_reason}</div>
             )}
           </div>
         );
       })}
+      {confirmKill && (
+        <ConfirmDialog
+          title={`Won't do ${confirmKill.ticket_id}?`}
+          body={`"${confirmKill.title}" leaves the pipeline — recorded in the ledger.`}
+          confirmLabel="Won't do"
+          danger
+          busy={busy === `${confirmKill.workspace}/${confirmKill.ticket_id}`}
+          onConfirm={() => {
+            const t = confirmKill;
+            setConfirmKill(null);
+            void act(t, 'wont_do');
+          }}
+          onCancel={() => setConfirmKill(null)}
+        />
+      )}
     </section>
   );
 }

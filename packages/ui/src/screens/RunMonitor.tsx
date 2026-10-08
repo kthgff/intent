@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { client } from '../api';
 import {
+  ConfirmDialog,
   Empty,
   ErrorBox,
   Loading,
@@ -15,11 +16,19 @@ import {
   fmtTokens,
 } from '../components';
 import { useLoad, useRunOutput, useStreamRefresh } from '../hooks';
+import { projectPath, useProject } from '../project';
 import { subscribeStream } from '../sse';
 
+/** Statuses where pause/kill make sense — never on a finished run. */
+const LIVE_RUN = new Set(['pending', 'leased', 'running', 'paused']);
+
 export function RunsList() {
+  const ws = useProject();
   const [status, setStatus] = useState('');
-  const state = useLoad(() => client.runs(status ? { status } : {}), [status]);
+  const state = useLoad(
+    () => client.runs({ workspace: ws, ...(status ? { status } : {}) }),
+    [ws, status],
+  );
   useStreamRefresh(state.reload, ['run_status']);
   return (
     <section>
@@ -71,7 +80,7 @@ export function RunsList() {
                 <td>
                   <Link
                     className="mono"
-                    to={`/runs/${encodeURIComponent(r.id)}`}
+                    to={projectPath(ws, `/runs/${encodeURIComponent(r.id)}`)}
                   >
                     {r.id}
                   </Link>
@@ -82,7 +91,10 @@ export function RunsList() {
                   <StatusBadge status={r.status} />
                 </td>
                 <td className="muted">{r.model ?? '—'}</td>
-                <td className="mono">
+                <td
+                  className="mono"
+                  title={`${r.tokens_in ?? 0} in / ${r.tokens_out ?? 0} out`}
+                >
                   {fmtTokens(r.tokens_in)}→{fmtTokens(r.tokens_out)}
                 </td>
               </tr>
@@ -95,6 +107,7 @@ export function RunsList() {
 }
 
 export default function RunMonitor() {
+  const ws = useProject();
   const { id = '' } = useParams();
   const runId = decodeURIComponent(id);
   const state = useLoad(() => client.run(runId), [runId]);
@@ -106,6 +119,11 @@ export default function RunMonitor() {
   } | null>(null);
   const [elapsed, setElapsed] = useState('');
   const [opError, setOpError] = useState<unknown>(null);
+  const [busyOp, setBusyOp] = useState(false);
+  const [confirmKill, setConfirmKill] = useState(false);
+  const [follow, setFollow] = useState(true);
+  const followRef = useRef(true);
+  followRef.current = follow;
   const tailRef = useRef<HTMLPreElement | null>(null);
 
   useRunOutput(
@@ -113,7 +131,8 @@ export default function RunMonitor() {
     useCallback((chunk: string) => {
       setTranscript((t) => t + chunk);
       requestAnimationFrame(() => {
-        tailRef.current?.scrollTo(0, tailRef.current.scrollHeight);
+        if (followRef.current)
+          tailRef.current?.scrollTo(0, tailRef.current.scrollHeight);
       });
     }, []),
   );
@@ -162,18 +181,26 @@ export default function RunMonitor() {
   }, [startedAt, exitedAt]);
 
   const run = state.data?.run;
+  const isLive = run ? LIVE_RUN.has(run.status) : false;
   const op = async (o: 'kill' | 'pause' | 'resume') => {
+    if (busyOp) return;
+    setBusyOp(true);
     setOpError(null);
     try {
       await client.runOp(runId, o);
       state.reload();
     } catch (e) {
       setOpError(e);
+    } finally {
+      setBusyOp(false);
     }
   };
 
   return (
     <section>
+      <p className="page-sub" style={{ marginBottom: 2 }}>
+        <Link to={projectPath(ws, '/runs')}>← runs</Link>
+      </p>
       <h1 className="page-title mono">{runId}</h1>
       {state.loading && <Loading />}
       {state.error != null && <ErrorBox error={state.error} />}
@@ -187,29 +214,47 @@ export default function RunMonitor() {
               {run.model ?? 'default model'} · attempt {run.attempt}
             </span>
             {run.ticket_id && (
-              <Link to={`/tickets/${run.workspace}/${run.ticket_id}`}>
+              <Link
+                to={projectPath(run.workspace, `/tickets/${run.ticket_id}`)}
+              >
                 {run.ticket_id}
               </Link>
             )}
             <span className="spacer" />
             <span className="muted">{elapsed}</span>
-            <button
-              type="button"
-              className="small"
-              onClick={() =>
-                void op(run.status === 'paused' ? 'resume' : 'pause')
-              }
-            >
-              {run.status === 'paused' ? 'Resume' : 'Pause'}
-            </button>
-            <button
-              type="button"
-              className="small danger"
-              onClick={() => void op('kill')}
-            >
-              Kill
-            </button>
+            {isLive && (
+              <>
+                <button
+                  type="button"
+                  className="small"
+                  disabled={busyOp}
+                  onClick={() =>
+                    void op(run.status === 'paused' ? 'resume' : 'pause')
+                  }
+                >
+                  {run.status === 'paused' ? 'Resume' : 'Pause'}
+                </button>
+                <button
+                  type="button"
+                  className="small danger"
+                  disabled={busyOp}
+                  onClick={() => setConfirmKill(true)}
+                >
+                  Kill
+                </button>
+              </>
+            )}
           </div>
+          {run.worktree && (
+            <p className="muted mono" style={{ marginTop: -6 }}>
+              worktree: {run.worktree}
+            </p>
+          )}
+          {!isLive && (run.sentinel ?? run.sentinel_raw) && (
+            <output className="warn-banner">
+              {run.sentinel ?? run.sentinel_raw}
+            </output>
+          )}
           <div className="counters" style={{ marginBottom: 12 }}>
             <Counter
               label="tokens in"
@@ -229,9 +274,44 @@ export default function RunMonitor() {
               raw
             />
           </div>
-          <h2 className="group-title">Transcript tail</h2>
-          <pre className="terminal" ref={tailRef}>
-            {transcript || '(waiting for run_output chunks…)'}
+          <h2 className="group-title">
+            Transcript tail{' '}
+            <label className="muted small" style={{ fontWeight: 400 }}>
+              <input
+                type="checkbox"
+                checked={follow}
+                onChange={(e) => {
+                  setFollow(e.target.checked);
+                  if (e.target.checked)
+                    requestAnimationFrame(() =>
+                      tailRef.current?.scrollTo(
+                        0,
+                        tailRef.current.scrollHeight,
+                      ),
+                    );
+                }}
+              />{' '}
+              follow
+            </label>
+          </h2>
+          <pre
+            className="terminal"
+            ref={tailRef}
+            role="log"
+            aria-live="off"
+            onScroll={() => {
+              const el = tailRef.current;
+              if (!el) return;
+              // Scrolling up pauses follow; hitting bottom re-arms it.
+              const atBottom =
+                el.scrollHeight - el.scrollTop - el.clientHeight < 12;
+              if (atBottom !== follow) setFollow(atBottom);
+            }}
+          >
+            {transcript ||
+              (isLive
+                ? '(waiting for run_output chunks…)'
+                : '(run ended — no transcript captured)')}
           </pre>
           <h2 className="group-title">Artifacts</h2>
           {(state.data?.artifacts ?? []).length === 0 ? (
@@ -246,6 +326,20 @@ export default function RunMonitor() {
         </>
       )}
       {!run && !state.loading && !state.error && <Empty />}
+      {confirmKill && (
+        <ConfirmDialog
+          title={`Kill run ${runId}?`}
+          body="Sends SIGTERM to the agent process — the run ends as killed and the ticket surfaces a failure gate."
+          confirmLabel="Kill run"
+          danger
+          busy={busyOp}
+          onConfirm={() => {
+            setConfirmKill(false);
+            void op('kill');
+          }}
+          onCancel={() => setConfirmKill(false)}
+        />
+      )}
     </section>
   );
 }

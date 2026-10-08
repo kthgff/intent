@@ -23,15 +23,20 @@ import {
   client,
 } from '../api';
 import {
+  ConfirmDialog,
   DiffView,
   Empty,
   ErrorBox,
   Loading,
   Markdown,
   StatusBadge,
+  TabPanel,
+  Tabs,
   fmtAge,
+  humanize,
 } from '../components';
 import { useLoad, useStreamRefresh } from '../hooks';
+import { projectPath } from '../project';
 
 type TabId =
   | 'overview'
@@ -67,7 +72,18 @@ export function FindingsList({
     <ul className="findings" aria-label="feature health findings">
       {findings.map((f) => (
         <li key={f.id} className={`finding sev-${f.severity}`}>
-          <span className="badge">{SEV_LABEL[f.severity]}</span> {f.message}{' '}
+          <span
+            className={`badge ${
+              f.severity === 'blocker'
+                ? 'spec-bad'
+                : f.severity === 'warning'
+                  ? 'spec-warn'
+                  : 'spec-dim'
+            }`}
+          >
+            {SEV_LABEL[f.severity]}
+          </span>{' '}
+          {f.message}{' '}
           {f.refs.length > 0 && (
             <span className="muted">[{f.refs.join(' · ')}]</span>
           )}
@@ -97,12 +113,12 @@ export default function FeatureWorkspace() {
 
   return (
     <section className="page feature-workspace">
-      <h1>
+      <h1 className="page-title">
         {f.feature} — {f.title}
       </h1>
       <p className="page-sub">
         <StatusBadge status={f.status} /> {f.workspace} · priority{' '}
-        {f.priority ?? 'medium'}
+        {humanize(f.priority ?? 'medium')}
         {f.owner ? ` · owner ${f.owner}` : ''}
         {d.initiative && (
           <>
@@ -140,28 +156,22 @@ export default function FeatureWorkspace() {
 
       <div className="split">
         <div className="grow">
-          <div className="tabs" role="tablist">
-            {TABS.map((x) => (
-              <button
-                key={x.id}
-                type="button"
-                role="tab"
-                aria-selected={tab === x.id}
-                className={tab === x.id ? 'active' : ''}
-                onClick={() => setTab(x.id)}
-              >
-                {x.label}
-              </button>
-            ))}
-          </div>
-          {tab === 'overview' && <OverviewTab ws={ws} d={d} />}
-          {tab === 'requirements' && <RequirementsTab d={d} />}
-          {tab === 'design' && <DesignTab ws={ws} d={d} />}
-          {tab === 'tickets' && <TicketsTab ws={ws} d={d} />}
-          {tab === 'quality' && <QualityTab ws={ws} d={d} />}
-          {tab === 'release' && (
-            <ReleaseTab ws={ws} d={d} onDone={detail.reload} />
-          )}
+          <Tabs
+            ariaLabel="feature sections"
+            active={tab}
+            onChange={(t) => setTab(t as TabId)}
+            tabs={TABS}
+          />
+          <TabPanel id={tab}>
+            {tab === 'overview' && <OverviewTab ws={ws} d={d} />}
+            {tab === 'requirements' && <RequirementsTab d={d} />}
+            {tab === 'design' && <DesignTab ws={ws} d={d} />}
+            {tab === 'tickets' && <TicketsTab ws={ws} d={d} />}
+            {tab === 'quality' && <QualityTab ws={ws} d={d} />}
+            {tab === 'release' && (
+              <ReleaseTab ws={ws} d={d} onDone={detail.reload} />
+            )}
+          </TabPanel>
         </div>
         <aside className="rail">
           <div className="panel">
@@ -285,9 +295,9 @@ function RequirementsTab({ d }: { d: FeatureDetail }) {
                   ''
                 )}
               </td>
-              <td>{e.predicate}</td>
+              <td>{humanize(e.predicate)}</td>
               <td>{e.object}</td>
-              <td>{e.verification ?? 'explicit'}</td>
+              <td>{e.verification ? humanize(e.verification) : 'explicit'}</td>
               <td>{e.valid_at ?? '—'}</td>
             </tr>
           ))}
@@ -373,7 +383,7 @@ function DesignTab({ ws, d }: { ws: string; d: FeatureDetail }) {
 }
 
 function ticketLink(ws: string, t: TicketRow) {
-  return `/tickets/${encodeURIComponent(ws)}/${encodeURIComponent(t.ticket_id)}`;
+  return projectPath(ws, `/tickets/${encodeURIComponent(t.ticket_id)}`);
 }
 
 function TicketsTab({ ws, d }: { ws: string; d: FeatureDetail }) {
@@ -461,7 +471,7 @@ function QualityTab({ ws, d }: { ws: string; d: FeatureDetail }) {
                     : a.evidence
                         .map(
                           (e) =>
-                            `${e.predicate}→${e.object}${e.verification ? ` (${e.verification})` : ''}`,
+                            `${humanize(e.predicate)} → ${e.object}${e.verification ? ` (${humanize(e.verification)})` : ''}`,
                         )
                         .join(', ')}
                 </td>
@@ -513,6 +523,7 @@ function ReleaseTab({
     [ws, d.feature.feature, d.feature.status],
   );
   const [exclusions, setExclusions] = useState('');
+  const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<unknown>(null);
 
@@ -655,9 +666,27 @@ function ReleaseTab({
                 onChange={(e) => setExclusions(e.target.value)}
               />
               {err != null && <ErrorBox error={err} />}
-              <button type="button" disabled={busy} onClick={accept}>
+              <button
+                type="button"
+                className="primary"
+                disabled={busy}
+                onClick={() => setConfirming(true)}
+              >
                 Accept feature (gate to release assignment)
               </button>
+              {confirming && (
+                <ConfirmDialog
+                  title="Accept feature"
+                  body="Human-approves the acceptance package — unblocks release assignment."
+                  confirmLabel="Accept feature"
+                  busy={busy}
+                  onConfirm={() => {
+                    setConfirming(false);
+                    void accept();
+                  }}
+                  onCancel={() => setConfirming(false)}
+                />
+              )}
             </div>
           )}
         </>

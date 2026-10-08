@@ -7,8 +7,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { type InboxItem, client } from '../api';
-import { Empty, ErrorBox, KindBadge, Loading, fmtAge } from '../components';
+import {
+  Empty,
+  ErrorBox,
+  KindBadge,
+  Loading,
+  fmtAge,
+  gateLabel,
+  humanize,
+} from '../components';
 import { useStreamRefresh } from '../hooks';
+import { useProject } from '../project';
 
 /** Human-anxiety-first kind order (D21 — failures/escalations first). */
 const KIND_ORDER = [
@@ -35,7 +44,7 @@ const KIND_HEADING: Record<string, string> = {
 
 /** Where an inbox item lands when opened. */
 export function itemTarget(item: InboxItem): string {
-  const base = `/tickets/${encodeURIComponent(item.workspace)}/${encodeURIComponent(item.subject)}`;
+  const base = `/projects/${encodeURIComponent(item.workspace)}/tickets/${encodeURIComponent(item.subject)}`;
   if (item.gate === 'needs-info' || item.gate === 'design-qa')
     return `${base}/wizard`;
   if (item.gate.endsWith('-review') && item.kind === 'approval') {
@@ -86,15 +95,14 @@ export function groupByKind(items: InboxItem[]): [string, InboxItem[]][] {
 }
 
 export default function Inbox() {
+  const workspace = useProject();
   const [items, setItems] = useState<InboxItem[] | null>(null);
   const [error, setError] = useState<unknown>(null);
-  const [workspace, setWorkspace] = useState<string>('');
-  const [workspaces, setWorkspaces] = useState<string[]>([]);
   const [busy, setBusy] = useState<string>('');
 
   const load = useCallback(() => {
     client
-      .inbox(workspace || undefined)
+      .inbox(workspace)
       .then((r) => {
         setItems(r.items);
         setError(null);
@@ -104,10 +112,6 @@ export default function Inbox() {
 
   useEffect(() => {
     load();
-    client
-      .workspaces()
-      .then((r) => setWorkspaces(r.workspaces.map((w) => w.name)))
-      .catch(() => {});
   }, [load]);
 
   useStreamRefresh(load, ['gate_surfaced', 'gate_cleared']);
@@ -136,27 +140,13 @@ export default function Inbox() {
         Everything that needs your move, blocking first.
       </p>
       <div className="row" style={{ marginBottom: 12 }}>
-        <label className="muted" htmlFor="ws-filter">
-          Workspace
-        </label>
-        <select
-          id="ws-filter"
-          style={{ width: 'auto' }}
-          value={workspace}
-          onChange={(e) => setWorkspace(e.target.value)}
-        >
-          <option value="">all</option>
-          {workspaces.map((w) => (
-            <option key={w} value={w}>
-              {w}
-            </option>
-          ))}
-        </select>
+        <span className="muted">project {workspace}</span>
+        <span className="spacer" />
         <button type="button" className="small" onClick={load}>
           Refresh
         </button>
       </div>
-      {error != null && <ErrorBox error={error} />}
+      {error != null && <ErrorBox error={error} onRetry={load} />}
       {items === null && error == null && <Loading />}
       {items !== null && items.length === 0 && (
         <Empty label="Inbox zero — nothing needs you." />
@@ -167,110 +157,121 @@ export default function Inbox() {
             {KIND_HEADING[kind] ?? kind}
             <span className="badge">{list.length}</span>
           </h2>
-          {list.map((item) => {
-            const key = `${item.workspace}/${item.subject}/${item.gate}`;
-            const snoozed =
-              typeof item.snoozed_until === 'string' &&
-              item.snoozed_until > new Date().toISOString();
-            return (
-              <div
-                className={`card${snoozed ? ' snoozed' : ''}`}
-                key={key}
-                data-blocked={item.blocked_agent}
-              >
-                <div className="card-title">
-                  <KindBadge kind={item.kind} />
-                  <Link to={itemTarget(item)}>
-                    {item.subject} · {item.gate}
-                  </Link>
-                  {item.blocked_agent && (
-                    <span className="badge spec-bad">blocking agent</span>
-                  )}
-                  {item.priority && (
-                    <span className="badge">p:{item.priority}</span>
-                  )}
-                  {snoozed && (
-                    <span className="badge">
-                      snoozed → {item.snoozed_until?.slice(0, 16)}
+          <ul className="inbox-list">
+            {list.map((item) => {
+              const key = `${item.workspace}/${item.subject}/${item.gate}`;
+              const snoozed =
+                typeof item.snoozed_until === 'string' &&
+                item.snoozed_until > new Date().toISOString();
+              return (
+                <li
+                  className={`card${snoozed ? ' snoozed' : ''}`}
+                  key={key}
+                  data-blocked={item.blocked_agent ?? false}
+                >
+                  <div className="card-title">
+                    <KindBadge kind={item.kind} />
+                    <Link to={itemTarget(item)}>
+                      {item.subject} · {gateLabel(item.gate)}
+                    </Link>
+                    {item.blocked_agent && (
+                      <span className="badge spec-bad">blocking agent</span>
+                    )}
+                    {item.priority && (
+                      <span className="badge" title="priority">
+                        {humanize(item.priority)}
+                      </span>
+                    )}
+                    {snoozed && (
+                      <span className="badge">
+                        snoozed → {item.snoozed_until?.slice(0, 16)}
+                      </span>
+                    )}
+                    <span className="muted" title={item.surfaced_at}>
+                      {fmtAge(item.surfaced_at)}
                     </span>
-                  )}
-                  <span className="muted">{fmtAge(item.surfaced_at)}</span>
-                  <span className="spacer" />
-                  {snoozed ? (
-                    <button
-                      type="button"
-                      className="small"
-                      disabled={busy === key}
-                      onClick={() =>
-                        void act(key, () =>
-                          client.unsnooze(
-                            item.workspace,
-                            item.subject,
-                            item.gate,
-                          ),
-                        )
-                      }
-                    >
-                      unsnooze
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      className="small"
-                      disabled={busy === key}
-                      title="snooze 24h — leaves the board until then"
-                      onClick={() =>
-                        void act(key, () =>
-                          client.snooze(
-                            item.workspace,
-                            item.subject,
-                            item.gate,
-                            {},
-                          ),
-                        )
-                      }
-                    >
-                      snooze
-                    </button>
-                  )}
-                  {item.claim ? (
-                    <button
-                      type="button"
-                      className="small"
-                      disabled={busy === key}
-                      onClick={() =>
-                        void act(key, () =>
-                          client.release(
-                            item.workspace,
-                            item.subject,
-                            item.gate,
-                          ),
-                        )
-                      }
-                    >
-                      release ({item.claim.claimed_by})
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      className="small"
-                      disabled={busy === key}
-                      onClick={() =>
-                        void act(key, () =>
-                          client.claim(item.workspace, item.subject, item.gate),
-                        )
-                      }
-                    >
-                      claim
-                    </button>
-                  )}
-                </div>
-                <div className="card-meta">
-                  workspace {item.workspace} · surfaced {item.surfaced_at}
-                </div>
-              </div>
-            );
-          })}
+                    <span className="spacer" />
+                    {snoozed ? (
+                      <button
+                        type="button"
+                        className="small"
+                        disabled={busy === key}
+                        onClick={() =>
+                          void act(key, () =>
+                            client.unsnooze(
+                              item.workspace,
+                              item.subject,
+                              item.gate,
+                            ),
+                          )
+                        }
+                      >
+                        Unsnooze
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="small"
+                        disabled={busy === key}
+                        title="snooze 24h — leaves the board until then"
+                        onClick={() =>
+                          void act(key, () =>
+                            client.snooze(
+                              item.workspace,
+                              item.subject,
+                              item.gate,
+                              {},
+                            ),
+                          )
+                        }
+                      >
+                        Snooze 24h
+                      </button>
+                    )}
+                    {item.claim ? (
+                      <button
+                        type="button"
+                        className="small"
+                        disabled={busy === key}
+                        onClick={() =>
+                          void act(key, () =>
+                            client.release(
+                              item.workspace,
+                              item.subject,
+                              item.gate,
+                            ),
+                          )
+                        }
+                      >
+                        Release ({item.claim.claimed_by})
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="small primary"
+                        disabled={busy === key}
+                        onClick={() =>
+                          void act(key, () =>
+                            client.claim(
+                              item.workspace,
+                              item.subject,
+                              item.gate,
+                            ),
+                          )
+                        }
+                      >
+                        Claim
+                      </button>
+                    )}
+                  </div>
+                  <div className="card-meta">
+                    project {item.workspace} · surfaced{' '}
+                    {fmtAge(item.surfaced_at)} ago
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
         </div>
       ))}
     </section>

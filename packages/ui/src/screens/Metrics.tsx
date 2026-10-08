@@ -3,20 +3,30 @@
  * status funnel, runs by status, token/cost totals, events mix,
  * human-minutes).
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { client } from '../api';
-import { Empty, ErrorBox, Loading, fmtTokens } from '../components';
+import {
+  Empty,
+  ErrorBox,
+  Loading,
+  fmtAge,
+  fmtTokens,
+  humanize,
+} from '../components';
 import { useLoad } from '../hooks';
+import { useProject } from '../project';
 
 export default function Metrics() {
-  const [workspace, setWorkspace] = useState('');
-  const state = useLoad(
-    () => client.metrics(workspace || undefined),
-    [workspace],
-  );
+  const workspace = useProject();
+  const [asOf, setAsOf] = useState<number>(0);
+  const state = useLoad(() => client.metrics(workspace), [workspace]);
+  useEffect(() => {
+    if (state.data) setAsOf(Date.now());
+  }, [state.data]);
 
   if (state.loading) return <Loading />;
-  if (state.error) return <ErrorBox error={state.error} />;
+  if (state.error)
+    return <ErrorBox error={state.error} onRetry={state.reload} />;
   const m = state.data;
   if (!m) return <Empty />;
 
@@ -35,21 +45,22 @@ export default function Metrics() {
   return (
     <section>
       <h1 className="page-title">Metrics</h1>
-      <p className="page-sub">ROI across {m.workspaces.join(', ') || '—'}.</p>
-      <select
-        aria-label="workspace filter"
-        style={{ width: 'auto', marginBottom: 12 }}
-        value={workspace}
-        onChange={(e) => setWorkspace(e.target.value)}
-      >
-        <option value="">all workspaces</option>
-        {m.workspaces.map((w) => (
-          <option key={w} value={w}>
-            {w}
-          </option>
-        ))}
-      </select>
-
+      <p className="page-sub">
+        ROI for {workspace}
+        {asOf > 0 && (
+          <>
+            {' '}
+            · updated {fmtAge(new Date(asOf).toISOString())} ago{' '}
+            <button
+              type="button"
+              className="link"
+              onClick={() => void state.reload()}
+            >
+              refresh
+            </button>
+          </>
+        )}
+      </p>
       <div className="counters" style={{ marginBottom: 16 }}>
         <Counter label="merge rate" value={successRate} />
         <Counter label="cost / merge" value={costPerMerge} />
@@ -76,7 +87,7 @@ export default function Metrics() {
                 .sort((a, b) => b[1] - a[1])
                 .map(([k, v]) => (
                   <tr key={k}>
-                    <td>{k}</td>
+                    <td>{humanize(k)}</td>
                     <td className="mono">{v}</td>
                   </tr>
                 ))}
@@ -91,7 +102,7 @@ export default function Metrics() {
                 .sort((a, b) => b[1] - a[1])
                 .map(([k, v]) => (
                   <tr key={k}>
-                    <td>{k}</td>
+                    <td>{humanize(k)}</td>
                     <td className="mono">{v}</td>
                   </tr>
                 ))}
@@ -105,12 +116,17 @@ export default function Metrics() {
                 .slice(0, 20)
                 .map(([k, v]) => (
                   <tr key={k}>
-                    <td>{k}</td>
+                    <td>{humanize(k)}</td>
                     <td className="mono">{v}</td>
                   </tr>
                 ))}
             </tbody>
           </table>
+          {Object.keys(m.events_by_name).length > 20 && (
+            <p className="muted">
+              Showing 20 of {Object.keys(m.events_by_name).length} event types
+            </p>
+          )}
         </div>
       </div>
     </section>

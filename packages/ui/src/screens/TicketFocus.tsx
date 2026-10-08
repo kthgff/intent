@@ -7,7 +7,7 @@
  * Contextual AI (ChatEdit) appears only beside editable docs.
  */
 import type { GateItem, TicketRow, TriageQuestion } from '@veto/core';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import Alignment from '../Alignment';
 import ChatEdit, { type ChatEditTarget } from '../ChatEdit';
@@ -16,16 +16,22 @@ import Traceability from '../Traceability';
 import { type TicketDetail as Detail, client } from '../api';
 import { PHASE_LABEL } from '../board';
 import {
+  ConfirmDialog,
   DiffView,
   Empty,
   ErrorBox,
+  Field,
   Loading,
   Markdown,
   SpecScore,
   StatusBadge,
+  TabPanel,
+  Tabs,
   fmtAge,
+  humanize,
 } from '../components';
 import { useLoad, useStreamRefresh } from '../hooks';
+import { projectPath } from '../project';
 import { defaultAnswer } from '../wizard';
 import CodeReview from './CodeReview';
 
@@ -194,10 +200,18 @@ export default function TicketFocus() {
       : []),
   ];
 
+  // A status change can drop the active spotlight tab — never strand
+  // the workbench on a tab that no longer exists.
+  const tabKey = tabs.map((x) => x.id).join('|');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!tabs.some((x) => x.id === tab)) setTab('overview');
+  }, [tabKey]);
+
   return (
     <section>
       <p className="page-sub" style={{ marginBottom: 2 }}>
-        <Link to="/">← Board</Link>
+        <Link to={projectPath(ws)}>← Board</Link>
       </p>
       <h1 className="page-title">
         {t.ticket_id} — {t.title} <SpecScore score={t.spec_score} />
@@ -210,11 +224,18 @@ export default function TicketFocus() {
       </p>
       <p className="row page-sub">
         {t.feature && (
-          <Link to={`/features/${ws}/${t.feature}`}>Feature {t.feature}</Link>
+          <Link to={projectPath(ws, `/features/${t.feature}`)}>
+            Feature {t.feature}
+          </Link>
         )}
-        <Link to={`/tickets/${ws}/${id}/pr`}>PR panel</Link>
-        <Link to={`/tickets/${ws}/${id}/ledger`}>Ledger</Link>
-        <Link to={`/runs?subject=${encodeURIComponent(t.ticket_id)}`}>
+        <Link to={projectPath(ws, `/tickets/${id}/pr`)}>PR panel</Link>
+        <Link to={projectPath(ws, `/tickets/${id}/ledger`)}>Ledger</Link>
+        <Link
+          to={projectPath(
+            ws,
+            `/runs?subject=${encodeURIComponent(t.ticket_id)}`,
+          )}
+        >
           Runs
         </Link>
         {(t.status === 'merged' || t.status === 'released') && (
@@ -225,35 +246,31 @@ export default function TicketFocus() {
       <div className="split">
         <div className="grow">
           <NextAction ws={ws} d={d} onDone={detail.reload} />
-          <div className="tabs" role="tablist">
-            {tabs.map((x) => (
-              <button
-                key={x.id}
-                type="button"
-                role="tab"
-                aria-selected={tab === x.id}
-                className={tab === x.id ? 'active' : ''}
-                onClick={() => setTab(x.id)}
-              >
-                {x.label}
-              </button>
-            ))}
-          </div>
-          {tab === 'overview' && (
-            <OverviewTab ws={ws} d={d} onApplied={detail.reload} />
-          )}
-          {tab === 'docs' && (
-            <DocsTab ws={ws} d={d} onApplied={detail.reload} />
-          )}
-          {tab === 'activity' && <ActivityTab ws={ws} id={id} />}
-          {tab === 'runs' && <RunsTab ws={ws} id={id} />}
-          {tab === 'links' && <Traceability ws={ws} subject={id} />}
-          {tab === 'alignment' && <Alignment ws={ws} scope={id} />}
-          {tab === 'review' && <CodeReview embedded />}
-          {tab === 'failure' && (
-            <FailureTab ws={ws} d={d} onDone={detail.reload} />
-          )}
-          {tab === 'split' && <SplitTab ws={ws} d={d} onDone={detail.reload} />}
+          <Tabs
+            ariaLabel="ticket sections"
+            active={tab}
+            onChange={(x) => setTab(x as TabId)}
+            tabs={tabs}
+          />
+          <TabPanel id={tab}>
+            {tab === 'overview' && (
+              <OverviewTab ws={ws} d={d} onApplied={detail.reload} />
+            )}
+            {tab === 'docs' && (
+              <DocsTab ws={ws} d={d} onApplied={detail.reload} />
+            )}
+            {tab === 'activity' && <ActivityTab ws={ws} id={id} />}
+            {tab === 'runs' && <RunsTab ws={ws} id={id} />}
+            {tab === 'links' && <Traceability ws={ws} subject={id} />}
+            {tab === 'alignment' && <Alignment ws={ws} scope={id} />}
+            {tab === 'review' && <CodeReview embedded />}
+            {tab === 'failure' && (
+              <FailureTab ws={ws} d={d} onDone={detail.reload} />
+            )}
+            {tab === 'split' && (
+              <SplitTab ws={ws} d={d} onDone={detail.reload} />
+            )}
+          </TabPanel>
         </div>
         <aside className="rail">
           <StatusRail
@@ -283,6 +300,7 @@ function NextAction({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<unknown>(null);
   const [editSession, setEditSession] = useState<string | null>(null);
+  const [confirmWontDo, setConfirmWontDo] = useState(false);
   const t = d.ticket;
   const gates = rankGates(d.open_gates.filter((g) => !g.cleared_at));
   const runs = useLoad(
@@ -337,7 +355,7 @@ function NextAction({
   };
 
   const primary = gates[0];
-  const ref = `/tickets/${encodeURIComponent(ws)}/${encodeURIComponent(t.ticket_id)}`;
+  const ref = projectPath(ws, `/tickets/${encodeURIComponent(t.ticket_id)}`);
   const owner =
     gates.length > 0
       ? primary?.kind === 'failure' || primary?.kind === 'escalation'
@@ -354,7 +372,7 @@ function NextAction({
       <div className="card-title">
         <strong>
           Next action — {owner}
-          {primary ? ` · ${primary.kind}` : ''}
+          {primary ? ` · ${humanize(primary.kind)}` : ''}
         </strong>
       </div>
       {err != null && <ErrorBox error={err} />}
@@ -375,11 +393,15 @@ function NextAction({
       {!editSession && !primary && live && (
         <p className="muted">
           Run {live.id} is {live.status} ({live.stage}) —{' '}
-          <Link to={`/runs/${encodeURIComponent(live.id)}`}>Watch run →</Link>
+          <Link to={projectPath(ws, `/runs/${encodeURIComponent(live.id)}`)}>
+            Watch run →
+          </Link>
         </p>
       )}
       {!editSession && !primary && !live && TERMINAL.has(t.status) && (
-        <p className="muted">{t.status} — outcome is recorded in the ledger.</p>
+        <p className="muted">
+          {humanize(t.status)} — outcome is recorded in the ledger.
+        </p>
       )}
       {!editSession && !primary && !live && !TERMINAL.has(t.status) && (
         <p className="muted">Nothing needs you right now.</p>
@@ -389,7 +411,7 @@ function NextAction({
           also open:{' '}
           {gates
             .slice(1)
-            .map((g) => g.gate)
+            .map((g) => humanize(g.gate))
             .join(' · ')}
         </div>
       )}
@@ -636,10 +658,24 @@ function NextAction({
             type="button"
             className="danger"
             disabled={busy}
-            onClick={() => void act('wont_do')}
+            onClick={() => setConfirmWontDo(true)}
           >
             Won't do
           </button>
+          {confirmWontDo && (
+            <ConfirmDialog
+              title="Won't do"
+              body="Marks this ticket as won't-do — it leaves the pipeline. The decision is recorded in the ledger."
+              confirmLabel="Won't do"
+              danger
+              busy={busy}
+              onConfirm={() => {
+                setConfirmWontDo(false);
+                void act('wont_do');
+              }}
+              onCancel={() => setConfirmWontDo(false)}
+            />
+          )}
         </div>
       );
     }
@@ -652,7 +688,7 @@ function NextAction({
           {live && (
             <Link
               className="btn small"
-              to={`/runs/${encodeURIComponent(live.id)}`}
+              to={projectPath(ws, `/runs/${encodeURIComponent(live.id)}`)}
             >
               Watch run →
             </Link>
@@ -664,7 +700,7 @@ function NextAction({
     return (
       <div className="row">
         <span className="muted">
-          {g.kind} · {gate}
+          {humanize(g.kind)} · {humanize(gate)}
         </span>
         <button
           type="button"
@@ -672,7 +708,7 @@ function NextAction({
           disabled={busy}
           onClick={() => void claim(gate)}
         >
-          claim
+          Claim
         </button>
       </div>
     );
@@ -835,7 +871,7 @@ function OverviewTab({
       )}
       {d.triage && (
         <div className="card">
-          <strong>triage</strong>
+          <strong>Triage</strong>
           <div className="card-meta">
             spec lint score {d.triage.spec_lint.score} · round {d.triage.round}
           </div>
@@ -932,7 +968,7 @@ function DocsTab({
                 Revise with Veto
               </button>
             )}
-            <Link to={`/tickets/${ws}/${id}/docs/${name}`}>
+            <Link to={projectPath(ws, `/tickets/${id}/docs/${name}`)}>
               Open in doc reviewer →
             </Link>
           </div>
@@ -966,12 +1002,12 @@ function ActivityTab({ ws, id }: { ws: string; id: string }) {
     <table>
       <thead>
         <tr>
-          <th>ts</th>
+          <th>time</th>
           <th>event</th>
           <th>stage</th>
           <th>actor</th>
           <th>refs</th>
-          <th>tokens</th>
+          <th>tokens in→out</th>
         </tr>
       </thead>
       <tbody>
@@ -1018,7 +1054,10 @@ function RunsTab({ ws, id }: { ws: string; id: string }) {
         {list.map((r) => (
           <tr key={r.id}>
             <td>
-              <Link to={`/runs/${encodeURIComponent(r.id)}`} className="mono">
+              <Link
+                to={projectPath(ws, `/runs/${encodeURIComponent(r.id)}`)}
+                className="mono"
+              >
                 {r.id}
               </Link>
             </td>
@@ -1051,6 +1090,7 @@ function FailureTab({
 }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<unknown>(null);
+  const [confirmWontDo, setConfirmWontDo] = useState(false);
   const t = d.ticket;
   const runs = useLoad(
     () => client.runs({ workspace: ws, ticket_id: t.ticket_id }),
@@ -1084,14 +1124,16 @@ function FailureTab({
       {lastBad && (
         <div className="card">
           <div className="card-title">
-            <Link to={`/runs/${encodeURIComponent(lastBad.id)}`}>
+            <Link
+              to={projectPath(ws, `/runs/${encodeURIComponent(lastBad.id)}`)}
+            >
               {lastBad.id}
             </Link>
             <StatusBadge status={lastBad.status} />
             <span className="muted">{lastBad.stage}</span>
           </div>
           {lastBad.sentinel && (
-            <div className="card-meta">sentinel: {lastBad.sentinel}</div>
+            <div className="card-meta">Sentinel: {lastBad.sentinel}</div>
           )}
         </div>
       )}
@@ -1115,11 +1157,25 @@ function FailureTab({
           type="button"
           className="danger"
           disabled={busy}
-          onClick={() => void act('wont_do')}
+          onClick={() => setConfirmWontDo(true)}
         >
           Won't do
         </button>
       </div>
+      {confirmWontDo && (
+        <ConfirmDialog
+          title="Won't do"
+          body="Marks this ticket as won't-do — it leaves the pipeline. The decision is recorded in the ledger."
+          confirmLabel="Won't do"
+          danger
+          busy={busy}
+          onConfirm={() => {
+            setConfirmWontDo(false);
+            void act('wont_do');
+          }}
+          onCancel={() => setConfirmWontDo(false)}
+        />
+      )}
     </div>
   );
 }
@@ -1138,6 +1194,7 @@ function SplitTab({
   const doc = useLoad(() => client.ticketDoc(ws, id, 'split-plan'), [ws, id]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<unknown>(null);
+  const [confirmReject, setConfirmReject] = useState(false);
   const act = async (decision?: string) => {
     setBusy(true);
     setErr(null);
@@ -1173,11 +1230,25 @@ function SplitTab({
           type="button"
           className="danger"
           disabled={busy}
-          onClick={() => void act('reject')}
+          onClick={() => setConfirmReject(true)}
         >
           Reject — re-triage
         </button>
       </div>
+      {confirmReject && (
+        <ConfirmDialog
+          title="Reject split plan"
+          body="Sends the ticket back to triage — the proposed split is discarded."
+          confirmLabel="Reject split"
+          danger
+          busy={busy}
+          onConfirm={() => {
+            setConfirmReject(false);
+            void act('reject');
+          }}
+          onCancel={() => setConfirmReject(false)}
+        />
+      )}
     </div>
   );
 }
@@ -1239,13 +1310,15 @@ function StatusRail({
         {t.parent && (
           <div className="card-meta">
             parent:{' '}
-            <Link to={`/tickets/${t.workspace}/${t.parent}`}>{t.parent}</Link>
+            <Link to={projectPath(t.workspace, `/tickets/${t.parent}`)}>
+              {t.parent}
+            </Link>
           </div>
         )}
         {d.family.map((f: TicketRow) => (
           <div key={f.ticket_id} className="card-meta">
             {f.parent === t.ticket_id ? 'child: ' : 'dep: '}
-            <Link to={`/tickets/${f.workspace}/${f.ticket_id}`}>
+            <Link to={projectPath(f.workspace, `/tickets/${f.ticket_id}`)}>
               {f.ticket_id}
             </Link>
           </div>
@@ -1287,9 +1360,7 @@ function FileCorrection({
     return (
       <span className="muted">
         correction{' '}
-        <Link
-          to={`/tickets/${encodeURIComponent(ws)}/${encodeURIComponent(filed)}`}
-        >
+        <Link to={projectPath(ws, `/tickets/${encodeURIComponent(filed)}`)}>
           {filed}
         </Link>{' '}
         filed
@@ -1336,25 +1407,27 @@ function FileCorrection({
         <span className="muted">origin: correction · work_type: bug</span>
       </div>
       {err != null && <ErrorBox error={err} />}
-      <div className="row">
-        <input
-          aria-label="correction title"
-          placeholder="defect title"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-        />
-        <select
-          aria-label="severity"
-          value={severity}
-          onChange={(e) => setSeverity(e.target.value)}
-        >
-          <option value="">severity (ungraded = material)</option>
-          {['blocker', 'critical', 'major', 'minor', 'trivial'].map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
+      <div className="row" style={{ alignItems: 'flex-end' }}>
+        <Field label="Defect title">
+          <input
+            placeholder="what went wrong"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+          />
+        </Field>
+        <Field label="Severity">
+          <select
+            value={severity}
+            onChange={(e) => setSeverity(e.target.value)}
+          >
+            <option value="">ungraded (= material)</option>
+            {['blocker', 'critical', 'major', 'minor', 'trivial'].map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        </Field>
         <button
           type="button"
           className="primary"
@@ -1364,15 +1437,16 @@ function FileCorrection({
           File
         </button>
         <button type="button" className="small" onClick={() => setOpen(false)}>
-          cancel
+          Cancel
         </button>
       </div>
-      <input
-        aria-label="correction description"
-        placeholder="description (optional)"
-        value={description}
-        onChange={(e) => setDescription(e.target.value)}
-      />
+      <Field label="Description (optional)">
+        <input
+          placeholder="description (optional)"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
+      </Field>
     </div>
   );
 }

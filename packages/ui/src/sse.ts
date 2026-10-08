@@ -78,6 +78,9 @@ export interface StreamHandlers {
   onEvent?: (type: StreamEventType, payload: unknown) => void;
   /** Fires on connect AND reconnect — re-read durable state. */
   onOpen?: () => void;
+  /** Fires whenever the underlying EventSource flips open/closed —
+   *  drives the connection indicator in the app chrome. */
+  onState?: (open: boolean) => void;
 }
 
 let source: EventSource | null = null;
@@ -101,10 +104,14 @@ function ensureSource(): void {
   source = new EventSource(url);
   source.onopen = () => {
     open = true;
-    for (const h of handlers) h.onOpen?.();
+    for (const h of handlers) {
+      h.onState?.(true);
+      h.onOpen?.();
+    }
   };
   source.onerror = () => {
     open = false;
+    for (const h of handlers) h.onState?.(false);
   };
   for (const type of TYPES) {
     source.addEventListener(type, (e) => {
@@ -123,7 +130,11 @@ function ensureSource(): void {
 export function subscribeStream(h: StreamHandlers): () => void {
   handlers.add(h);
   ensureSource();
-  if (open) queueMicrotask(() => h.onOpen?.());
+  if (open)
+    queueMicrotask(() => {
+      h.onState?.(true);
+      h.onOpen?.();
+    });
   return () => {
     handlers.delete(h);
     if (handlers.size === 0 && source) {

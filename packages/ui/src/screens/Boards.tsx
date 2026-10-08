@@ -11,6 +11,7 @@ import { client } from '../api';
 import type { IdeaBoardRow } from '../api';
 import { Empty, ErrorBox, Field, Loading, StatusBadge } from '../components';
 import { useBoardItemRefresh, useStreamRefresh } from '../hooks';
+import { projectPath, useProject } from '../project';
 
 export function BoardTypePicker({
   value,
@@ -24,7 +25,7 @@ export function BoardTypePicker({
   return (
     <select
       aria-label="board type"
-      style={{ width: 'auto' }}
+      className="auto"
       value={value}
       onChange={(e) => onChange(e.target.value)}
     >
@@ -39,8 +40,7 @@ export function BoardTypePicker({
 }
 
 export default function Boards() {
-  const [workspace, setWorkspace] = useState('');
-  const [workspaces, setWorkspaces] = useState<string[]>([]);
+  const workspace = useProject();
   const [boards, setBoards] = useState<IdeaBoardRow[] | null>(null);
   const [sessions, setSessions] = useState<
     Awaited<ReturnType<typeof client.interviewSessions>>['sessions'] | null
@@ -50,7 +50,14 @@ export default function Boards() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({ board: '', name: '', board_type: '' });
+  const [slugTouched, setSlugTouched] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+
+  const slugify = (s: string) =>
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
 
   const load = useCallback(() => {
     if (!workspace) {
@@ -74,14 +81,6 @@ export default function Boards() {
 
   useEffect(() => {
     load();
-    client
-      .workspaces()
-      .then((r) => {
-        const names = r.workspaces.map((w) => w.name);
-        setWorkspaces(names);
-        setWorkspace((cur) => cur || names[0] || '');
-      })
-      .catch(() => {});
     client
       .boardTaxonomy()
       .then((t) => setTaxonomy(t.board_types))
@@ -126,33 +125,18 @@ export default function Boards() {
         (S-15/S-16).
       </p>
       <div className="row" style={{ marginBottom: 12 }}>
-        <label className="muted" htmlFor="boards-ws">
-          Workspace
-        </label>
-        <select
-          id="boards-ws"
-          style={{ width: 'auto' }}
-          value={workspace}
-          onChange={(e) => setWorkspace(e.target.value)}
-        >
-          {workspaces.map((w) => (
-            <option key={w} value={w}>
-              {w}
-            </option>
-          ))}
-        </select>
         <span className="spacer" />
-        <Link className="btn" to="/capture">
+        <Link className="btn" to={projectPath(workspace, '/capture')}>
           + Quick capture
         </Link>
-        <Link className="btn" to="/tray">
+        <Link className="btn" to={projectPath(workspace, '/tray')}>
           Tray →
         </Link>
       </div>
 
-      {error != null && <ErrorBox error={error} />}
+      {error != null && <ErrorBox error={error} onRetry={load} />}
       {toast && <output className="warn-banner">{toast}</output>}
-      {loading && <Loading />}
+      {loading && !boards && <Loading />}
 
       {boards && boards.length === 0 && workspace && (
         <Empty label="No idea boards yet — create one below." />
@@ -164,9 +148,10 @@ export default function Boards() {
             <Link
               key={`${b.org ?? b.workspace}/${b.board}`}
               className="card board-card-link"
-              to={`/boards/${encodeURIComponent(
+              to={projectPath(
                 b.org ?? b.workspace,
-              )}/${encodeURIComponent(b.board)}`}
+                `/boards/${encodeURIComponent(b.board)}`,
+              )}
             >
               <div className="row">
                 <strong>{b.name ?? b.board}</strong>
@@ -177,7 +162,7 @@ export default function Boards() {
               <div className="muted" style={{ marginTop: 4 }}>
                 {b.board}
                 {b.type_config?.outputs?.length
-                  ? ` → ${b.type_config.outputs.join(', ')}`
+                  ? ` · outputs: ${b.type_config.outputs.join(' · ')}`
                   : ''}
               </div>
             </Link>
@@ -192,7 +177,10 @@ export default function Boards() {
             <input
               aria-label="board slug"
               value={form.board}
-              onChange={(e) => setForm({ ...form, board: e.target.value })}
+              onChange={(e) => {
+                setSlugTouched(true);
+                setForm({ ...form, board: e.target.value });
+              }}
               placeholder="q1-goals"
             />
           </Field>
@@ -200,7 +188,14 @@ export default function Boards() {
             <input
               aria-label="board name"
               value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  name: e.target.value,
+                  // auto-derive the slug until the user overrides it
+                  ...(slugTouched ? {} : { board: slugify(e.target.value) }),
+                })
+              }
               placeholder="Q1 goals"
             />
           </Field>
@@ -226,16 +221,17 @@ export default function Boards() {
         </p>
       </div>
 
-      {sessions && sessions.length > 0 && (
-        <div className="card" style={{ marginTop: 16 }}>
-          <h2 style={{ marginTop: 0 }}>Discovery sessions</h2>
+      <div className="card" style={{ marginTop: 16 }}>
+        <h2 style={{ marginTop: 0 }}>Discovery sessions</h2>
+        {sessions && sessions.length > 0 ? (
           <ul className="list">
             {sessions.map((s) => (
               <li key={s.session_id} className="row">
                 <Link
-                  to={`/discovery/${encodeURIComponent(
+                  to={projectPath(
                     workspace,
-                  )}/${encodeURIComponent(s.session_id)}`}
+                    `/discovery/${encodeURIComponent(s.session_id)}`,
+                  )}
                 >
                   {s.subject ?? s.session_id}
                 </Link>
@@ -250,8 +246,15 @@ export default function Boards() {
               </li>
             ))}
           </ul>
-        </div>
-      )}
+        ) : (
+          <p className="muted" style={{ margin: 0 }}>
+            No discovery sessions yet —{' '}
+            <Link to={projectPath(workspace, '/new')}>
+              start an interview →
+            </Link>
+          </p>
+        )}
+      </div>
     </section>
   );
 }

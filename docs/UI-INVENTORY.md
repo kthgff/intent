@@ -190,6 +190,16 @@ then S-05/S-11/S-14–S-20.
 Routes use the user-facing `:project` name below; existing APIs may continue to
 call that key `workspace` until the internal migration.
 
+**Project-first navigation (implemented):** the S-13 project picker is the
+entry surface at `/projects`; every other screen lives under
+`/projects/:project/…` (e.g. `/projects/acme/boards`,
+`/projects/acme/tickets/SR-0001`). `/` redirects into the last-used project
+(`localStorage`) or to the picker when none is known; project switching is
+only via "all projects" / the picker — there is no cross-project aggregate
+view. Pre-rename flat URLs (`/boards`, `/tickets/:ws/:id`, …) redirect into
+the remembered project or `/projects`. Route values below are written
+project-relative; the mounted paths carry the `/projects/:project` prefix.
+
 | ID | Route | Screen and job | Required page functionality |
 | --- | --- | --- | --- |
 | **S-01** | `/` | **Home — Board + Inbox.** Understand where all work stands and clear the highest-value human actions. | Board tab: Backlog/Spec/Build/Review/Done, live counts/WIP, project/filter scope, attention-first cards, agent-run progress, Ops gates, empty/stale/error states, validated drag/drop, card→hub. Inbox tab: grouped gates across tickets/features/initiatives/boards, claim, snooze, batch approval, owner/my-moves filter, ranking failure/escalation→priority→age. |
@@ -204,7 +214,7 @@ call that key `workspace` until the internal migration.
 | **S-10** | `/queue` | **Escalations and failures.** Recover everything broken, blocked, returned, or stale. | Filters for failed/blocked/escalated/aborted/doc-repair/verify_failed/stalled; project/entity/stage/severity/owner filters; ranked rows; detail inspector with classification, evidence and log tail; claim/snooze; retry/stronger-model/edit+retry/fix environment/kill/forward/wont-do; open run or operational hub. |
 | **S-11** | `/ledger` (embedded in hubs) | **Ledger and artifact browser.** Audit every decision and machine action. | Global/project/subject/run scope; event timeline/search/filter; actor/stage/type/cost/token fields; structured payload; artifact tree with prompt/transcript/usage/review/test outputs; immutable doc-version history and comparison; replay eligible stages; generated human-readable log; export/deep link. |
 | **S-12** | `/metrics` | **Metrics / ROI.** Measure throughput, quality, cost, and the idea-to-release loop. | Date/project/model/stage filters; tickets→release funnel; success/failure; tokens/cost/human gate dwell; fix rounds; deviation/spec-score/spec-bug trends; ACs with verified test evidence; pre-implementation spec defects; rework/escaped defects where connected; idea→merge and idea→released lead time; cost per feature/initiative/goal (D33 serves rollups); board yield; retrieval/citation evaluation health; stale ideas; cohort/drill-down tables; honest unavailable/estimated labels; no individual developer ranking. |
-| **S-13** | `/projects` | **Project switcher and project management.** Enter or maintain a product/codebase context. | Project cards with health, repos, dossier/survey freshness, boards, initiatives/features/tickets, open gates/runs, owners; switch/pin/search; add/import project; connect repos/docs/app URL; sync; archive/remove with impact confirmation; empty/onboarding states. (`/workspaces` is the temporary implementation route.) |
+| **S-13** | `/projects` | **Project switcher and project management.** Enter or maintain a product/codebase context. | Project cards with health, repos, dossier/survey freshness, boards, initiatives/features/tickets, open gates/runs, owners; switch/pin/search; add/import project; connect repos/docs/app URL; sync; archive/remove with impact confirmation; empty/onboarding states. |
 | **S-14** | `/kb` | **Knowledge and evidence.** Inspect and correct the intelligence feeding every run. | Project/repo tree; Dossier tab (architecture/domain/workflows/personas/UI map/docs/glossary/landmines); Code tab (index head/status, symbol/path/exact/semantic search, structural neighbors, source pinned to commit); Traceability tab (verified/suggested edges, provenance/confidence, verify/reject); source/freshness evidence; gap report with severity/disposition and create-board-item action; inline human correction with history/ledger attribution; confirm aliases/personas; survey/index status, manual Sync/Reindex, scheduled refresh, source management. Phase C adds sanitized signatures/incidents here and routes operational failures/proposed tickets through S-10/S-03 rather than creating a new top-level page. |
 | **S-15** | `/boards` | **Boards list.** Pick, create, organize, and assess idea boards in a project. | Board cards with open/consumed/shipped/parked/stale counts, tray count, last synthesis/initiative, saved delivery filter, digest gate, owner/activity; search/sort; templates (blank/PRD prep/retro/research); create/rename/duplicate/archive; seeded Getting Started board; quick capture entry. |
 | **S-16** | `/boards/:id` | **Board canvas + Delivery view.** Capture raw intent, synthesize it, and track spawned work. | Idea mode: autosaved pan/zoom canvas, typed/color stickies (incl. `goal` chip — live progress badge, `active/achieved/abandoned` states, D33), text/docs/images/files/links/voice, zones, connectors (`serves` edge writes on drop/drag), comments/tags, source chips, inspector (incl. serves picker), undo/redo, icebox, tray dock, uploads/ingest. Synthesis: board/zone/selection/new/tray scope (goal-required — inline ask if absent), count/cost/context preview, run/Q&A handoff. Item states open/consumed/shipped/parked/superseded with produced links. Delivery mode: shared S-01 Kanban filtered to board provenance, full card/gate actions, configurable filter (incl. `goal`). |
@@ -368,6 +378,14 @@ call that key `workspace` until the internal migration.
   `unpause` / `kill` for container runs (D30). Screens read DB projections
   (`tickets`, `ticket_repos`, `gate_items`) — no direct file/git
   access in the frontend.
+- **Project-first shell** (2026-10-07): Jira-style navigation lands —
+  S-13 `/projects` is the picker and entry surface; `/` auto-enters the
+  last-used project; every screen is scoped under
+  `/projects/:project/…`; the aggregate cross-project views (unified
+  inbox/board with project filter, global Runs/Metrics/Ledger) are
+  removed in favour of per-project instances — supersedes the
+  "unified inbox" shell decision above. Switching projects goes through
+  the picker only.
 
 ## 7. Completeness cross-check
 

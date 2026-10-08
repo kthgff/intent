@@ -7,6 +7,7 @@
  * only human-meaningful drops (→Done = wont_do/abort, self-column
  * retry/claim) are enabled, all validated server-side.
  */
+import { Moon } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
@@ -25,14 +26,17 @@ import {
   wipExceeded,
 } from '../board';
 import {
+  ConfirmDialog,
   Empty,
   ErrorBox,
   KindBadge,
   Loading,
   StatusBadge,
   fmtAge,
+  gateLabel,
 } from '../components';
-import { useEscapeKey, useStreamRefresh } from '../hooks';
+import { useStreamRefresh } from '../hooks';
+import { projectPath, useProject } from '../project';
 import { itemTarget } from './Inbox';
 
 const GATE_KINDS = [
@@ -52,8 +56,7 @@ interface PendingDrop {
 }
 
 export default function Board() {
-  const [workspace, setWorkspace] = useState('');
-  const [workspaces, setWorkspaces] = useState<string[]>([]);
+  const workspace = useProject();
   const [data, setData] = useState<Awaited<
     ReturnType<typeof client.board>
   > | null>(null);
@@ -65,37 +68,34 @@ export default function Board() {
   const [dragging, setDragging] = useState<BoardCard | null>(null);
   const [hoverPhase, setHoverPhase] = useState<BoardPhase | null>(null);
   const [pending, setPending] = useState<PendingDrop | null>(null);
-  useEscapeKey(pending !== null, () => setPending(null));
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
-  const load = useCallback(() => {
-    client
-      .board(workspace || undefined)
-      .then((r) => {
-        setData(r);
-        setError(null);
-      })
-      .catch(setError)
-      .finally(() => setLoading(false));
-  }, [workspace]);
+  const load = useCallback(
+    (silent = false) => {
+      if (!silent) setLoading(true);
+      client
+        .board(workspace)
+        .then((r) => {
+          setData(r);
+          setError(null);
+        })
+        .catch(setError)
+        .finally(() => setLoading(false));
+    },
+    [workspace],
+  );
 
   useEffect(() => {
-    setLoading(true);
     load();
-    client
-      .workspaces()
-      .then((r) => setWorkspaces(r.workspaces.map((w) => w.name)))
-      .catch(() => {});
   }, [load]);
 
-  // Live board — SSE moves cards and updates badges without reload.
-  useStreamRefresh(load, [
-    'gate_surfaced',
-    'gate_cleared',
-    'run_status',
-    'ticket_updated',
-  ]);
+  // Live board — SSE moves cards and updates badges without reload
+  // (silent: don't flicker the whole board to "Loading…").
+  useStreamRefresh(
+    () => load(true),
+    ['gate_surfaced', 'gate_cleared', 'run_status', 'ticket_updated'],
+  );
 
   useEffect(() => {
     if (!toast) return;
@@ -175,25 +175,9 @@ export default function Board() {
   return (
     <section>
       <div className="row" style={{ marginBottom: 12 }}>
-        <label className="muted" htmlFor="board-ws">
-          Workspace
-        </label>
-        <select
-          id="board-ws"
-          style={{ width: 'auto' }}
-          value={workspace}
-          onChange={(e) => setWorkspace(e.target.value)}
-        >
-          <option value="">all</option>
-          {workspaces.map((w) => (
-            <option key={w} value={w}>
-              {w}
-            </option>
-          ))}
-        </select>
         <select
           aria-label="kind filter"
-          style={{ width: 'auto' }}
+          className="auto"
           value={kindFilter}
           onChange={(e) => setKindFilter(e.target.value)}
         >
@@ -207,21 +191,27 @@ export default function Board() {
         <label className="muted">
           <input
             type="checkbox"
-            style={{ width: 'auto', marginRight: 4 }}
+            className="auto"
+            style={{ marginRight: 4 }}
             checked={onlyMoves}
             onChange={(e) => setOnlyMoves(e.target.checked)}
           />
           only my moves
         </label>
         <span className="spacer" />
-        <button type="button" className="small" onClick={load}>
-          Refresh
+        <button
+          type="button"
+          className="small"
+          disabled={loading}
+          onClick={() => load()}
+        >
+          {loading && data ? 'Refreshing…' : 'Refresh'}
         </button>
       </div>
 
-      {error != null && <ErrorBox error={error} />}
+      {error != null && <ErrorBox error={error} onRetry={() => load()} />}
       {toast && <output className="warn-banner">{toast}</output>}
-      {loading && <Loading />}
+      {loading && !data && <Loading />}
 
       {data && data.ops.length > 0 && (
         <div className="ops-strip" aria-label="ops items">
@@ -232,21 +222,21 @@ export default function Board() {
               className={`badge ops-chip kind-${g.kind}`}
               to={itemTarget(g)}
             >
-              {g.subject} · {g.gate}
+              {g.subject} · {gateLabel(g.gate)}
             </Link>
           ))}
         </div>
       )}
 
       {boardEmpty && (
-        <Empty label="No tickets yet — import or create to start." />
-      )}
-      {boardEmpty && (
-        <p className="row" style={{ justifyContent: 'center' }}>
-          <Link className="btn" to="/new">
-            Create / Import →
-          </Link>
-        </p>
+        <Empty
+          label="No tickets yet — import or create to start."
+          action={
+            <Link className="btn" to={projectPath(workspace, '/new')}>
+              Create / Import →
+            </Link>
+          }
+        />
       )}
 
       {data && !boardEmpty && (
@@ -282,7 +272,9 @@ export default function Board() {
                     {col.total}
                   </span>
                   {col.phase === 'done' && col.total > col.cards.length && (
-                    <span className="muted">· recent</span>
+                    <span className="muted" title="recently shipped">
+                      · recent
+                    </span>
                   )}
                 </div>
                 {col.cards.length === 0 && (
@@ -299,6 +291,11 @@ export default function Board() {
                       setHoverPhase(null);
                     }}
                     onSnooze={() => void snoozeAll(card)}
+                    onMove={(target) =>
+                      target.confirm
+                        ? setPending({ card, target })
+                        : void performDrop(card, target)
+                    }
                     busy={busy}
                   />
                 ))}
@@ -321,7 +318,10 @@ export default function Board() {
                       className="board-card board-card-overflow"
                     >
                       <Link
-                        to={`/tickets/${encodeURIComponent(card.ticket.workspace)}/${encodeURIComponent(card.ticket.ticket_id)}`}
+                        to={projectPath(
+                          card.ticket.workspace,
+                          `/tickets/${encodeURIComponent(card.ticket.ticket_id)}`,
+                        )}
                         className="mono"
                       >
                         {card.ticket.ticket_id}
@@ -336,43 +336,14 @@ export default function Board() {
       )}
 
       {pending && (
-        <div
-          className="modal-back"
-          role="presentation"
-          onClick={() => setPending(null)}
-          onKeyDown={(e) => e.key === 'Escape' && setPending(null)}
-        >
-          <dialog
-            open
-            className="modal"
-            aria-label="confirm drop"
-            onClick={(e) => e.stopPropagation()}
-            onKeyDown={(e) => {
-              e.stopPropagation();
-              if (e.key === 'Escape') setPending(null);
-            }}
-          >
-            <strong>{pending.card.ticket.ticket_id}</strong>
-            <p>{pending.target.label}</p>
-            <div className="row">
-              <button
-                type="button"
-                className="primary"
-                disabled={busy}
-                onClick={() => void performDrop(pending.card, pending.target)}
-              >
-                {busy ? 'Working…' : 'Confirm'}
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => setPending(null)}
-              >
-                Cancel
-              </button>
-            </div>
-          </dialog>
-        </div>
+        <ConfirmDialog
+          title={pending.card.ticket.ticket_id}
+          body={pending.target.label}
+          confirmLabel={pending.target.label}
+          busy={busy}
+          onConfirm={() => void performDrop(pending.card, pending.target)}
+          onCancel={() => setPending(null)}
+        />
       )}
     </section>
   );
@@ -385,6 +356,7 @@ function CardView({
   onDragStart,
   onDragEnd,
   onSnooze,
+  onMove,
 }: {
   card: BoardCard;
   dimmed: boolean;
@@ -392,9 +364,13 @@ function CardView({
   onDragStart: () => void;
   onDragEnd: () => void;
   onSnooze: () => void;
+  onMove: (target: DropTarget) => void;
 }) {
   const t = card.ticket;
-  const to = `/tickets/${encodeURIComponent(t.workspace)}/${encodeURIComponent(t.ticket_id)}`;
+  const to = projectPath(
+    t.workspace,
+    `/tickets/${encodeURIComponent(t.ticket_id)}`,
+  );
   return (
     <article
       className={`board-card${card.flagged ? ` flag-${card.flagged}` : ''}${dimmed ? ' dim' : ''}`}
@@ -413,7 +389,10 @@ function CardView({
         <StatusBadge status={t.status} />
         {card.delivery && (
           <Link
-            to={`/releases/${encodeURIComponent(t.workspace)}/${encodeURIComponent(card.delivery.release_id)}`}
+            to={projectPath(
+              t.workspace,
+              `/releases/${encodeURIComponent(card.delivery.release_id)}`,
+            )}
             className={`badge delivery-${card.delivery.state}`}
             title={`delivery: ${card.delivery.state} (${card.delivery.release_id})`}
             onClick={(e) => e.stopPropagation()}
@@ -422,18 +401,43 @@ function CardView({
           </Link>
         )}
         <span className="spacer" />
+        {card.drop_targets.length > 0 && (
+          <select
+            aria-label="move card"
+            title="Move — keyboard/touch alternative to drag"
+            className="auto board-move"
+            value=""
+            disabled={busy}
+            onClick={(e) => e.preventDefault()}
+            onChange={(e) => {
+              const t = card.drop_targets[Number(e.target.value)];
+              if (t) onMove(t);
+              e.target.value = '';
+            }}
+          >
+            <option value="" disabled>
+              Move…
+            </option>
+            {card.drop_targets.map((t, i) => (
+              <option key={t.column} value={i}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+        )}
         {card.attention.some((g) => !g.cleared_at) && (
           <button
             type="button"
             className="small board-snooze"
-            title="snooze — hide this card until later"
+            title="Snooze attention items on this card"
+            aria-label="snooze attention items"
             disabled={busy}
             onClick={(e) => {
               e.preventDefault();
               onSnooze();
             }}
           >
-            z
+            <Moon size={12} aria-hidden="true" />
           </button>
         )}
       </div>
@@ -446,7 +450,12 @@ function CardView({
           <>
             {' '}
             ·{' '}
-            <Link to={`/runs/${encodeURIComponent(card.live_run.id)}`}>
+            <Link
+              to={projectPath(
+                t.workspace,
+                `/runs/${encodeURIComponent(card.live_run.id)}`,
+              )}
+            >
               ▶ {card.live_run.stage}
             </Link>
           </>

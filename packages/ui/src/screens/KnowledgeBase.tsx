@@ -5,9 +5,20 @@ import { DOSSIER_SECTIONS } from '@veto/core';
  * gap report; per-section edit → PUT /kb/<scope>; manual Sync.
  */
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { client } from '../api';
-import { Empty, ErrorBox, Field, Loading, Markdown } from '../components';
+import {
+  ConfirmDialog,
+  Empty,
+  ErrorBox,
+  Field,
+  Loading,
+  Markdown,
+  TabPanel,
+  Tabs,
+} from '../components';
 import { useLoad } from '../hooks';
+import { projectPath, useProject } from '../project';
 
 const SECTION_LABEL: Record<string, string> = {
   'architecture-map': 'Architecture',
@@ -44,21 +55,18 @@ export default function KnowledgeBase() {
       <p className="page-sub">
         Product dossiers — surveyed by agents, corrected by you.
       </p>
-      <div className="tabs">
-        {(['repo', 'product'] as const).map((s) => (
-          <button
-            key={s}
-            type="button"
-            className={scope === s ? 'active' : ''}
-            onClick={() => {
-              setScope(s);
-              setName(null);
-            }}
-          >
-            {s}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        ariaLabel="knowledge base scope"
+        active={scope}
+        onChange={(s) => {
+          setScope(s as 'repo' | 'product');
+          setName(null);
+        }}
+        tabs={[
+          { id: 'repo', label: 'repo' },
+          { id: 'product', label: 'product' },
+        ]}
+      />
       {list.loading && <Loading />}
       {list.error != null && <ErrorBox error={list.error} />}
       {list.data && names.length === 0 && (
@@ -67,18 +75,20 @@ export default function KnowledgeBase() {
       <div className="split">
         {names.length > 0 && (
           <aside className="rail">
-            {names.map((n) => (
-              <div className="card" key={n}>
-                <button
-                  type="button"
-                  className={current === n ? 'primary' : ''}
-                  style={{ width: '100%', textAlign: 'left' }}
-                  onClick={() => setName(n)}
-                >
-                  {n}
-                </button>
-              </div>
-            ))}
+            <ul className="list kb-picker" aria-label="dossiers">
+              {names.map((n) => (
+                <li key={n}>
+                  <button
+                    type="button"
+                    className={`tray-row${current === n ? ' selected' : ''}`}
+                    aria-current={current === n ? 'true' : undefined}
+                    onClick={() => setName(n)}
+                  >
+                    {n}
+                  </button>
+                </li>
+              ))}
+            </ul>
           </aside>
         )}
         <div className="grow">
@@ -90,6 +100,7 @@ export default function KnowledgeBase() {
 }
 
 function Dossier({ scope, name }: { scope: string; name: string }) {
+  const ws = useProject();
   const sections = useLoad(() => client.kbGet(scope, name), [scope, name]);
   const [section, setSection] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
@@ -107,7 +118,7 @@ function Dossier({ scope, name }: { scope: string; name: string }) {
     setError(null);
     try {
       const r = await client.kbSync(scope, name);
-      setSyncMsg(`survey run queued: ${r.run}`);
+      setSyncMsg(r.run);
     } catch (e) {
       setError(e);
     } finally {
@@ -124,42 +135,59 @@ function Dossier({ scope, name }: { scope: string; name: string }) {
         <button
           type="button"
           className="small"
+          title="queue a survey run — agents re-read the repo and refresh every section"
           disabled={syncing}
           onClick={() => void sync()}
         >
           {syncing ? 'Queuing…' : 'Sync (re-survey)'}
         </button>
       </div>
-      {syncMsg && <div className="card">{syncMsg}</div>}
+      {syncMsg && (
+        <div className="card" role="status">
+          survey run queued:{' '}
+          <Link to={projectPath(ws, `/runs/${encodeURIComponent(syncMsg)}`)}>
+            {syncMsg.slice(0, 16)} →
+          </Link>
+        </div>
+      )}
       {error != null && <ErrorBox error={error} />}
       {sections.loading && <Loading />}
       {sections.error != null && <ErrorBox error={sections.error} />}
       {list.length === 0 && !sections.loading && (
         <Empty label="No sections for this dossier." />
       )}
-      <div className="tabs">
-        {DOSSIER_SECTIONS.map((s) => (
-          <button
-            key={s}
-            type="button"
-            className={current === s ? 'active' : ''}
-            onClick={() => setSection(s)}
-          >
-            {SECTION_LABEL[s] ?? s}
-            {bySection.has(s as never) ? '' : ' ·'}
-          </button>
-        ))}
-      </div>
-      {entry ? (
-        <SectionEditor
-          scope={scope}
-          name={name}
-          entry={entry}
-          onSaved={sections.reload}
-        />
-      ) : (
-        current && <Empty label={`No ${current} section yet.`} />
-      )}
+      <Tabs
+        ariaLabel="dossier sections"
+        active={current ?? ''}
+        onChange={setSection}
+        tabs={DOSSIER_SECTIONS.map((s) => ({
+          id: s,
+          label: (
+            <>
+              {SECTION_LABEL[s] ?? s}
+              {!bySection.has(s as never) && (
+                <span className="dim" title="not surveyed yet">
+                  {' '}
+                  ○
+                </span>
+              )}
+            </>
+          ),
+        }))}
+      />
+      <TabPanel id={current ?? 'none'}>
+        {entry ? (
+          <SectionEditor
+            key={`${scope}/${name}/${entry.section}`}
+            scope={scope}
+            name={name}
+            entry={entry}
+            onSaved={sections.reload}
+          />
+        ) : (
+          current && <Empty label={`No ${current} section yet.`} />
+        )}
+      </TabPanel>
       {current !== 'gap-report' && gap && (
         <p className="muted">Gap report available — see the Gap report tab.</p>
       )}
@@ -180,8 +208,10 @@ function SectionEditor({
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(entry.content);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  const dirty = draft !== entry.content;
 
   const save = async () => {
     setBusy(true);
@@ -216,11 +246,17 @@ function SectionEditor({
           type="button"
           className="small"
           onClick={() => {
-            setDraft(entry.content);
-            setEditing(!editing);
+            if (!editing) {
+              setDraft(entry.content);
+              setEditing(true);
+            } else if (dirty) {
+              setConfirmDiscard(true);
+            } else {
+              setEditing(false);
+            }
           }}
         >
-          {editing ? 'cancel' : 'edit'}
+          {editing ? 'Cancel' : 'Edit'}
         </button>
       </div>
       {error != null && <ErrorBox error={error} />}
@@ -244,6 +280,20 @@ function SectionEditor({
         </div>
       ) : (
         <Markdown text={entry.content} />
+      )}
+      {confirmDiscard && (
+        <ConfirmDialog
+          title="Discard edits?"
+          body="Your unsaved changes to this section will be lost."
+          confirmLabel="Discard"
+          danger
+          onConfirm={() => {
+            setDraft(entry.content);
+            setEditing(false);
+            setConfirmDiscard(false);
+          }}
+          onCancel={() => setConfirmDiscard(false)}
+        />
       )}
     </div>
   );

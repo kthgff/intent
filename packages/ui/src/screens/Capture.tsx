@@ -11,6 +11,7 @@ import { Link } from 'react-router-dom';
 import { type IdeaBoardRow, client } from '../api';
 import { ErrorBox, Loading } from '../components';
 import { guessCaptureKind, noteKindMeta } from '../discovery';
+import { projectPath, useProject } from '../project';
 
 export function CaptureForm({
   workspaces,
@@ -19,6 +20,7 @@ export function CaptureForm({
   defaultWorkspace,
   compact = false,
   onSaved,
+  onNavigate,
 }: {
   workspaces: string[];
   boards: IdeaBoardRow[];
@@ -26,6 +28,9 @@ export function CaptureForm({
   defaultWorkspace?: string;
   compact?: boolean;
   onSaved?: (item: BoardItem, destination: string) => void;
+  /** Fired when the save-banner destination link is followed — the
+   *  hosting modal uses it to close before navigating. */
+  onNavigate?: () => void;
 }) {
   const [workspace, setWorkspace] = useState(
     defaultWorkspace ?? workspaces[0] ?? '',
@@ -133,12 +138,17 @@ export function CaptureForm({
         value={text}
         onChange={(e) => setText(e.target.value)}
         placeholder="Idea, want, problem, question, feedback…"
+        // biome-ignore lint/a11y/noAutofocus: modal opens on an explicit ⌘⇧C — focus belongs inside
+        autoFocus={compact}
       />
       <fieldset
         className="row"
         aria-label="type"
         style={{ border: 'none', padding: 0, margin: 0 }}
       >
+        <span className="muted" style={{ fontSize: 12 }}>
+          type
+        </span>
         {noteKinds.map((k) => (
           <button
             key={k}
@@ -159,7 +169,7 @@ export function CaptureForm({
         </label>
         <select
           id="cap-ws"
-          style={{ width: 'auto' }}
+          className="auto"
           value={workspace}
           onChange={(e) => setWorkspace(e.target.value)}
         >
@@ -174,7 +184,7 @@ export function CaptureForm({
         </label>
         <select
           id="cap-dest"
-          style={{ width: 'auto' }}
+          className="auto"
           value={destination}
           onChange={(e) => setDestination(e.target.value)}
         >
@@ -205,11 +215,13 @@ export function CaptureForm({
             add another
           </button>{' '}
           <Link
-            to={
+            to={projectPath(
+              workspace,
               destination === 'tray'
                 ? '/tray'
-                : `/boards/${workspace}/${destination}`
-            }
+                : `/boards/${encodeURIComponent(destination)}`,
+            )}
+            onClick={onNavigate}
           >
             open destination →
           </Link>
@@ -220,20 +232,15 @@ export function CaptureForm({
 }
 
 export default function Capture() {
-  const [workspaces, setWorkspaces] = useState<string[]>([]);
+  const ws = useProject();
   const [boards, setBoards] = useState<IdeaBoardRow[]>([]);
   const [noteKinds, setNoteKinds] = useState<string[]>([]);
-  const [ws, setWs] = useState('');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    Promise.all([client.workspaces(), client.boardTaxonomy()])
-      .then(([w, t]) => {
-        const names = w.workspaces.map((x) => x.name);
-        setWorkspaces(names);
-        setNoteKinds(t.note_kinds);
-        if (names.length > 0) setWs(names[0] ?? '');
-      })
+    client
+      .boardTaxonomy()
+      .then((t) => setNoteKinds(t.note_kinds))
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
@@ -258,7 +265,7 @@ export default function Capture() {
       </p>
       <div className="card" style={{ maxWidth: 640 }}>
         <CaptureForm
-          workspaces={workspaces}
+          workspaces={[ws]}
           boards={wsBoards}
           noteKinds={noteKinds}
           defaultWorkspace={ws}

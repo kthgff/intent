@@ -22,15 +22,19 @@ import {
   client,
 } from '../api';
 import {
+  ConfirmDialog,
   Empty,
   ErrorBox,
   Field,
   Loading,
   Markdown,
   StatusBadge,
+  TabPanel,
+  Tabs,
   fmtAge,
 } from '../components';
 import { useLoad, useStreamRefresh } from '../hooks';
+import { projectPath, useProject } from '../project';
 
 const AUDIENCES: ReleaseNoteAudience[] = [
   'customer',
@@ -54,12 +58,10 @@ const SCOPE_MUTABLE = new Set(['draft', 'ready', 'approved']);
 // ---------------------------------------------------------------------------
 
 export default function ReleaseCenter() {
-  const { ws: paramWs, rel } = useParams();
-  const workspaces = useLoad(() => client.workspaces(), []);
-  const [picked, setPicked] = useState('');
-  const ws = paramWs ?? (picked || workspaces.data?.workspaces[0]?.name || '');
+  const ws = useProject();
+  const { rel } = useParams();
 
-  if (paramWs && rel) return <ReleaseDetailView ws={paramWs} rel={rel} />;
+  if (rel) return <ReleaseDetailView ws={ws} rel={rel} />;
 
   return (
     <section>
@@ -67,22 +69,7 @@ export default function ReleaseCenter() {
       <p className="page-sub">
         draft → ready → approved → released → closed (DELIVERY §3).
       </p>
-      {!paramWs && (
-        <div className="row">
-          <select
-            aria-label="workspace"
-            value={ws}
-            onChange={(e) => setPicked(e.target.value)}
-          >
-            {(workspaces.data?.workspaces ?? []).map((w) => (
-              <option key={w.name} value={w.name}>
-                {w.name}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
-      {ws ? <ReleaseList ws={ws} /> : <Loading />}
+      <ReleaseList ws={ws} />
     </section>
   );
 }
@@ -111,7 +98,10 @@ function ReleaseList({ ws }: { ws: string }) {
         ...(target ? { target } : {}),
       });
       nav(
-        `/releases/${encodeURIComponent(ws)}/${encodeURIComponent(r.release.release_id)}`,
+        projectPath(
+          ws,
+          `/releases/${encodeURIComponent(r.release.release_id)}`,
+        ),
       );
     } catch (e) {
       setErr(e);
@@ -131,7 +121,10 @@ function ReleaseList({ ws }: { ws: string }) {
           <div className="card-title">
             <strong>
               <Link
-                to={`/releases/${encodeURIComponent(ws)}/${encodeURIComponent(r.release_id)}`}
+                to={projectPath(
+                  ws,
+                  `/releases/${encodeURIComponent(r.release_id)}`,
+                )}
               >
                 {r.release_id}
               </Link>{' '}
@@ -219,7 +212,7 @@ function ReleaseDetailView({ ws, rel }: { ws: string; rel: string }) {
   return (
     <section>
       <p className="page-sub" style={{ marginBottom: 2 }}>
-        <Link to="/releases">← Release Center</Link>
+        <Link to={projectPath(ws, '/releases')}>← Release Center</Link>
       </p>
       <h1 className="page-title">
         {r.release_id} — {r.title}
@@ -241,34 +234,33 @@ function ReleaseDetailView({ ws, rel }: { ws: string; rel: string }) {
         )}
       </p>
 
-      <ReleaseActions ws={ws} d={d} onDone={detail.reload} />
+      <ReleaseActions
+        ws={ws}
+        d={d}
+        onDone={detail.reload}
+        onGotoGates={() => setTab('gates')}
+      />
 
-      <div className="tabs" role="tablist">
-        {tabs.map((x) => (
-          <button
-            key={x.id}
-            type="button"
-            role="tab"
-            aria-selected={tab === x.id}
-            className={tab === x.id ? 'active' : ''}
-            onClick={() => setTab(x.id)}
-          >
-            {x.label}
-          </button>
-        ))}
-      </div>
-      {tab === 'scope' && <ScopeTab ws={ws} d={d} onDone={detail.reload} />}
-      {tab === 'gates' && (
-        <GatesTab
-          ws={ws}
-          d={d}
-          approved={approvedOnCurrent}
-          onDone={detail.reload}
-        />
-      )}
-      {tab === 'deploy' && <DeployTab ws={ws} d={d} onDone={detail.reload} />}
-      {tab === 'notes' && <NotesTab ws={ws} d={d} onDone={detail.reload} />}
-      {tab === 'retro' && <RetroTab ws={ws} d={d} onDone={detail.reload} />}
+      <Tabs
+        ariaLabel="release sections"
+        active={tab}
+        onChange={(x) => setTab(x as TabId)}
+        tabs={tabs}
+      />
+      <TabPanel id={tab}>
+        {tab === 'scope' && <ScopeTab ws={ws} d={d} onDone={detail.reload} />}
+        {tab === 'gates' && (
+          <GatesTab
+            ws={ws}
+            d={d}
+            approved={approvedOnCurrent}
+            onDone={detail.reload}
+          />
+        )}
+        {tab === 'deploy' && <DeployTab ws={ws} d={d} onDone={detail.reload} />}
+        {tab === 'notes' && <NotesTab ws={ws} d={d} onDone={detail.reload} />}
+        {tab === 'retro' && <RetroTab ws={ws} d={d} onDone={detail.reload} />}
+      </TabPanel>
     </section>
   );
 }
@@ -281,10 +273,12 @@ function ReleaseActions({
   ws,
   d,
   onDone,
+  onGotoGates,
 }: {
   ws: string;
   d: ReleaseDetail;
   onDone: () => void;
+  onGotoGates: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<unknown>(null);
@@ -359,7 +353,12 @@ function ReleaseActions({
           </span>
         )}
         {r.status === 'ready' && (
-          <span className="muted">Awaiting human approval — Gates tab →</span>
+          <span className="muted">
+            Awaiting human approval —{' '}
+            <button type="button" className="link" onClick={onGotoGates}>
+              Gates tab →
+            </button>
+          </span>
         )}
       </div>
     </div>
@@ -385,6 +384,10 @@ function ScopeTab({
   const [approvedBy, setApprovedBy] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<unknown>(null);
+  const [confirmRemove, setConfirmRemove] = useState<{
+    kind: string;
+    id: string;
+  } | null>(null);
   const r = d.release;
   const editable = SCOPE_MUTABLE.has(r.status);
   const live = d.items.filter((i) => !i.removed_at);
@@ -457,13 +460,19 @@ function ScopeTab({
                 <td>
                   {i.item_kind === 'ticket' ? (
                     <Link
-                      to={`/tickets/${encodeURIComponent(ws)}/${encodeURIComponent(i.item_id)}`}
+                      to={projectPath(
+                        ws,
+                        `/tickets/${encodeURIComponent(i.item_id)}`,
+                      )}
                     >
                       {i.item_id}
                     </Link>
                   ) : (
                     <Link
-                      to={`/features/${encodeURIComponent(ws)}/${encodeURIComponent(i.item_id)}`}
+                      to={projectPath(
+                        ws,
+                        `/features/${encodeURIComponent(i.item_id)}`,
+                      )}
                     >
                       {i.item_id}
                     </Link>
@@ -496,9 +505,11 @@ function ScopeTab({
                       type="button"
                       className="small danger"
                       disabled={busy}
-                      onClick={() => void remove(i.item_kind, i.item_id)}
+                      onClick={() =>
+                        setConfirmRemove({ kind: i.item_kind, id: i.item_id })
+                      }
                     >
-                      remove
+                      Remove
                     </button>
                   )}
                 </td>
@@ -527,7 +538,7 @@ function ScopeTab({
             </select>
             <input
               aria-label="item id"
-              placeholder="F-0001 / SR-0001"
+              placeholder="F-0001 or SR-1234"
               value={itemId}
               onChange={(e) => setItemId(e.target.value)}
             />
@@ -601,6 +612,25 @@ function ScopeTab({
             </ul>
           </div>
         ))
+      )}
+      {confirmRemove && (
+        <ConfirmDialog
+          title={`Remove ${confirmRemove.id} from scope?`}
+          body={
+            r.status === 'draft'
+              ? 'Drops the item from the release scope.'
+              : 'Post-freeze removal re-cuts the manifest and drops all approvals bound to the current cut (invariant 3).'
+          }
+          confirmLabel="Remove"
+          danger
+          busy={busy}
+          onConfirm={() => {
+            const c = confirmRemove;
+            setConfirmRemove(null);
+            void remove(c.kind, c.id);
+          }}
+          onCancel={() => setConfirmRemove(null)}
+        />
       )}
     </div>
   );
@@ -983,7 +1013,7 @@ function ExposureControl({
       <div className="card-title">
         <strong>
           <Link
-            to={`/features/${encodeURIComponent(ws)}/${encodeURIComponent(feature)}`}
+            to={projectPath(ws, `/features/${encodeURIComponent(feature)}`)}
           >
             {feature}
           </Link>
@@ -1277,7 +1307,7 @@ function NotePanel({
               className="small"
               onClick={() => setEdit(null)}
             >
-              cancel
+              Cancel
             </button>
           </div>
         </div>

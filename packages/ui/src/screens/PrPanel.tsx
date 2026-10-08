@@ -6,8 +6,15 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { client } from '../api';
-import { Empty, ErrorBox, Loading, StatusBadge } from '../components';
+import {
+  ConfirmDialog,
+  Empty,
+  ErrorBox,
+  Loading,
+  StatusBadge,
+} from '../components';
 import { useLoad, useStreamRefresh } from '../hooks';
+import { projectPath } from '../project';
 
 export default function PrPanel() {
   const { ws = '', id = '' } = useParams();
@@ -16,6 +23,7 @@ export default function PrPanel() {
   useStreamRefresh(detail.reload, ['run_status', 'gate_cleared']);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  const [confirmRevert, setConfirmRevert] = useState(false);
 
   const t = detail.data?.ticket;
   const repos = detail.data?.repos ?? [];
@@ -32,7 +40,7 @@ export default function PrPanel() {
         action,
         expected_status: t?.status,
       });
-      navigate(`/tickets/${encodeURIComponent(ws)}/${encodeURIComponent(id)}`);
+      navigate(projectPath(ws, `/tickets/${encodeURIComponent(id)}`));
     } catch (e) {
       setError(e);
       setBusy(false);
@@ -47,7 +55,7 @@ export default function PrPanel() {
     <section>
       <h1 className="page-title">PR status — {id}</h1>
       <p className="page-sub">
-        <Link to={`/tickets/${ws}/${id}`}>← ticket</Link> ·{' '}
+        <Link to={projectPath(ws, `/tickets/${id}`)}>← ticket</Link> ·{' '}
         <StatusBadge status={t.status} /> — shepherd watches checks + comments
         and feeds fixes back to the agent.
       </p>
@@ -65,7 +73,7 @@ export default function PrPanel() {
             ) : (
               <span className="muted">no PR yet</span>
             )}
-            <span className="badge">pr: {r.pr_state ?? '—'}</span>
+            <span className="badge">PR: {r.pr_state ?? '—'}</span>
             <span
               className={`badge spec-${
                 r.ci_state === 'green'
@@ -75,13 +83,23 @@ export default function PrPanel() {
                     : 'warn'
               }`}
             >
-              ci: {r.ci_state ?? 'pending'}
+              CI: {r.ci_state ?? 'pending'}
             </span>
-            {r.merged_sha && (
-              <span className="mono muted">
-                merged {r.merged_sha.slice(0, 8)}
-              </span>
-            )}
+            {r.merged_sha &&
+              (r.pr_url ? (
+                <a
+                  className="mono muted"
+                  href={`${r.pr_url.replace(/\/pull\/\d+.*$/, '')}/commit/${r.merged_sha}`}
+                  rel="noreferrer"
+                  title={r.merged_sha}
+                >
+                  merged {r.merged_sha.slice(0, 8)}
+                </a>
+              ) : (
+                <span className="mono muted" title={r.merged_sha}>
+                  merged {r.merged_sha.slice(0, 8)}
+                </span>
+              ))}
           </div>
         </div>
       ))}
@@ -100,12 +118,28 @@ export default function PrPanel() {
             type="button"
             className="danger"
             disabled={busy}
-            onClick={() => void act('revert')}
+            onClick={() => setConfirmRevert(true)}
           >
             Revert
           </button>
         )}
       </div>
+      {confirmRevert && (
+        <ConfirmDialog
+          title="Revert merged PRs?"
+          body={`Reverts ${repos
+            .map((r) => r.merged_sha?.slice(0, 8) ?? r.repo)
+            .join(', ')} — a revert run is queued and the ticket is reopened.`}
+          confirmLabel="Revert"
+          danger
+          busy={busy}
+          onConfirm={() => {
+            setConfirmRevert(false);
+            void act('revert');
+          }}
+          onCancel={() => setConfirmRevert(false)}
+        />
+      )}
       {!allGreen && repos.length > 0 && (
         <p className="muted">
           Merge unlocks when every repo's checks are green.

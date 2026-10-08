@@ -17,7 +17,14 @@ import {
   type Understanding,
   client,
 } from '../api';
-import { Empty, ErrorBox, Loading, StatusBadge } from '../components';
+import {
+  ConfirmDialog,
+  Empty,
+  ErrorBox,
+  Loading,
+  Modal,
+  StatusBadge,
+} from '../components';
 import {
   INPUT_MODES,
   type InputMode,
@@ -26,7 +33,8 @@ import {
   slotStateLabel,
   splitBulkAnswers,
 } from '../discovery';
-import { useEscapeKey, useLoad, useStreamRefresh } from '../hooks';
+import { useLoad, useStreamRefresh } from '../hooks';
+import { projectPath } from '../project';
 import UnderstandingPanel from './UnderstandingPanel';
 
 export default function DiscoverySession() {
@@ -44,7 +52,10 @@ export default function DiscoverySession() {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [briefing, setBriefing] = useState<ResumeBriefing | null>(null);
-  useEscapeKey(briefing !== null, () => setBriefing(null));
+  const [confirmEnd, setConfirmEnd] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<[number, number] | null>(
+    null,
+  );
 
   const loadUnderstanding = useCallback(() => {
     client
@@ -124,11 +135,16 @@ export default function DiscoverySession() {
     const lines = splitBulkAnswers(bulk);
     if (lines.length === 0) return;
     setBusy(true);
+    setBulkProgress([0, lines.length]);
     try {
       // Bulk feeds the SAME session state — sequential turns so the
       // answer-before-question ordering stays durable per line.
-      for (const line of lines) {
-        await client.answerQuestion(session, { workspace: ws, answer: line });
+      for (let i = 0; i < lines.length; i++) {
+        setBulkProgress([i, lines.length]);
+        await client.answerQuestion(session, {
+          workspace: ws,
+          answer: lines[i] ?? '',
+        });
       }
       setBulk('');
       reload();
@@ -138,6 +154,7 @@ export default function DiscoverySession() {
       );
     } finally {
       setBusy(false);
+      setBulkProgress(null);
     }
   };
 
@@ -151,19 +168,19 @@ export default function DiscoverySession() {
     <section>
       <h1 className="page-title">Discovery — {s.subject ?? s.session_id}</h1>
       <p className="page-sub">
-        <Link to="/boards">← boards</Link> · {s.wizard_id} v
+        <Link to={projectPath(ws, '/boards')}>← boards</Link> · {s.wizard_id} v
         {s.wizard_version ?? '?'} · <StatusBadge status={s.status} />
       </p>
       {toast && <output className="warn-banner">{toast}</output>}
 
-      {/* input modes — switchable mid-session without loss (§15.9) */}
-      <div className="row" role="tablist" aria-label="input mode">
+      {/* input modes — switchable mid-session without loss (§15.9).
+          These POST a session property — toggle buttons, not tabs. */}
+      <div className="row" aria-label="input mode">
         {INPUT_MODES.map((m) => (
           <button
             key={m.id}
             type="button"
-            role="tab"
-            aria-selected={mode === m.id}
+            aria-pressed={mode === m.id}
             className={mode === m.id ? 'primary small' : 'small'}
             disabled={busy}
             onClick={() =>
@@ -200,16 +217,11 @@ export default function DiscoverySession() {
         )}
         <button
           type="button"
-          className="small"
+          className="small danger"
           disabled={busy}
-          onClick={() =>
-            void act(
-              () => client.setInterviewStatus(session, ws, 'completed'),
-              'Complete failed',
-            )
-          }
+          onClick={() => setConfirmEnd(true)}
         >
-          Complete
+          End session
         </button>
       </div>
 
@@ -220,6 +232,10 @@ export default function DiscoverySession() {
             key={sl.slot}
             className={`badge slot-${sl.state}`}
             title={sl.value ?? ''}
+            tabIndex={0}
+            aria-label={`${sl.slot}: ${slotStateLabel(sl)}${
+              sl.value ? ` — ${sl.value}` : ''
+            }`}
           >
             {sl.slot}: {slotStateLabel(sl)}
           </span>
@@ -248,8 +264,11 @@ export default function DiscoverySession() {
                 disabled={busy || splitBulkAnswers(bulk).length === 0}
                 onClick={() => void onBulk()}
               >
-                Submit {splitBulkAnswers(bulk).length || ''} answer
-                {splitBulkAnswers(bulk).length === 1 ? '' : 's'}
+                {bulkProgress
+                  ? `Submitting ${bulkProgress[0] + 1}/${bulkProgress[1]}…`
+                  : `Submit ${splitBulkAnswers(bulk).length || ''} answer${
+                      splitBulkAnswers(bulk).length === 1 ? '' : 's'
+                    }`}
               </button>
             </div>
           ) : (
@@ -294,7 +313,7 @@ export default function DiscoverySession() {
                         )
                       }
                     >
-                      skip
+                      Skip
                     </button>
                     <button
                       type="button"
@@ -313,7 +332,7 @@ export default function DiscoverySession() {
                         )
                       }
                     >
-                      can't answer
+                      Can't answer
                     </button>
                   </div>
                 </>
@@ -372,7 +391,7 @@ export default function DiscoverySession() {
                           )
                         }
                       >
-                        confirm
+                        Confirm
                       </button>
                     )}
                     <button
@@ -390,7 +409,7 @@ export default function DiscoverySession() {
                         )
                       }
                     >
-                      n/a
+                      N/A
                     </button>
                     <button
                       type="button"
@@ -407,7 +426,7 @@ export default function DiscoverySession() {
                         )
                       }
                     >
-                      defer
+                      Defer
                     </button>
                   </li>
                 ))}
@@ -417,6 +436,11 @@ export default function DiscoverySession() {
 
           <div className="card" aria-label="transcript">
             <h3 style={{ marginTop: 0 }}>Transcript</h3>
+            {d.transcript.length > 30 && (
+              <p className="muted" style={{ marginTop: 0 }}>
+                Showing last 30 of {d.transcript.length} turns
+              </p>
+            )}
             <ul className="list transcript">
               {d.transcript.slice(-30).map((m) => (
                 <li key={m.seq} className={`msg-${m.role}`}>
@@ -428,7 +452,12 @@ export default function DiscoverySession() {
         </div>
 
         {understandingError != null && (
-          <p className="muted">Understanding panel unavailable.</p>
+          <p className="muted">
+            Understanding panel unavailable.{' '}
+            <button type="button" className="link" onClick={loadUnderstanding}>
+              retry
+            </button>
+          </p>
         )}
         {understanding && (
           <UnderstandingPanel
@@ -442,37 +471,38 @@ export default function DiscoverySession() {
       </div>
 
       {briefing && (
-        <div
-          className="modal-back"
-          role="presentation"
-          onClick={() => setBriefing(null)}
-          onKeyDown={(e) => e.key === 'Escape' && setBriefing(null)}
-        >
-          <dialog
-            open
-            className="modal"
-            aria-label="resume briefing"
-            onClick={(e) => e.stopPropagation()}
-            onKeyDown={(e) => {
-              e.stopPropagation();
-              if (e.key === 'Escape') setBriefing(null);
-            }}
+        <Modal label="resume briefing" onClose={() => setBriefing(null)}>
+          <strong>What changed since you left</strong>
+          <ul className="list">
+            {briefingLines(briefing).map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+          <button
+            type="button"
+            className="primary"
+            onClick={() => setBriefing(null)}
           >
-            <strong>What changed since you left</strong>
-            <ul className="list">
-              {briefingLines(briefing).map((line) => (
-                <li key={line}>{line}</li>
-              ))}
-            </ul>
-            <button
-              type="button"
-              className="primary"
-              onClick={() => setBriefing(null)}
-            >
-              Continue
-            </button>
-          </dialog>
-        </div>
+            Continue
+          </button>
+        </Modal>
+      )}
+
+      {confirmEnd && (
+        <ConfirmDialog
+          title="End session"
+          body="Marks the session completed. You can still review the transcript and understanding."
+          confirmLabel="End session"
+          busy={busy}
+          onConfirm={() => {
+            setConfirmEnd(false);
+            void act(
+              () => client.setInterviewStatus(session, ws, 'completed'),
+              'Complete failed',
+            );
+          }}
+          onCancel={() => setConfirmEnd(false)}
+        />
       )}
     </section>
   );
