@@ -203,7 +203,7 @@ export default function TicketFocus() {
   // A status change can drop the active spotlight tab — never strand
   // the workbench on a tab that no longer exists.
   const tabKey = tabs.map((x) => x.id).join('|');
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // biome-ignore lint/correctness/useExhaustiveDependencies: tabKey is the intentional trigger — re-check the active tab only when the tab SET changes, not on every tab switch
   useEffect(() => {
     if (!tabs.some((x) => x.id === tab)) setTab('overview');
   }, [tabKey]);

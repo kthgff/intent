@@ -408,7 +408,6 @@ function CardView({
             className="auto board-move"
             value=""
             disabled={busy}
-            onClick={(e) => e.preventDefault()}
             onChange={(e) => {
               const t = card.drop_targets[Number(e.target.value)];
               if (t) onMove(t);

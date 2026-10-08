@@ -83,6 +83,7 @@ payload shapes come from `SCHEMAS.md`/`DB-SCHEMA.md`.
 | `/runs`, `/runs/<id>` | GET | S-07 monitor — registry + artifact listing |
 | `/runs/<id>/kill` `/pause` `/resume` | POST | process runs: SIGTERM→SIGKILL / SIGSTOP / SIGCONT; container runs: `docker kill` / `docker pause` / `docker unpause` (D30) |
 | `/workspaces` | GET, POST | S-13 — projects (`projects` rows) + per-project queue counts; add |
+| `/projects/summary` | GET | /projects picker rollup — one row per workspace: `boards`, `open_gate_items` (D20 snooze-aware), `queue_depth`, `live_runs`, `last_active_at`, `totals` (`cost_usd`/`tokens`/`human_minutes`), `counts` (`tickets`/`features`/`initiatives`). Single aggregate — the picker never fans out per-project; configured-but-empty workspaces appear zeroed |
 | `/interview` | POST | S-03 — `{workspace, text}` → new-ticket interview run; edit mode `{workspace, ticket_ref, message, target?, session_id?}` → chat-to-edit turn, proposes `proposed-diff.md` (SCHEMAS §16). **D27:** `ticket_ref` generalizes to `subject_ref` (`IN-x`/`FE-x`/`SR-x`) — same dir-scoped diff rules applied to the entity's doc dir. **wp-152:** `F-*` subjects are implemented — the "Ask About This Feature" scoped assistant; targets `feature|ac|vs|notes` (the feature's own doc evidence only) |
 | `/interview/<session>/approve` `/interview/<session>` | POST, DELETE | S-05 focus rail — apply / discard the session's pending diff → `doc_versions` write + `doc_edited` event + version bump |
 | `/import` | POST | S-03 — source + query → preview rows → commit |

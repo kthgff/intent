@@ -250,6 +250,7 @@ export function TabPanel({
       id={`tabpanel-${id}`}
       aria-labelledby={`tab-${id}`}
       className="tab-panel"
+      // biome-ignore lint/a11y/noNoninteractiveTabindex: APG tabs — panel is focusable so its scrollable content is keyboard-reachable
       tabIndex={0}
     >
       {children}
@@ -315,7 +316,7 @@ export function Modal({
     }
   };
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: backdrop click-to-dismiss
+    // biome-ignore lint/a11y/useKeyWithClickEvents: backdrop click-to-dismiss; Esc closes via the dialog's onKeyDown
     <div className="modal-back" role="presentation" onClick={onClose}>
       <dialog
         open

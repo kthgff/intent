@@ -168,6 +168,7 @@ function ProductionApp() {
   }, [ws]);
 
   // Project switch invalidates the cached capture destinations.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: ws is the invalidation trigger, not a value read inside
   useEffect(() => setCaptureData(null), [ws]);
 
   useEffect(() => {

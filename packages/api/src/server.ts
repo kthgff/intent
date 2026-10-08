@@ -2336,6 +2336,30 @@ export function createServer(opts: ServerOptions): ApiServer {
     return { workspaces };
   });
 
+  // Rich per-project rollup for the /projects picker (UI-INVENTORY §2)
+  // — one query, no per-project fan-out. Configured workspaces with no
+  // data yet still appear, zeroed, so the picker is complete even on a
+  // fresh registration.
+  app.get('/api/v1/projects/summary', async () => {
+    const summaries = await store.listProjectSummaries(now());
+    const byWorkspace = new Map(summaries.map((s) => [s.workspace, s]));
+    const projects = conductor.deps.workspaces.map(
+      (ws) =>
+        byWorkspace.get(ws.name) ?? {
+          workspace: ws.name,
+          name: ws.name,
+          boards: 0,
+          open_gate_items: 0,
+          queue_depth: 0,
+          live_runs: 0,
+          last_active_at: null,
+          totals: { cost_usd: 0, tokens: 0, human_minutes: 0 },
+          counts: { tickets: 0, features: 0, initiatives: 0 },
+        },
+    );
+    return { projects };
+  });
+
   app.post('/api/v1/workspaces', async (req, reply) => {
     const body = parseBody(WorkspaceBodySchema, req.body, 'workspaces');
     if (conductor.deps.workspaces.some((w) => w.name === body.name)) {

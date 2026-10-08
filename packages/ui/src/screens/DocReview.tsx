@@ -61,6 +61,7 @@ export default function DocReview() {
       {doc.error != null && <ErrorBox error={doc.error} />}
       {error != null && <ErrorBox error={error} />}
       {done && (
+        // biome-ignore lint/a11y/useSemanticElements: live banner contains a button — <output> can't carry interactive content
         <div className="card" role="status">
           {done}{' '}
           <button

@@ -52,6 +52,7 @@ import type {
   Notification,
   Presence,
   ProjectRow,
+  ProjectSummary,
   QualityDebtRow,
   QuestionCandidateRow,
   Relation,
@@ -427,6 +428,16 @@ export interface Store {
   ): Promise<void>;
   getProject(workspace: string): Promise<ProjectRow | null>;
   listProjects(): Promise<ProjectRow[]>;
+  /**
+   * One-row-per-workspace rollup backing GET /api/v1/projects/summary
+   * (the /projects picker — UI-INVENTORY §2). Composed in a single
+   * query so the picker never fans out per-project requests. The
+   * workspace universe is `projects` UNION every workspace-bearing
+   * data table — a workspace with data but no registration still
+   * appears; a registered-but-empty project yields zeroed stats.
+   * `nowIso` feeds snooze gating (D20) and open-dwell accrual.
+   */
+  listProjectSummaries(nowIso: string): Promise<ProjectSummary[]>;
   /**
    * Transactional id allocation (DB-SCHEMA rules): increments the
    * project's `next_*_seq` counter and returns the formatted id —

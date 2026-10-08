@@ -18,6 +18,7 @@ import { ErrorBox, Loading } from './components';
 import { useLoad } from './hooks';
 
 const LAST_KEY = 'veto_last_project';
+const MRU_KEY = 'veto_project_mru';
 
 const ProjectContext = createContext<string | null>(null);
 
@@ -40,9 +41,28 @@ export function lastProject(): string | null {
   }
 }
 
+/** workspace → last-entered epoch ms — drives MRU ordering on the
+ *  /projects picker. Read-once per render; writes only happen here. */
+export function projectMru(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(MRU_KEY);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    return typeof parsed === 'object' && parsed !== null
+      ? (parsed as Record<string, number>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
 function rememberProject(ws: string): void {
   try {
     localStorage.setItem(LAST_KEY, ws);
+    localStorage.setItem(
+      MRU_KEY,
+      JSON.stringify({ ...projectMru(), [ws]: Date.now() }),
+    );
   } catch {
     /* storage unavailable */
   }

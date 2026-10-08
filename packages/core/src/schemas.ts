@@ -823,6 +823,40 @@ export const ProjectRowSchema = z.object({
 });
 export type ProjectRow = z.infer<typeof ProjectRowSchema>;
 
+/** Read-model rollup backing GET /api/v1/projects/summary — one row
+ *  per workspace so the /projects picker renders rich cards without
+ *  fanning out per-project requests. Not a table row: composed by
+ *  `store.listProjectSummaries` across projects/runs/gate_items/
+ *  events/boards/features/initiatives/tickets. */
+export const ProjectSummarySchema = z.object({
+  workspace: z.string().min(1),
+  /** Display name from `projects.name` (falls back to `workspace`). */
+  name: z.string().nullish(),
+  /** Boards in any non-archived status. */
+  boards: z.number().int(),
+  /** Open, non-snoozed gate items (D20 badge semantics). */
+  open_gate_items: z.number().int(),
+  /** status='pending' runs waiting to launch. */
+  queue_depth: z.number().int(),
+  /** Non-terminal runs (pending → collecting/validated/committed). */
+  live_runs: z.number().int(),
+  /** Latest activity timestamp across events/runs/tickets; null = never. */
+  last_active_at: z.string().nullish(),
+  totals: z.object({
+    cost_usd: z.number(),
+    /** tokens_in + tokens_out + tokens_cached across events. */
+    tokens: z.number(),
+    /** Gate dwell minutes — cleared dwell + open accrual (PRD §15.12). */
+    human_minutes: z.number(),
+  }),
+  counts: z.object({
+    tickets: z.number().int(),
+    features: z.number().int(),
+    initiatives: z.number().int(),
+  }),
+});
+export type ProjectSummary = z.infer<typeof ProjectSummarySchema>;
+
 export const BoardRowSchema = z.object({
   workspace: z.string().min(1),
   /** Org-level boards keep `org` set for unassigned ideas (§15.3). */

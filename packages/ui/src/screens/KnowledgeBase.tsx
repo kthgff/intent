@@ -143,6 +143,7 @@ function Dossier({ scope, name }: { scope: string; name: string }) {
         </button>
       </div>
       {syncMsg && (
+        // biome-ignore lint/a11y/useSemanticElements: live banner contains a link — <output> can't carry interactive content
         <div className="card" role="status">
           survey run queued:{' '}
           <Link to={projectPath(ws, `/runs/${encodeURIComponent(syncMsg)}`)}>

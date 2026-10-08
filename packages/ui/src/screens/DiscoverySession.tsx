@@ -232,6 +232,7 @@ export default function DiscoverySession() {
             key={sl.slot}
             className={`badge slot-${sl.state}`}
             title={sl.value ?? ''}
+            // biome-ignore lint/a11y/noNoninteractiveTabindex: focusable so the slot tooltip/aria-label is keyboard-reachable
             tabIndex={0}
             aria-label={`${sl.slot}: ${slotStateLabel(sl)}${
               sl.value ? ` — ${sl.value}` : ''

@@ -446,6 +446,143 @@ describe('projects + id allocation', () => {
     // An empty workspace self-heals at seq 1.
     expect(await s().allocTicketId('ws-empty')).toBe('SR-0001');
   });
+
+  it('listProjectSummaries — one rollup row per workspace', async () => {
+    const now = '2026-10-03T15:00:00Z';
+    // Registered + fully loaded workspace.
+    await s().upsertProject({ workspace: 'ws1', name: 'Team A' });
+    await s().upsertBoard({ workspace: 'ws1', board: 'main', name: 'Main' });
+    await s().upsertBoard({
+      workspace: 'ws1',
+      board: 'old',
+      name: 'Old',
+      status: 'archived',
+    });
+    await s().upsertInitiative({
+      workspace: 'ws1',
+      initiative: 'I-0001',
+      title: 'Big thing',
+      status: 'draft',
+    });
+    await s().upsertFeature({
+      workspace: 'ws1',
+      feature: 'F-0001',
+      title: 'Slice',
+      status: 'ready',
+    });
+    for (const id of ['SR-0001', 'SR-0002']) {
+      await s().upsertTicket({
+        workspace: 'ws1',
+        ticket_id: id,
+        feature: null,
+        title: id,
+        status: 'imported',
+        priority: 'medium',
+        depth: null,
+        backend: null,
+        model: null,
+        repos: [],
+        parent: null,
+        depends_on: [],
+        source: null,
+        forced: false,
+        spec_score: null,
+        spec_hash: null,
+        blocked_reason: null,
+        created_at: '2026-10-03T12:00:00Z',
+        updated_at: '2026-10-03T12:00:00Z',
+      });
+    }
+    // pending + running = live; done doesn't count. queued = pending.
+    await s().createRun(run({ status: 'pending', started_at: null }));
+    await s().createRun(
+      run({ id: 'ws1/SR-0002/001-implement', status: 'running' }),
+    );
+    await s().createRun(
+      run({ id: 'ws1/SR-0003/001-implement', status: 'done' }),
+    );
+    // open item + snoozed item (excluded — D20) + cleared item.
+    await s().upsertGateItem({
+      workspace: 'ws1',
+      subject: 'SR-0001',
+      gate: 'merge',
+      kind: 'approval',
+      surfaced_at: '2026-10-03T14:00:00Z',
+    });
+    await s().upsertGateItem({
+      workspace: 'ws1',
+      subject: 'SR-0002',
+      gate: 'review',
+      kind: 'review',
+      surfaced_at: '2026-10-03T14:00:00Z',
+      snoozed_until: '2026-10-04T00:00:00Z',
+    });
+    await s().upsertGateItem({
+      workspace: 'ws1',
+      subject: 'SR-0003',
+      gate: 'triage',
+      kind: 'review',
+      surfaced_at: '2026-10-03T14:00:00Z',
+      cleared_at: '2026-10-03T14:30:00Z',
+    });
+    await s().appendEvent(
+      ev({ ts: '2026-10-03T14:22:10Z', cost_usd: 0.5, tokens_in: 1000 }),
+    );
+    await s().appendEvent(
+      ev({
+        ts: '2026-10-03T14:40:00Z',
+        cost_usd: 1.5,
+        tokens_in: 2000,
+        tokens_out: 500,
+        tokens_cached: 100,
+      }),
+    );
+
+    // ws2: data rows but no projects registration — still listed.
+    await s().createRun(
+      run({ id: 'ws2/SR-0001/001-triage', workspace: 'ws2', status: 'done' }),
+    );
+
+    const sums = await s().listProjectSummaries(now);
+    const byWs = new Map(sums.map((x) => [x.workspace, x]));
+    const w1 = byWs.get('ws1');
+    expect(w1?.name).toBe('Team A');
+    expect(w1?.boards).toBe(1); // archived excluded
+    expect(w1?.counts).toEqual({ tickets: 2, features: 1, initiatives: 1 });
+    expect(w1?.queue_depth).toBe(1);
+    expect(w1?.live_runs).toBe(2); // pending + running
+    expect(w1?.open_gate_items).toBe(1); // snoozed + cleared excluded
+    expect(w1?.totals.cost_usd).toBeCloseTo(2, 5);
+    expect(w1?.totals.tokens).toBe(3600);
+    // dwell: open 60m + open-snoozed 60m + cleared 30m — dwell counts
+    // surfaced→clear/now regardless of badge/snooze state (matches
+    // gateDwell in metrics.ts).
+    expect(w1?.totals.human_minutes).toBeCloseTo(150, 0);
+    expect(w1?.last_active_at).toBe('2026-10-03T14:40:00Z');
+
+    const w2 = byWs.get('ws2');
+    expect(w2).toBeDefined();
+    expect(w2?.counts.tickets).toBe(0);
+    expect(w2?.live_runs).toBe(0);
+    expect(w2?.last_active_at).toBe('2026-10-03T14:00:00Z');
+  });
+
+  it('listProjectSummaries — registered-but-empty project yields zeros', async () => {
+    await s().upsertProject({ workspace: 'ws-empty' });
+    const [row] = await s().listProjectSummaries('2026-10-03T15:00:00Z');
+    expect(row?.workspace).toBe('ws-empty');
+    expect(row?.boards).toBe(0);
+    expect(row?.open_gate_items).toBe(0);
+    expect(row?.queue_depth).toBe(0);
+    expect(row?.live_runs).toBe(0);
+    expect(row?.last_active_at).toBeNull();
+    expect(row?.totals).toEqual({
+      cost_usd: 0,
+      tokens: 0,
+      human_minutes: 0,
+    });
+    expect(row?.counts).toEqual({ tickets: 0, features: 0, initiatives: 0 });
+  });
 });
 
 const ev = (over: Partial<EventRow> = {}): EventRow => ({

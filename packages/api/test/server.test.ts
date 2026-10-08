@@ -146,6 +146,7 @@ describe('auth', () => {
     ['POST', '/api/v1/runs/a%2Fb%2F001-x/kill'],
     ['GET', '/api/v1/workspaces'],
     ['POST', '/api/v1/workspaces'],
+    ['GET', '/api/v1/projects/summary'],
     ['POST', '/api/v1/interview'],
     ['POST', '/api/v1/import'],
     ['GET', '/api/v1/import/board'],
@@ -182,6 +183,80 @@ describe('auth', () => {
       headers: { authorization: `Bearer ${'b'.repeat(64)}` },
     });
     expect(res.statusCode).toBe(401);
+    await app.close();
+  });
+});
+
+describe('GET /api/v1/projects/summary — picker rollup', () => {
+  it('returns one row per configured workspace, zeroed when empty', async () => {
+    const app = makeServer();
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/summary',
+      headers: AUTH,
+    });
+    expect(res.statusCode).toBe(200);
+    const { projects } = res.json();
+    expect(projects).toHaveLength(1); // WS configured, no data yet
+    expect(projects[0]).toEqual({
+      workspace: WS,
+      name: WS,
+      boards: 0,
+      open_gate_items: 0,
+      queue_depth: 0,
+      live_runs: 0,
+      last_active_at: null,
+      totals: { cost_usd: 0, tokens: 0, human_minutes: 0 },
+      counts: { tickets: 0, features: 0, initiatives: 0 },
+    });
+    await app.close();
+  });
+
+  it('aggregates boards, open items, runs, spend, and activity', async () => {
+    await store.upsertProject({ workspace: WS, name: 'Team A' });
+    await store.upsertBoard({ workspace: WS, board: 'main', name: 'Main' });
+    await store.createRun({
+      id: `${WS}/SR-0001/001-implement`,
+      workspace: WS,
+      subject: 'SR-0001',
+      ticket_id: 'SR-0001',
+      stage: 'implement',
+      attempt: 1,
+      status: 'running',
+      started_at: '2026-10-03T14:00:00Z',
+    });
+    await store.upsertTicket(ticketRow({ status: 'in-progress' }));
+    await store.upsertGateItem(gateItem({ blocked_agent: true }));
+    await store.appendEvent({
+      workspace: WS,
+      ticket_id: 'SR-0001',
+      ts: '2026-10-03T14:30:00Z',
+      stage: 'implement',
+      actor_type: 'agent',
+      actor_id: 'mock',
+      event: 'run_started',
+      refs: [],
+      data: {},
+      cost_usd: 0.25,
+      tokens_in: 900,
+      tokens_out: 100,
+    });
+
+    const app = makeServer();
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/summary',
+      headers: AUTH,
+    });
+    const { projects } = res.json();
+    expect(projects[0]?.name).toBe('Team A');
+    expect(projects[0]?.boards).toBe(1);
+    expect(projects[0]?.open_gate_items).toBe(1);
+    expect(projects[0]?.live_runs).toBe(1);
+    expect(projects[0]?.counts.tickets).toBe(1);
+    expect(projects[0]?.totals.cost_usd).toBeCloseTo(0.25);
+    expect(projects[0]?.totals.tokens).toBe(1000);
+    expect(projects[0]?.last_active_at).toBe('2026-10-03T14:30:00Z');
     await app.close();
   });
 });

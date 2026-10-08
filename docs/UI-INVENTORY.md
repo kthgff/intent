@@ -386,6 +386,10 @@ project-relative; the mounted paths carry the `/projects/:project` prefix.
   removed in favour of per-project instances — supersedes the
   "unified inbox" shell decision above. Switching projects goes through
   the picker only.
+- **Picker redesign** (2026-10-07, D65): `/projects` is a card-grid
+  overview fed by `GET /api/v1/projects/summary` — pin/MRU ordering,
+  search, headline stats (boards, open items, runs, last-active) +
+  count/spend meta per card; header Add-project action.
 
 ## 7. Completeness cross-check
 

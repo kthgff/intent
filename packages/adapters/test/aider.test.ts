@@ -299,7 +299,7 @@ describe('AiderAdapter.run + collect', () => {
     );
   });
 
-  it('parses the sentinel even when aider\'s Tokens footer follows it', async () => {
+  it("parses the sentinel even when aider's Tokens footer follows it", async () => {
     const bin = makeFakeAider();
     process.env.FAKE_LAST =
       'NEEDS-INFO: 3\nTokens: 1.6k sent, 4.2k received. Cost: $0.03 message, $0.08 session.';

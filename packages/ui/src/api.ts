@@ -745,6 +745,20 @@ export interface WorkspaceInfo {
   open_gate_items: number;
 }
 
+/** Per-project rollup for the /projects picker — GET
+ *  /api/v1/projects/summary. Shape mirrors core's ProjectSummary. */
+export interface ProjectSummary {
+  workspace: string;
+  name?: string | null;
+  boards: number;
+  open_gate_items: number;
+  queue_depth: number;
+  live_runs: number;
+  last_active_at?: string | null;
+  totals: { cost_usd: number; tokens: number; human_minutes: number };
+  counts: { tickets: number; features: number; initiatives: number };
+}
+
 export interface MetricsResponse {
   workspaces: string[];
   tickets_by_status: Record<string, number>;
@@ -931,6 +945,8 @@ export const client = {
       `/api/v1/runs/${encodeURIComponent(id)}/${op}`,
     ),
   workspaces: () => api<{ workspaces: WorkspaceInfo[] }>('/api/v1/workspaces'),
+  projectSummaries: () =>
+    api<{ projects: ProjectSummary[] }>('/api/v1/projects/summary'),
   addWorkspace: (body: { name: string; url: string; path?: string }) =>
     post('/api/v1/workspaces', body),
   interview: (workspace: string, text: string) =>

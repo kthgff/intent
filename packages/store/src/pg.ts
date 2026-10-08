@@ -73,6 +73,7 @@ import type {
   Notification,
   Presence,
   ProjectRow,
+  ProjectSummary,
   QualityDebtRow,
   QuestionCandidateRow,
   Relation,
@@ -1361,6 +1362,108 @@ export class PostgresStore implements Store {
       'SELECT * FROM projects ORDER BY workspace',
     );
     return rows.map(rowToProject);
+  }
+
+  /** /projects picker rollup — one query over the workspace universe
+   *  (projects UNION data tables) so the picker never fans out. */
+  async listProjectSummaries(nowIso: string): Promise<ProjectSummary[]> {
+    const liveMarks = LIVE_RUN_STATUSES.map((_, i) => `$${i + 2}`).join(',');
+    const rows = await this.db.query<{
+      workspace: string;
+      name: string | null;
+      boards: number;
+      tickets: number;
+      features: number;
+      initiatives: number;
+      queue_depth: number;
+      live_runs: number;
+      open_gate_items: number;
+      human_minutes: number;
+      cost_usd: number;
+      tokens: number;
+      last_active_at: string | null;
+    }>(
+      `WITH ws AS (
+         SELECT workspace FROM projects
+         UNION SELECT workspace FROM boards
+         UNION SELECT workspace FROM tickets
+         UNION SELECT workspace FROM features
+         UNION SELECT workspace FROM initiatives
+         UNION SELECT workspace FROM runs
+         UNION SELECT workspace FROM gate_items
+         UNION SELECT workspace FROM events
+       )
+       SELECT
+         ws.workspace,
+         (SELECT p.name FROM projects p
+           WHERE p.workspace = ws.workspace) AS name,
+         (SELECT COUNT(*)::int FROM boards b
+           WHERE b.workspace = ws.workspace
+             AND COALESCE(b.status, 'draft') <> 'archived') AS boards,
+         (SELECT COUNT(*)::int FROM tickets t
+           WHERE t.workspace = ws.workspace) AS tickets,
+         (SELECT COUNT(*)::int FROM features f
+           WHERE f.workspace = ws.workspace) AS features,
+         (SELECT COUNT(*)::int FROM initiatives i
+           WHERE i.workspace = ws.workspace) AS initiatives,
+         (SELECT COUNT(*)::int FROM runs r
+           WHERE r.workspace = ws.workspace
+             AND r.status = 'pending') AS queue_depth,
+         (SELECT COUNT(*)::int FROM runs r
+           WHERE r.workspace = ws.workspace
+             AND r.status IN (${liveMarks})) AS live_runs,
+         (SELECT COUNT(*)::int FROM gate_items g
+           WHERE g.workspace = ws.workspace
+             AND g.cleared_at IS NULL
+             AND (g.snoozed_until IS NULL OR g.snoozed_until <= $1)
+          ) AS open_gate_items,
+         (SELECT COALESCE(SUM(
+            EXTRACT(EPOCH FROM (
+              COALESCE(g.cleared_at, $1)::timestamptz
+              - g.surfaced_at::timestamptz)) / 60)::float8, 0)
+           FROM gate_items g
+           WHERE g.workspace = ws.workspace) AS human_minutes,
+         (SELECT COALESCE(SUM(e.cost_usd), 0)
+           FROM events e WHERE e.workspace = ws.workspace) AS cost_usd,
+         (SELECT COALESCE(SUM(e.tokens_in), 0)
+              + COALESCE(SUM(e.tokens_out), 0)
+              + COALESCE(SUM(e.tokens_cached), 0)
+           FROM events e WHERE e.workspace = ws.workspace) AS tokens,
+         (SELECT MAX(act.ts) FROM (
+             SELECT e.ts FROM events e WHERE e.workspace = ws.workspace
+             UNION ALL
+             SELECT r.started_at FROM runs r
+               WHERE r.workspace = ws.workspace
+             UNION ALL
+             SELECT r.exited_at FROM runs r
+               WHERE r.workspace = ws.workspace
+             UNION ALL
+             SELECT t.updated_at FROM tickets t
+               WHERE t.workspace = ws.workspace
+           ) act) AS last_active_at
+       FROM ws
+       ORDER BY ws.workspace`,
+      [nowIso, ...LIVE_RUN_STATUSES],
+    );
+    return rows.map((r) => ({
+      workspace: r.workspace,
+      name: r.name,
+      boards: r.boards,
+      open_gate_items: r.open_gate_items,
+      queue_depth: r.queue_depth,
+      live_runs: r.live_runs,
+      last_active_at: r.last_active_at,
+      totals: {
+        cost_usd: r.cost_usd,
+        tokens: r.tokens,
+        human_minutes: r.human_minutes,
+      },
+      counts: {
+        tickets: r.tickets,
+        features: r.features,
+        initiatives: r.initiatives,
+      },
+    }));
   }
 
   private async allocSeq(
