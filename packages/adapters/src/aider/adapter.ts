@@ -69,8 +69,42 @@ import type {
   UsageCallback,
   UsagePartial,
 } from '@veto/core';
+import { SentinelSchema } from '@veto/core';
 import { STAGE_TEMPLATES, renderPrompt } from '@veto/prompts';
-import { parseSentinel } from '../devin/adapter.js';
+/** Aider streams its own trailers into the run log — a per-message
+ *  `Tokens: …` summary follows EVERY model response, including the
+ *  last, so the devin-style "last non-empty line is the sentinel"
+ *  rule always lands on aider's footer. Scan bottom-up for the last
+ *  line that parses as a sentinel; sentinel names are a closed enum
+ *  that aider's own output (`Tokens:`, `>`, warnings) can never
+ *  produce. No match → sentinel_raw falls back to the last non-empty
+ *  line so run_failed diagnostics still capture the tail. */
+export function parseAiderSentinel(logPath: string): {
+  sentinel: string | null;
+  sentinel_raw: string | null;
+} {
+  let text: string;
+  try {
+    text = readFileSync(logPath, 'utf8');
+  } catch {
+    return { sentinel: null, sentinel_raw: null };
+  }
+  const lines = text.split('\n');
+  let lastNonEmpty: string | null = null;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const raw = (lines[i] ?? '').trim();
+    if (raw === '') continue;
+    if (lastNonEmpty === null) lastNonEmpty = raw;
+    const colon = raw.indexOf(':');
+    const name = (colon === -1 ? raw : raw.slice(0, colon)).trim();
+    const arg = colon === -1 ? null : raw.slice(colon + 1).trim();
+    if (SentinelSchema.safeParse({ name, arg, raw }).success) {
+      return { sentinel: name, sentinel_raw: raw };
+    }
+  }
+  return { sentinel: null, sentinel_raw: lastNonEmpty };
+}
+
 import { type AiderInvocation, findAiderBinary } from './binary.js';
 import { CliDockerExec, type ContainerDockerClient } from './container.js';
 import { costUsd, normalizeModelId } from './pricing.js';
@@ -176,6 +210,9 @@ export class AiderAdapter implements Adapter {
   private readonly docker: ContainerDockerClient;
   private lastRunDir?: string;
   private lastRunId?: string;
+  /** wp-155 per-run model pin from PrepareContext — beats the
+   *  constructor default for the NEXT run; cleared per prepare. */
+  private runModel: string | undefined;
   private readonly runs = new Map<number, TrackedRun>();
 
   constructor(opts: AiderAdapterOptions = {}) {
@@ -209,6 +246,10 @@ export class AiderAdapter implements Adapter {
   ): RenderedPrompt {
     this.lastRunDir = ctx.run_dir;
     this.lastRunId = ctx.run_id;
+    // wp-155: the conductor resolves the effective model per run
+    // (request > ticket > models.<stage> > default); the run must
+    // spawn with it, not the adapter's configured default.
+    this.runModel = ctx.model ?? ctx.route?.model ?? undefined;
     if (!(stage in STAGE_TEMPLATES)) {
       throw new AiderAdapterError(`unknown stage '${stage}'`);
     }
@@ -353,8 +394,9 @@ export class AiderAdapter implements Adapter {
       '--yes-always',
       '--auto-commits',
     ];
-    if (this.model !== undefined) {
-      const id = normalizeModelId(this.model);
+    const model = this.runModel ?? this.model;
+    if (model !== undefined) {
+      const id = normalizeModelId(model);
       args.push('--model', `openrouter/${id}`);
     }
     return args;
@@ -473,7 +515,7 @@ export class AiderAdapter implements Adapter {
       }
     }
 
-    const { sentinel, sentinel_raw } = parseSentinel(handle.log_path);
+    const { sentinel, sentinel_raw } = parseAiderSentinel(handle.log_path);
 
     // Scratch-dir artifact collection (can_write_outside_tree: false —
     // ADAPTERS ARTIFACT_TARGETS). Mirror of conductor envops
@@ -552,7 +594,7 @@ export class AiderAdapter implements Adapter {
   /** Per-call ledger from `Tokens: …` lines; cost from the price table.
    *  Extraction failure → `source: estimated`, never a run failure. */
   private extractUsage(logPath: string, ctx: CollectContext): Usage {
-    const model = this.model ?? '';
+    const model = this.runModel ?? this.model ?? '';
     const durationS = 0;
     const base = {
       schema: 1 as const,

@@ -30,7 +30,7 @@ import {
   type TokenValues,
   validateRetrievalEvidence,
 } from '@veto/core';
-import { createWorktree } from '@veto/gitops';
+import { createWorktree, git } from '@veto/gitops';
 import { createEmbedder, queryEvidence } from '@veto/kb';
 import {
   assertRouteProvider,
@@ -348,6 +348,13 @@ async function buildTokens(
       )?.content ?? '';
     tokens.REPO_NAMES = ticket.repos.join(', ');
     tokens.REPO_NAME = ticket.repos[0] ?? '';
+    // Cardless stages run host-side in the (bare) workspace root — a
+    // repo NAME doesn't tell a process-runtime backend where the code
+    // actually lives. Absolute paths keep "inspect the repos" possible.
+    tokens.REPO_PATHS = ticket.repos
+      .filter((r) => ctx.deps.config.repos[r] !== undefined)
+      .map((r) => `${r} — ${resolveRepoPath(ctx.deps, ws, r)}`)
+      .join('\n');
     tokens.DEPTH = ticket.depth ?? ctx.deps.config.spec_depth;
     tokens.BRANCH = `ticket/${ticket.ticket_id}`;
     const cards = Object.fromEntries(
@@ -628,6 +635,45 @@ export async function launch(
         merged_sha: existing?.merged_sha ?? null,
       });
       worktree = dir; // last wins for multi-repo; cwd only anchors the spawn
+    }
+  } else if (ticket && ticket.repos.length > 0) {
+    // Cardless stage (triage/design/…) — the run spawns host-side with
+    // cwd = ws.rootPath, a bare dir. Process-bound backends (aider) can
+    // only read files inside their cwd, so "inspect the repos" was a
+    // dead instruction. Give the run a read-view instead: detached-HEAD
+    // worktrees under a run-dir SIBLING (`<id>.work/`, same pattern as
+    // `<repo>.worktrees/`) — real files, stray writes land in a
+    // throwaway checkout, and the farm stays out of run_dir so
+    // reconcile's artifact walk/sanitizer never sees it. Single-repo
+    // tickets anchor cwd INSIDE the checkout so repo-map-style file
+    // indexes populate; multi-repo gets the farm dir.
+    const farm = `${runDir}.work`;
+    const mounted: string[] = [];
+    for (const repo of ticket.repos) {
+      let repoPath: string;
+      try {
+        repoPath = resolveRepoPath(deps, ws, repo);
+      } catch {
+        continue;
+      }
+      if (!existsSync(repoPath)) continue;
+      const dir = join(farm, repo);
+      try {
+        await mkdir(farm, { recursive: true });
+        // Reap administrative entries for farms whose run_dir was deleted.
+        await git(['worktree', 'prune'], { cwd: repoPath }).catch(() => {});
+        await git(['worktree', 'add', '--detach', dir, 'HEAD'], {
+          cwd: repoPath,
+        });
+        mounted.push(dir);
+      } catch {
+        // best-effort read-view — a non-git/missing repo never blocks launch
+      }
+    }
+    if (ticket.repos.length === 1 && mounted.length === 1) {
+      worktree = mounted[0] as string;
+    } else if (mounted.length > 0) {
+      worktree = farm;
     }
   }
 

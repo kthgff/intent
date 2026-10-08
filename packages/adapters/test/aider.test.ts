@@ -16,6 +16,7 @@ import {
   costUsd,
   findAiderBinary,
   normalizeModelId,
+  parseAiderSentinel,
   parseAiderUsageLine,
   parseTokenCount,
   priceFor,
@@ -239,6 +240,76 @@ describe('AiderAdapter.run + collect', () => {
     expect(argvLog()).not.toContain('--model');
   });
 
+  it('wp-155: prepare() per-run model pin beats the constructor default', async () => {
+    const bin = makeFakeAider();
+    const adapter = new AiderAdapter({
+      binary: bin,
+      model: 'anthropic/claude-sonnet-4',
+    });
+    adapter.prepare('SR-1', 'implement', {
+      workspace: 'ws',
+      run_dir: runDir,
+      run_id: '001-implement',
+      backend: 'aider',
+      model: 'qwen/qwen3.8-max-0902',
+      tokens: {
+        TICKET_ID: 'SR-1',
+        BRANCH: 'main',
+        DEPTH: 'standard',
+        REPO_CARDS: 'none',
+        RS_MD: 'x',
+        TDD_MD: 'x',
+        VS_MD: 'x',
+      },
+    });
+    const handle = adapter.run(worktree, rendered, 60, { run_dir: runDir });
+    await adapter.collect(handle, collectCtx());
+    const args = argvLog();
+    expect(args[args.indexOf('--model') + 1]).toBe(
+      'openrouter/qwen/qwen3.8-max-0902',
+    );
+  });
+
+  it('wp-155: prepare() without a model falls back to the constructor default', async () => {
+    const bin = makeFakeAider();
+    const adapter = new AiderAdapter({
+      binary: bin,
+      model: 'anthropic/claude-sonnet-4',
+    });
+    adapter.prepare('SR-1', 'implement', {
+      workspace: 'ws',
+      run_dir: runDir,
+      run_id: '001-implement',
+      backend: 'aider',
+      tokens: {
+        TICKET_ID: 'SR-1',
+        BRANCH: 'main',
+        DEPTH: 'standard',
+        REPO_CARDS: 'none',
+        RS_MD: 'x',
+        TDD_MD: 'x',
+        VS_MD: 'x',
+      },
+    });
+    const handle = adapter.run(worktree, rendered, 60, { run_dir: runDir });
+    await adapter.collect(handle, collectCtx());
+    const args = argvLog();
+    expect(args[args.indexOf('--model') + 1]).toBe(
+      'openrouter/anthropic/claude-sonnet-4',
+    );
+  });
+
+  it('parses the sentinel even when aider\'s Tokens footer follows it', async () => {
+    const bin = makeFakeAider();
+    process.env.FAKE_LAST =
+      'NEEDS-INFO: 3\nTokens: 1.6k sent, 4.2k received. Cost: $0.03 message, $0.08 session.';
+    const adapter = new AiderAdapter({ binary: bin });
+    const handle = adapter.run(worktree, rendered, 60, { run_dir: runDir });
+    const result = await adapter.collect(handle, collectCtx());
+    expect(result.sentinel).toBe('NEEDS-INFO');
+    expect(result.sentinel_raw).toBe('NEEDS-INFO: 3');
+  });
+
   it('collects scratch-dir artifacts into run_dir and purges', async () => {
     const bin = makeFakeAider();
     process.env.FAKE_LAST = 'DONE';
@@ -322,5 +393,44 @@ describe('AiderAdapter.run + collect', () => {
     // The fake exits fast; the poll may race the exit, so also accept
     // partials picked up only by collect()'s final tally.
     expect(partials.reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(1200);
+  });
+});
+
+describe('parseAiderSentinel', () => {
+  it('returns the last VALID sentinel, skipping aider trailers', () => {
+    const p = join(root, 'log.txt');
+    writeFileSync(
+      p,
+      [
+        'aider banner noise',
+        'READY',
+        '',
+        'Tokens: 1.6k sent, 4.2k received. Cost: $0.03 message, $0.08 session.',
+        '',
+      ].join('\n'),
+    );
+    expect(parseAiderSentinel(p)).toEqual({
+      sentinel: 'READY',
+      sentinel_raw: 'READY',
+    });
+  });
+
+  it('falls back to the last non-empty line when no sentinel exists', () => {
+    const p = join(root, 'log.txt');
+    writeFileSync(
+      p,
+      ['model output line one', 'model output line two', ''].join('\n'),
+    );
+    expect(parseAiderSentinel(p)).toEqual({
+      sentinel: null,
+      sentinel_raw: 'model output line two',
+    });
+  });
+
+  it('returns nulls for a missing log file', () => {
+    expect(parseAiderSentinel(join(root, 'absent.log'))).toEqual({
+      sentinel: null,
+      sentinel_raw: null,
+    });
   });
 });

@@ -41,6 +41,10 @@ export const OPENROUTER_PRICES: Record<string, ModelPrice> = {
   'google/gemini-2.5-flash': { inputPer1M: 0.3, outputPer1M: 2.5 },
   'google/gemini-2.0-flash': { inputPer1M: 0.1, outputPer1M: 0.4 },
   'google/gemini-2.0-flash-lite': { inputPer1M: 0.075, outputPer1M: 0.3 },
+  // deepseek/* (OpenRouter ids: deepseek/<model>)
+  'deepseek/deepseek-v4.1-flash': { inputPer1M: 0.05, outputPer1M: 1.2 },
+  // moonshotai/* (OpenRouter ids: moonshotai/<model>)
+  'moonshotai/kimi-k3': { inputPer1M: 0.62, outputPer1M: 15.0 },
 };
 
 /** Strip the `openrouter/` router prefix aider requires. */

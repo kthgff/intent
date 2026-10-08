@@ -75,7 +75,9 @@ on_usage(handle, cb)
 collect(handle, ctx) -> RunResult
   - wait/stream until exit
   - gather artifacts per ARTIFACT_TARGETS
-  - parse LAST non-empty line → sentinel
+  - parse LAST non-empty line → sentinel (aider exception: last line
+    parsing as a sentinel — aider appends its own `Tokens:` footer;
+    see Backend specifics)
   - extract usage → calls[] / totals + granularity + source
   -> {sentinel, sentinel_raw, artifacts[], usage, exit_code}
 ```
@@ -115,12 +117,22 @@ and purges it — the diff never sees them.
 - **aider** (OpenRouter BYOK, `runtime: container` default): `aider
   --message-file <rendered.md> --yes-always --auto-commits --model
   openrouter/<model>` via `docker exec -w <worktree>` in the subject's
-  container. Flags: `can_exec: true`, `can_write_outside_tree: false`,
+  container. The `--model` value is the wp-155 per-run pin from
+  `PrepareContext.model` (request > ticket > `models.<stage>` >
+  `models.default`); the constructor-level `main_model` is only the
+  fallback when a run carries no pin. Flags: `can_exec: true`,
+  `can_write_outside_tree: false`,
   `has_gh: false` → scratch-dir artifacts; runner owns push + `gh pr`
   from the host (no gh/git credentials inside the container). Usage:
   per-message token counts stream-parsed from the exec stdout →
   `per-call` granularity + live monitor counter; `cost_usd` = tokens ×
-  OpenRouter price table. Exact flag set verified during M2 spike.
+  OpenRouter price table. **Sentinel deviation**: aider prints a
+  `Tokens: …` summary after EVERY model response — including the last —
+  so "last non-empty line" always lands on aider's trailer, not the
+  model's sentinel. The aider adapter instead scans the log bottom-up
+  for the last line that parses as a sentinel (`sentinel_raw` falls
+  back to the last non-empty line for diagnostics when none matches).
+  Exact flag set verified during M2 spike.
 
 ## Usage accounting (per-run token ledger → usage.json)
 
@@ -163,6 +175,7 @@ harness exposes, declared via `granularity`:
 | `TICKETS_DIR` | run scratch dir — agent writes ticket docs the conductor ingests into `tickets`/`doc_versions` rows (D29; no tickets repo — token repointed in the wp-09x wave) | import, interview |
 | `CONTEXT_MD` | `products.<p>.context_file` (empty if unset) | triage, interview, prd, design, split, import |
 | `REPO_NAME(S)` / `REPO_CARDS` | settings `repos:` + cards | all repo-touching stages |
+| `REPO_PATHS` | settings `repos:` resolved to absolute paths (`name — /abs/path` lines) — cardless stages run host-side, so names alone can't locate the code | ticket stages that inspect repos (triage, design, interview, survey) |
 | `REPO_PATH` / `CARD_PATH` | settings | probe |
 | `ARTIFACT_TARGETS` | absolute `runs/<id>/` or `.veto/<run-id>/` scratch per `can_write_outside_tree` | all |
 | `DEPTH` | ticket row `depth` (triage-recommended) | prd, design, testplan, implement |

@@ -2,6 +2,7 @@ export {
   AiderAdapter,
   type AiderAdapterOptions,
   AiderAdapterError,
+  parseAiderSentinel,
 } from './adapter.js';
 export {
   type AiderInvocation,

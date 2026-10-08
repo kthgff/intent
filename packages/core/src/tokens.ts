@@ -13,6 +13,10 @@ export const PROMPT_TOKENS = [
   'REPO_NAMES',
   'REPO_CARDS',
   'REPO_PATH',
+  /** `name — /abs/path` lines for the ticket's repos. Cardless stages
+   *  run host-side in the workspace root — names alone don't tell a
+   *  process-runtime backend where the code lives. */
+  'REPO_PATHS',
   'CARD_PATH',
   'ARTIFACT_TARGETS',
   'DEPTH',
