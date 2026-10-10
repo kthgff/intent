@@ -360,6 +360,8 @@ export interface TypedNoteInput {
   y?: number | null;
   w?: number | null;
   h?: number | null;
+  color?: BoardItem['color'];
+  z_index?: number | null;
   zone?: string | null;
   /** D33 goal board_item ids this note serves. */
   serves?: string[] | null;
@@ -392,6 +394,8 @@ export async function createTypedNote(
     y: args.y ?? null,
     w: args.w ?? null,
     h: args.h ?? null,
+    color: args.color ?? null,
+    z_index: args.z_index ?? null,
     zone: args.zone ?? null,
     serves: args.serves ?? null,
     status: args.status ?? 'active',
@@ -527,31 +531,35 @@ export async function setBoardStatus(
     ...board,
     status: assertBoardStatus(args.status),
   };
-  await store.upsertBoard(next);
   // Audit trail — `status_changed` events are append-only truth, so a
   // board 'approved' transition records WHO approved (the board row
   // itself carries no approver field; under the single-token trust
-  // model the actor is the human principal).
-  if (next.status !== board.status) {
-    const ts = (args.now?.() ?? new Date()).toISOString();
-    await store.appendEvent({
-      workspace: args.workspace,
-      ticket_id: null,
-      ts,
-      stage: null,
-      actor_type: args.actor.type,
-      actor_id: args.actor.id,
-      event: 'status_changed',
-      run: null,
-      refs: [`board:${args.board}`],
-      data: {
-        kind: 'board-status',
-        board: args.board,
-        from: board.status ?? null,
-        to: next.status,
-      },
-    });
-  }
+  // model the actor is the human principal). Status write + audit
+  // event commit atomically — a failure between them must not leave a
+  // transition with no record of the actor.
+  const ts = (args.now?.() ?? new Date()).toISOString();
+  await store.transaction(async (tx) => {
+    await tx.upsertBoard(next);
+    if (next.status !== board.status) {
+      await tx.appendEvent({
+        workspace: args.workspace,
+        ticket_id: null,
+        ts,
+        stage: null,
+        actor_type: args.actor.type,
+        actor_id: args.actor.id,
+        event: 'status_changed',
+        run: null,
+        refs: [`board:${args.board}`],
+        data: {
+          kind: 'board-status',
+          board: args.board,
+          from: board.status ?? null,
+          to: next.status,
+        },
+      });
+    }
+  });
   return next;
 }
 

@@ -62,13 +62,13 @@ export default function Escalations() {
   };
 
   return (
-    <section>
+    <section className="escalations-screen">
       <h1 className="page-title">Failures & escalations</h1>
       <p className="page-sub">
         Everything broken or bounced to a human — retry, fix the env, or shut it
         down.
       </p>
-      <div className="row" style={{ marginBottom: 10 }}>
+      <div className="row screen-toolbar escalation-filters">
         {FILTERS.map((f) => (
           <button
             key={f}

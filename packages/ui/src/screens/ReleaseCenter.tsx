@@ -33,6 +33,7 @@ import {
   Tabs,
   fmtAge,
 } from '../components';
+import { DictationField } from '../dictation';
 import { useLoad, useStreamRefresh } from '../hooks';
 import { projectPath, useProject } from '../project';
 
@@ -141,19 +142,23 @@ function ReleaseList({ ws }: { ws: string }) {
       {err != null && <ErrorBox error={err} />}
       <div className="row">
         <Field label="title">
-          <input
-            aria-label="release title"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-          />
+          <DictationField>
+            <input
+              aria-label="release title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+            />
+          </DictationField>
         </Field>
         <Field label="target">
-          <input
-            aria-label="release target"
-            placeholder="v1.4 / 2026-11 train"
-            value={target}
-            onChange={(e) => setTarget(e.target.value)}
-          />
+          <DictationField>
+            <input
+              aria-label="release target"
+              placeholder="v1.4 / 2026-11 train"
+              value={target}
+              onChange={(e) => setTarget(e.target.value)}
+            />
+          </DictationField>
         </Field>
         <button
           type="button"
@@ -536,25 +541,31 @@ function ScopeTab({
               <option value="feature">feature</option>
               <option value="ticket">ticket</option>
             </select>
-            <input
-              aria-label="item id"
-              placeholder="F-0001 or SR-1234"
-              value={itemId}
-              onChange={(e) => setItemId(e.target.value)}
-            />
-            <input
-              aria-label="partial ACs"
-              placeholder="partial ACs (csv, optional)"
-              value={partialAc}
-              onChange={(e) => setPartialAc(e.target.value)}
-            />
-            {partialAc.trim() && (
+            <DictationField>
               <input
-                aria-label="partial approved by"
-                placeholder="approved_by (required for partial)"
-                value={approvedBy}
-                onChange={(e) => setApprovedBy(e.target.value)}
+                aria-label="item id"
+                placeholder="F-0001 or SR-1234"
+                value={itemId}
+                onChange={(e) => setItemId(e.target.value)}
               />
+            </DictationField>
+            <DictationField>
+              <input
+                aria-label="partial ACs"
+                placeholder="partial ACs (csv, optional)"
+                value={partialAc}
+                onChange={(e) => setPartialAc(e.target.value)}
+              />
+            </DictationField>
+            {partialAc.trim() && (
+              <DictationField>
+                <input
+                  aria-label="partial approved by"
+                  placeholder="approved_by (required for partial)"
+                  value={approvedBy}
+                  onChange={(e) => setApprovedBy(e.target.value)}
+                />
+              </DictationField>
             )}
             <button
               type="button"
@@ -752,18 +763,22 @@ function GatesTab({
         <div>
           <h3 className="group-title">Decide</h3>
           <div className="row">
-            <input
-              aria-label="approver"
-              placeholder="approver (defaults to you)"
-              value={approver}
-              onChange={(e) => setApprover(e.target.value)}
-            />
-            <input
-              aria-label="rationale"
-              placeholder="rationale"
-              value={rationale}
-              onChange={(e) => setRationale(e.target.value)}
-            />
+            <DictationField>
+              <input
+                aria-label="approver"
+                placeholder="approver (defaults to you)"
+                value={approver}
+                onChange={(e) => setApprover(e.target.value)}
+              />
+            </DictationField>
+            <DictationField>
+              <input
+                aria-label="rationale"
+                placeholder="rationale"
+                value={rationale}
+                onChange={(e) => setRationale(e.target.value)}
+              />
+            </DictationField>
             <button
               type="button"
               className="primary"
@@ -897,36 +912,46 @@ function DeployTab({
         <>
           <h3 className="group-title">Record a deployment (manual evidence)</h3>
           <div className="row">
-            <input
-              aria-label="env"
-              placeholder="env (staging/prod)"
-              value={env}
-              onChange={(e) => setEnv(e.target.value)}
-            />
-            <input
-              aria-label="sha"
-              placeholder="deployed sha"
-              value={sha}
-              onChange={(e) => setSha(e.target.value)}
-            />
-            <input
-              aria-label="by"
-              placeholder="confirmed by"
-              value={by}
-              onChange={(e) => setBy(e.target.value)}
-            />
-            <input
-              aria-label="note"
-              placeholder="note"
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-            />
-            <input
-              aria-label="url"
-              placeholder="evidence url"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-            />
+            <DictationField>
+              <input
+                aria-label="env"
+                placeholder="env (staging/prod)"
+                value={env}
+                onChange={(e) => setEnv(e.target.value)}
+              />
+            </DictationField>
+            <DictationField>
+              <input
+                aria-label="sha"
+                placeholder="deployed sha"
+                value={sha}
+                onChange={(e) => setSha(e.target.value)}
+              />
+            </DictationField>
+            <DictationField>
+              <input
+                aria-label="by"
+                placeholder="confirmed by"
+                value={by}
+                onChange={(e) => setBy(e.target.value)}
+              />
+            </DictationField>
+            <DictationField>
+              <input
+                aria-label="note"
+                placeholder="note"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+              />
+            </DictationField>
+            <DictationField>
+              <input
+                aria-label="url"
+                placeholder="evidence url"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+              />
+            </DictationField>
             <button
               type="button"
               className="primary"
@@ -1021,12 +1046,14 @@ function ExposureControl({
       </div>
       {err != null && <ErrorBox error={err} />}
       <div className="row">
-        <input
-          aria-label="exposure env"
-          placeholder="env"
-          value={env}
-          onChange={(e) => setEnv(e.target.value)}
-        />
+        <DictationField>
+          <input
+            aria-label="exposure env"
+            placeholder="env"
+            value={env}
+            onChange={(e) => setEnv(e.target.value)}
+          />
+        </DictationField>
         <select
           aria-label="exposure state"
           value={state}
@@ -1036,12 +1063,14 @@ function ExposureControl({
           <option value="limited">limited</option>
           <option value="available">available</option>
         </select>
-        <input
-          aria-label="exposure audience"
-          placeholder="audience (optional)"
-          value={audience}
-          onChange={(e) => setAudience(e.target.value)}
-        />
+        <DictationField>
+          <input
+            aria-label="exposure audience"
+            placeholder="audience (optional)"
+            value={audience}
+            onChange={(e) => setAudience(e.target.value)}
+          />
+        </DictationField>
         {state === 'available' && (
           <select
             aria-label="deployment"
@@ -1217,13 +1246,14 @@ function NotePanel({
         )}
         {draft && <span className="muted">draft v{draft.version}</span>}
         <span className="spacer" />
-        <input
-          aria-label={`${audience} approver`}
-          placeholder="approver"
-          value={approver}
-          onChange={(e) => setApprover(e.target.value)}
-          style={{ width: 140 }}
-        />
+        <DictationField style={{ width: 140, flex: '0 0 auto' }}>
+          <input
+            aria-label={`${audience} approver`}
+            placeholder="approver"
+            value={approver}
+            onChange={(e) => setApprover(e.target.value)}
+          />
+        </DictationField>
         <button
           type="button"
           className="small"
@@ -1276,13 +1306,15 @@ function NotePanel({
       )}
       {edit !== null && (
         <div>
-          <textarea
-            aria-label={`${audience} notes draft`}
-            rows={12}
-            style={{ width: '100%' }}
-            value={edit}
-            onChange={(e) => setEdit(e.target.value)}
-          />
+          <DictationField>
+            <textarea
+              aria-label={`${audience} notes draft`}
+              rows={12}
+              style={{ width: '100%' }}
+              value={edit}
+              onChange={(e) => setEdit(e.target.value)}
+            />
+          </DictationField>
           <div className="row">
             <button
               type="button"

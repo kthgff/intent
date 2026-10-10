@@ -51,8 +51,8 @@ import type {
   Store,
 } from '@veto/core';
 import {
+  BOARD_ITEM_COLORS,
   BOARD_ITEM_KINDS,
-  BOARD_ITEM_STATUSES,
   INTERVIEW_MODES,
   INTERVIEW_SESSION_STATUSES,
   NOTE_IMPORTANCES,
@@ -61,6 +61,7 @@ import {
 } from '@veto/core';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { assertCanvasItemKind, assertCanvasItemRef } from './board.js';
 import { ApiError } from './server.js';
 import type { StreamEvent } from './sse.js';
 
@@ -177,7 +178,13 @@ const PatchItemBody = z.object({
   y: z.number().nullable().optional(),
   w: z.number().nullable().optional(),
   h: z.number().nullable().optional(),
-  status: enumOf(BOARD_ITEM_STATUSES).optional(),
+  color: z.enum(BOARD_ITEM_COLORS).nullable().optional(),
+  z_index: z.number().int().nullable().optional(),
+  presentation_order: z.number().int().nullable().optional(),
+  // User-legitimate lifecycle only (D57): soft-delete/restore/park.
+  // consumed/frozen/shipped are stamped by synthesis and ship flows —
+  // never user-minted here.
+  status: z.enum(['active', 'icebox', 'discarded']).optional(),
 });
 
 function parse<T>(schema: z.ZodType<T>, body: unknown, what: string): T {
@@ -852,6 +859,45 @@ export function registerDiscoveryRoutes(
         `board item ${id} changed since your read (expected_updated_at ${item.updated_at}) — reload and retry`,
       );
     }
+    // BOARD-CANVAS fail-closed guards — the resulting kind/ref pair must
+    // stay legal regardless of which field the patch carries.
+    const nextKind = (body.kind ?? item.kind) as string;
+    assertCanvasItemKind(nextKind);
+    assertCanvasItemRef(nextKind, body.ref !== undefined ? body.ref : item.ref);
+    if (body.zone !== undefined && body.zone !== null) {
+      const zoneItem = await store.getBoardItem(body.zone);
+      if (
+        !zoneItem ||
+        zoneItem.workspace !== body.workspace ||
+        zoneItem.board !== (body.board ?? item.board) ||
+        zoneItem.kind !== 'zone' ||
+        zoneItem.status !== 'active'
+      ) {
+        throw new ApiError(
+          400,
+          'bad_request',
+          `zone ${body.zone} is not an active zone item on this board`,
+        );
+      }
+      if (zoneItem.id === item.id) {
+        throw new ApiError(
+          400,
+          'bad_request',
+          'an item cannot be its own zone',
+        );
+      }
+    }
+    if (
+      body.presentation_order !== undefined &&
+      body.presentation_order !== null &&
+      (body.kind ?? item.kind) !== 'zone'
+    ) {
+      throw new ApiError(
+        400,
+        'bad_request',
+        'presentation_order applies to zone items only',
+      );
+    }
     // Tray → board moves route through the engine's promotion rule
     // (fail-closed when the item isn't actually in the tray); other
     // board↔board / board→tray moves update the row directly.
@@ -905,6 +951,11 @@ export function registerDiscoveryRoutes(
       ...(body.y !== undefined ? { y: body.y } : {}),
       ...(body.w !== undefined ? { w: body.w } : {}),
       ...(body.h !== undefined ? { h: body.h } : {}),
+      ...(body.color !== undefined ? { color: body.color } : {}),
+      ...(body.z_index !== undefined ? { z_index: body.z_index } : {}),
+      ...(body.presentation_order !== undefined
+        ? { presentation_order: body.presentation_order }
+        : {}),
       ...(body.status !== undefined
         ? { status: body.status as BoardItem['status'] }
         : {}),

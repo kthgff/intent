@@ -25,6 +25,7 @@ import {
   Modal,
   StatusBadge,
 } from '../components';
+import { DictationField } from '../dictation';
 import {
   INPUT_MODES,
   type InputMode,
@@ -165,7 +166,7 @@ export default function DiscoverySession() {
     }, 'Resume failed');
 
   return (
-    <section>
+    <section className="discovery-screen">
       <h1 className="page-title">Discovery — {s.subject ?? s.session_id}</h1>
       <p className="page-sub">
         <Link to={projectPath(ws, '/boards')}>← boards</Link> · {s.wizard_id} v
@@ -175,7 +176,7 @@ export default function DiscoverySession() {
 
       {/* input modes — switchable mid-session without loss (§15.9).
           These POST a session property — toggle buttons, not tabs. */}
-      <div className="row" aria-label="input mode">
+      <div className="row screen-toolbar discovery-toolbar" aria-label="input mode">
         {INPUT_MODES.map((m) => (
           <button
             key={m.id}
@@ -246,19 +247,21 @@ export default function DiscoverySession() {
       <div className="discovery-layout">
         <div className="discovery-main">
           {mode === 'bulk' ? (
-            <div className="card">
+            <div className="card discovery-question-card">
               <h2 style={{ marginTop: 0 }}>Bulk paste</h2>
               <p className="muted">
                 One answer per line — each line lands as an answer turn in this
                 session (same state, same slots).
               </p>
-              <textarea
-                aria-label="bulk answers"
-                rows={8}
-                value={bulk}
-                onChange={(e) => setBulk(e.target.value)}
-                placeholder={'Paste notes, bullet lists, transcripts…'}
-              />
+              <DictationField>
+                <textarea
+                  aria-label="bulk answers"
+                  rows={8}
+                  value={bulk}
+                  onChange={(e) => setBulk(e.target.value)}
+                  placeholder={'Paste notes, bullet lists, transcripts…'}
+                />
+              </DictationField>
               <button
                 type="button"
                 className="primary"
@@ -273,7 +276,7 @@ export default function DiscoverySession() {
               </button>
             </div>
           ) : (
-            <div className="card" aria-label="question card">
+            <div className="card discovery-question-card" aria-label="question card">
               {pending ? (
                 <>
                   <h2 style={{ marginTop: 0 }}>{pending.question}</h2>
@@ -281,13 +284,15 @@ export default function DiscoverySession() {
                     <summary className="muted">why this question</summary>
                     <div className="muted">{questionWhy(pending)}</div>
                   </details>
-                  <textarea
-                    aria-label="answer"
-                    rows={4}
-                    value={answer}
-                    onChange={(e) => setAnswer(e.target.value)}
-                    placeholder="Your answer…"
-                  />
+                  <DictationField>
+                    <textarea
+                      aria-label="answer"
+                      rows={4}
+                      value={answer}
+                      onChange={(e) => setAnswer(e.target.value)}
+                      placeholder="Your answer…"
+                    />
+                  </DictationField>
                   <div className="row">
                     <button
                       type="button"
@@ -345,13 +350,15 @@ export default function DiscoverySession() {
                     outcome. Add a free-form answer below, or check the
                     Understanding Panel for open areas.
                   </p>
-                  <textarea
-                    aria-label="free answer"
-                    rows={3}
-                    value={answer}
-                    onChange={(e) => setAnswer(e.target.value)}
-                    placeholder="Add context without being asked…"
-                  />
+                  <DictationField>
+                    <textarea
+                      aria-label="free answer"
+                      rows={3}
+                      value={answer}
+                      onChange={(e) => setAnswer(e.target.value)}
+                      placeholder="Add context without being asked…"
+                    />
+                  </DictationField>
                   <button
                     type="button"
                     className="primary"
@@ -366,7 +373,7 @@ export default function DiscoverySession() {
           )}
 
           {mode === 'guided' && (
-            <div className="card" aria-label="guided choices">
+            <div className="card guided-actions-card" aria-label="guided choices">
               <h3 style={{ marginTop: 0 }}>Slot actions</h3>
               <ul className="list">
                 {d.slots.map((sl) => (
@@ -435,7 +442,7 @@ export default function DiscoverySession() {
             </div>
           )}
 
-          <div className="card" aria-label="transcript">
+          <div className="card transcript-card" aria-label="transcript">
             <h3 style={{ marginTop: 0 }}>Transcript</h3>
             {d.transcript.length > 30 && (
               <p className="muted" style={{ marginTop: 0 }}>

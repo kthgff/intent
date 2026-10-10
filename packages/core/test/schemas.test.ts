@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   AgentFindingSchema,
+  BoardAssetSchema,
+  BoardConnectorSchema,
+  BoardItemSchema,
+  BoardProposalRowSchema,
   ConfigSchema,
+  ConverseOutputSchema,
   DesignChecklistSchema,
   DesignSystemSchema,
   DossierEntrySchema,
@@ -13,6 +18,7 @@ import {
   PROMPT_TEMPLATES,
   PROMPT_VERSION,
   PrBodySchema,
+  ProposalOpSchema,
   RelationSchema,
   ReviewSchema,
   SENTINELS,
@@ -22,6 +28,7 @@ import {
   TestReportSchema,
   TicketFrontmatterSchema,
   TriageSchema,
+  UiConfigSchema,
   UsageSchema,
 } from '../src/index.js';
 
@@ -550,5 +557,170 @@ describe('design artifacts (PRD §15.4, wp-149)', () => {
     expect(DesignChecklistSchema.safeParse({ bogus: true }).success).toBe(
       false,
     );
+  });
+});
+
+describe('board canvas contracts (BOARD-CANVAS-TDD)', () => {
+  const baseItem = {
+    id: 'i-1',
+    workspace: 'ws',
+    kind: 'note',
+    status: 'active',
+  };
+
+  it('accepts the new canvas kinds and appearance fields', () => {
+    for (const kind of ['text', 'image', 'link', 'zone']) {
+      expect(BoardItemSchema.safeParse({ ...baseItem, kind }).success).toBe(
+        true,
+      );
+    }
+    const item = BoardItemSchema.parse({
+      ...baseItem,
+      color: 'pink',
+      z_index: 3,
+      x: 120,
+      y: -40,
+      w: 220,
+      h: 180,
+    });
+    expect(item.color).toBe('pink');
+    expect(item.z_index).toBe(3);
+  });
+
+  it('rejects unknown kinds and colors (fail-closed)', () => {
+    expect(
+      BoardItemSchema.safeParse({ ...baseItem, kind: 'widget' }).success,
+    ).toBe(false);
+    expect(
+      BoardItemSchema.safeParse({ ...baseItem, color: 'chartreuse' }).success,
+    ).toBe(false);
+  });
+
+  it('round-trips a connector and rejects unknown statuses', () => {
+    const conn = BoardConnectorSchema.parse({
+      id: 'c-1',
+      workspace: 'ws',
+      board: 'ideas',
+      source_item_id: 'i-1',
+      target_item_id: 'i-2',
+      status: 'active',
+    });
+    expect(conn.label).toBeUndefined();
+    expect(
+      BoardConnectorSchema.safeParse({
+        id: 'c-1',
+        workspace: 'ws',
+        board: 'ideas',
+        source_item_id: 'i-1',
+        target_item_id: 'i-2',
+        status: 'deleted',
+      }).success,
+    ).toBe(false);
+  });
+
+  it('board assets fail closed on SVG and non-digest hashes', () => {
+    const asset = {
+      id: 'a-1',
+      workspace: 'ws',
+      board: 'ideas',
+      item_id: 'i-9',
+      mime_type: 'image/png',
+      byte_size: 1024,
+      sha256: 'a'.repeat(64),
+      storage_key: 'board-assets/ws/ideas/a-1.png',
+    };
+    expect(BoardAssetSchema.safeParse(asset).success).toBe(true);
+    expect(
+      BoardAssetSchema.safeParse({ ...asset, mime_type: 'image/svg+xml' })
+        .success,
+    ).toBe(false);
+    expect(
+      BoardAssetSchema.safeParse({ ...asset, sha256: 'not-a-digest' }).success,
+    ).toBe(false);
+  });
+
+  it('idea_canvas_v2 defaults off and accepts explicit true', () => {
+    expect(UiConfigSchema.parse({}).idea_canvas_v2).toBe(false);
+    expect(UiConfigSchema.parse({ idea_canvas_v2: true }).idea_canvas_v2).toBe(
+      true,
+    );
+  });
+});
+
+describe('board assistant schemas (wp-161)', () => {
+  it('ProposalOpSchema accepts every op kind; rejects unknowns fail-closed', () => {
+    const ops = [
+      { op: 'create-item', x: 10, y: 20, note_kind: 'want', title: 't' },
+      { op: 'patch-item', id: 'i1', patch: { title: 'new' } },
+      { op: 'move-item', id: 'i1', x: 5, zone: 'z1' },
+      { op: 'serve', id: 'i1', goal_item_id: 'g1' },
+      { op: 'connect', source_item_id: 'a', target_item_id: 'b' },
+      { op: 'connector-remove', id: 'c1' },
+      { op: 'delete-item', id: 'i1' },
+    ];
+    for (const op of ops) expect(ProposalOpSchema.parse(op).op).toBe(op.op);
+
+    // Unknown op.
+    expect(() => ProposalOpSchema.parse({ op: 'teleport', id: 'x' })).toThrow();
+    // Strict — unknown keys rejected (fail-closed, never guessed).
+    expect(() =>
+      ProposalOpSchema.parse({ op: 'delete-item', id: 'x', extra: 1 }),
+    ).toThrow();
+    // create-item requires coordinates.
+    expect(() => ProposalOpSchema.parse({ op: 'create-item' })).toThrow();
+    // patch-item requires a non-empty patch.
+    expect(() =>
+      ProposalOpSchema.parse({ op: 'patch-item', id: 'i1', patch: {} }),
+    ).toThrow();
+    // serves is NOT reachable via patch-item (the serve op owns it).
+    expect(() =>
+      ProposalOpSchema.parse({
+        op: 'patch-item',
+        id: 'i1',
+        patch: { serves: ['g1'] },
+      }),
+    ).toThrow();
+    // status changes are not patchable (delete-item owns discard).
+    expect(() =>
+      ProposalOpSchema.parse({
+        op: 'patch-item',
+        id: 'i1',
+        patch: { status: 'discarded' },
+      }),
+    ).toThrow();
+  });
+
+  it('ConverseOutputSchema: reply + ops, strict, ops default []', () => {
+    const out = ConverseOutputSchema.parse({
+      reply: 'Added a constraint card.',
+      ops: [{ op: 'create-item', x: 0, y: 0, note_kind: 'constraint' }],
+    });
+    expect(out.ops).toHaveLength(1);
+    expect(ConverseOutputSchema.parse({ reply: 'just a reply' }).ops).toEqual(
+      [],
+    );
+    expect(() =>
+      ConverseOutputSchema.parse({ reply: 'x', surprise: true }),
+    ).toThrow();
+  });
+
+  it('BoardProposalRowSchema round-trips a pending create proposal', () => {
+    const row = BoardProposalRowSchema.parse({
+      workspace: 'ws1',
+      proposal_id: 'bp-1',
+      board: 'b1',
+      session_id: 'iv-b1',
+      op: 'create-item',
+      payload: { op: 'create-item', x: 40, y: 40, note_kind: 'problem' },
+      status: 'pending',
+      created_by: 'assistant',
+    });
+    expect(row.payload.op).toBe('create-item');
+    expect(row.status).toBe('pending');
+  });
+
+  it('ui.board_chat flag defaults off (rollout gate)', () => {
+    expect(UiConfigSchema.parse({}).board_chat).toBe(false);
+    expect(UiConfigSchema.parse({ board_chat: true }).board_chat).toBe(true);
   });
 });

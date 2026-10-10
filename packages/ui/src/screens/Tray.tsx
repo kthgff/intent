@@ -5,12 +5,13 @@ import type { BoardItem } from '@veto/core';
  * correction + move-to-board + park + delete (OCC-fenced — stale
  * writes conflict, never silently merge), and a link to the boards.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { type IdeaBoardRow, client } from '../api';
-import { Empty, ErrorBox, Loading, fmtAge } from '../components';
+import { ConfirmDialog, Empty, ErrorBox, Loading, fmtAge } from '../components';
+import { DictationField } from '../dictation';
 import { noteKindMeta } from '../discovery';
-import { useBoardItemRefresh, useStreamRefresh } from '../hooks';
+import { useBoardItemRefresh, useEscapeKey, useStreamRefresh } from '../hooks';
+import { useProject } from '../project';
 
 const NOTE_KIND_KEYS = [
   'idea',
@@ -24,8 +25,7 @@ const NOTE_KIND_KEYS = [
 ] as const;
 
 export default function Tray() {
-  const [workspace, setWorkspace] = useState('');
-  const [workspaces, setWorkspaces] = useState<string[]>([]);
+  const workspace = useProject();
   const [boards, setBoards] = useState<IdeaBoardRow[]>([]);
   const [items, setItems] = useState<BoardItem[] | null>(null);
   const [error, setError] = useState<unknown>(null);
@@ -35,7 +35,11 @@ export default function Tray() {
   const [kindFilter, setKindFilter] = useState('');
   const [selected, setSelected] = useState<string | null>(null);
   const [moveTarget, setMoveTarget] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState<BoardItem | null>(null);
+  const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const inspectorRef = useRef<HTMLElement>(null);
+  useEscapeKey(selected !== null, () => setSelected(null));
 
   const load = useCallback(() => {
     if (!workspace) {
@@ -55,14 +59,6 @@ export default function Tray() {
 
   useEffect(() => {
     load();
-    client
-      .workspaces()
-      .then((r) => {
-        const names = r.workspaces.map((w) => w.name);
-        setWorkspaces(names);
-        setWorkspace((cur) => cur || names[0] || '');
-      })
-      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [load]);
 
@@ -101,9 +97,26 @@ export default function Tray() {
     return out;
   }, [items, kindFilter, search]);
 
-  const selectedItem = filtered.find((i) => i.id === selected) ?? null;
+  // Selection tracks the full item list — a filter change never
+  // silently closes the inspector (audit T4).
+  const selectedItem = items?.find((i) => i.id === selected) ?? null;
 
-  const patch = async (item: BoardItem, p: Record<string, unknown>) => {
+  // Focus the inspector when it opens so keyboard/SR users land in it.
+  useEffect(() => {
+    if (selectedItem) inspectorRef.current?.focus();
+  }, [selectedItem]);
+
+  useEffect(() => {
+    if (!note) return;
+    const t = setTimeout(() => setNote(null), 4000);
+    return () => clearTimeout(t);
+  }, [note]);
+
+  const patch = async (
+    item: BoardItem,
+    p: Record<string, unknown>,
+    successNote?: string,
+  ) => {
     setBusy(true);
     try {
       await client.patchBoardItem(item.id, {
@@ -115,6 +128,7 @@ export default function Tray() {
           : {}),
         ...p,
       });
+      if (successNote) setNote(successNote);
       load();
     } catch (e) {
       // Optimistic-conflict: the server 409s stale writes — surface and
@@ -144,36 +158,23 @@ export default function Tray() {
   };
 
   return (
-    <section>
+    <section className="tray-screen">
       <h1 className="page-title">Tray</h1>
       <p className="page-sub">
         Untriaged captures — route, refine, or sweep into a board (S-20).
       </p>
-      <div className="row" style={{ marginBottom: 12 }}>
-        <label className="muted" htmlFor="tray-ws">
-          Workspace
-        </label>
-        <select
-          id="tray-ws"
-          style={{ width: 'auto' }}
-          value={workspace}
-          onChange={(e) => setWorkspace(e.target.value)}
-        >
-          {workspaces.map((w) => (
-            <option key={w} value={w}>
-              {w}
-            </option>
-          ))}
-        </select>
-        <input
-          aria-label="search"
-          placeholder="search…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+      <div className="row screen-toolbar tray-toolbar">
+        <DictationField style={{ width: 240, flex: '0 0 auto' }}>
+          <input
+            aria-label="search"
+            placeholder="search…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </DictationField>
         <select
           aria-label="kind filter"
-          style={{ width: 'auto' }}
+          className="auto"
           value={kindFilter}
           onChange={(e) => setKindFilter(e.target.value)}
         >
@@ -184,15 +185,12 @@ export default function Tray() {
             </option>
           ))}
         </select>
-        <span className="spacer" />
-        <Link className="btn" to="/capture">
-          + Capture
-        </Link>
       </div>
 
-      {error != null && <ErrorBox error={error} />}
+      {error != null && <ErrorBox error={error} onRetry={load} />}
       {toast && <output className="warn-banner">{toast}</output>}
-      {loading && <Loading />}
+      {note && <output className="save-banner">{note}</output>}
+      {loading && !items && <Loading />}
 
       {filtered.length === 0 && !loading && (
         <Empty
@@ -229,13 +227,19 @@ export default function Tray() {
         </ul>
 
         {selectedItem && (
-          <aside className="inspector card" aria-label="tray inspector">
+          <aside
+            className="inspector card"
+            aria-label="tray inspector"
+            ref={inspectorRef}
+            tabIndex={-1}
+          >
             <div className="row">
               <strong>{selectedItem.title ?? '(untitled)'}</strong>
               <span className="spacer" />
               <button
                 type="button"
                 className="small"
+                aria-label="close inspector"
                 onClick={() => setSelected(null)}
               >
                 ×
@@ -248,11 +252,15 @@ export default function Tray() {
               </label>
               <select
                 id="tray-kind"
-                style={{ width: 'auto' }}
+                className="auto"
                 value={selectedItem.note_kind ?? ''}
                 disabled={busy}
                 onChange={(e) =>
-                  void patch(selectedItem, { note_kind: e.target.value })
+                  void patch(
+                    selectedItem,
+                    { note_kind: e.target.value },
+                    'Saved.',
+                  )
                 }
               >
                 <option value="">(untyped)</option>
@@ -267,11 +275,15 @@ export default function Tray() {
               </label>
               <select
                 id="tray-imp"
-                style={{ width: 'auto' }}
+                className="auto"
                 value={selectedItem.importance ?? 'undecided'}
                 disabled={busy}
                 onChange={(e) =>
-                  void patch(selectedItem, { importance: e.target.value })
+                  void patch(
+                    selectedItem,
+                    { importance: e.target.value },
+                    'Saved.',
+                  )
                 }
               >
                 {['must', 'should', 'nice', 'undecided'].map((i) => (
@@ -284,7 +296,7 @@ export default function Tray() {
             <div className="row">
               <select
                 aria-label="move to board"
-                style={{ width: 'auto' }}
+                className="auto"
                 value={moveTarget}
                 onChange={(e) => setMoveTarget(e.target.value)}
               >
@@ -299,12 +311,15 @@ export default function Tray() {
                 type="button"
                 className="small primary"
                 disabled={busy || !moveTarget}
-                onClick={() =>
-                  void patch(selectedItem, {
-                    board: moveTarget,
-                    status: 'active',
-                  })
-                }
+                onClick={() => {
+                  const dest = moveTarget;
+                  setMoveTarget('');
+                  void patch(
+                    selectedItem,
+                    { board: dest, status: 'active' },
+                    `Moved to ${dest}.`,
+                  );
+                }}
               >
                 Move
               </button>
@@ -312,17 +327,19 @@ export default function Tray() {
                 type="button"
                 className="small"
                 disabled={busy}
-                onClick={() => void patch(selectedItem, { status: 'icebox' })}
+                onClick={() =>
+                  void patch(selectedItem, { status: 'icebox' }, 'Parked.')
+                }
               >
-                park
+                Park
               </button>
               <button
                 type="button"
                 className="small danger"
                 disabled={busy}
-                onClick={() => void remove(selectedItem)}
+                onClick={() => setConfirmDelete(selectedItem)}
               >
-                delete
+                Delete
               </button>
             </div>
             <p className="muted">
@@ -333,6 +350,21 @@ export default function Tray() {
           </aside>
         )}
       </div>
+
+      {confirmDelete && (
+        <ConfirmDialog
+          title="Delete tray item"
+          body={`"${confirmDelete.title ?? '(untitled)'}" — this can't be undone.`}
+          confirmLabel="Delete"
+          danger
+          busy={busy}
+          onConfirm={() => {
+            void remove(confirmDelete);
+            setConfirmDelete(null);
+          }}
+          onCancel={() => setConfirmDelete(null)}
+        />
+      )}
     </section>
   );
 }

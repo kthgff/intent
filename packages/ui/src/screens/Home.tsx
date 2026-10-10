@@ -5,7 +5,9 @@
  */
 import { useEffect, useState } from 'react';
 import { client } from '../api';
-import { ErrorBox } from '../components';
+import { ErrorBox, TabPanel, Tabs } from '../components';
+import { DictationField } from '../dictation';
+import { useProject } from '../project';
 import Board from './Board';
 import Inbox from './Inbox';
 
@@ -28,9 +30,25 @@ function savedTab(): HomeTab {
 }
 
 export default function Home() {
+  const ws = useProject();
   const [tab, setTab] = useState<HomeTab>(savedTab);
-  const pick = (t: HomeTab) => {
-    setTab(t);
+  // Inbox count on the tab itself — the nav badge isn't visible
+  // context once you're on the Board tab (audit H1).
+  const [inboxCount, setInboxCount] = useState<number | null>(null);
+  useEffect(() => {
+    client
+      .inbox(ws)
+      .then((r) => {
+        const now = new Date().toISOString();
+        setInboxCount(
+          r.items.filter((i) => !i.snoozed_until || i.snoozed_until <= now)
+            .length,
+        );
+      })
+      .catch(() => setInboxCount(null));
+  }, [ws]);
+  const pick = (t: string) => {
+    setTab(t as HomeTab);
     try {
       localStorage.setItem(TAB_KEY, t);
     } catch {
@@ -38,54 +56,47 @@ export default function Home() {
     }
   };
   return (
-    <section>
-      <div className="row" style={{ marginBottom: 4 }}>
-        <h1 className="page-title" style={{ marginRight: 12 }}>
-          Home
-        </h1>
-        <div className="tabs" role="tablist" style={{ border: 'none' }}>
-          {(['board', 'inbox'] as const).map((t) => (
-            <button
-              key={t}
-              type="button"
-              role="tab"
-              aria-selected={tab === t}
-              className={tab === t ? 'active' : ''}
-              onClick={() => pick(t)}
-            >
-              {t === 'board' ? 'Board' : 'Inbox'}
-            </button>
-          ))}
-        </div>
+    <section className="home-screen">
+      <div className="row home-header">
+        <h1 className="page-title">Home</h1>
+        <Tabs
+          inline
+          ariaLabel="home view"
+          active={tab}
+          onChange={pick}
+          tabs={[
+            { id: 'board', label: 'Board' },
+            {
+              id: 'inbox',
+              label: (
+                <>
+                  Inbox
+                  {inboxCount !== null && inboxCount > 0 && (
+                    <span className="badge" style={{ marginLeft: 6 }}>
+                      {inboxCount}
+                    </span>
+                  )}
+                </>
+              ),
+            },
+          ]}
+        />
         <span className="spacer" />
         <CaptureTray />
       </div>
-      {tab === 'board' ? <Board /> : <Inbox />}
+      <TabPanel id={tab}>{tab === 'board' ? <Board /> : <Inbox />}</TabPanel>
     </section>
   );
 }
 
 /** D27 quick capture — minimal ingress into the project tray. */
 function CaptureTray() {
+  const ws = useProject();
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');
-  const [ws, setWs] = useState('');
-  const [workspaces, setWorkspaces] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    client
-      .workspaces()
-      .then((r) => {
-        const names = r.workspaces.map((w) => w.name);
-        setWorkspaces(names);
-        setWs((cur) => cur || (names[0] ?? ''));
-      })
-      .catch(() => {});
-  }, [open]);
 
   const submit = async () => {
     if (!title.trim() || !ws) return;
@@ -105,30 +116,22 @@ function CaptureTray() {
   };
 
   return (
-    <span className="row" style={{ gap: 6 }}>
-      {note && <span className="muted">{note}</span>}
+    <span className="row quick-capture">
+      {note && <output className="muted">{note}</output>}
       {open ? (
         <>
-          <input
-            aria-label="capture title"
-            placeholder="Capture an idea…"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            style={{ width: 220 }}
-            onKeyDown={(e) => e.key === 'Enter' && void submit()}
-          />
-          <select
-            aria-label="capture workspace"
-            style={{ width: 'auto' }}
-            value={ws}
-            onChange={(e) => setWs(e.target.value)}
-          >
-            {workspaces.map((w) => (
-              <option key={w} value={w}>
-                {w}
-              </option>
-            ))}
-          </select>
+          <DictationField style={{ width: 220, flex: '0 0 auto' }}>
+            <input
+              aria-label="capture title"
+              placeholder="Capture an idea…"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && void submit()}
+              // biome-ignore lint/a11y/noAutofocus: opening the tray is an explicit user action
+              autoFocus
+            />
+          </DictationField>
+          <span className="muted">→ {ws} tray</span>
           <button
             type="button"
             className="small primary"
@@ -140,6 +143,7 @@ function CaptureTray() {
           <button
             type="button"
             className="small"
+            aria-label="close capture"
             onClick={() => {
               setOpen(false);
               setError(null);

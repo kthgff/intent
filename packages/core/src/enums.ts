@@ -352,6 +352,13 @@ export const EVENT_NAMES = [
   'incident_decided',
   'draft_ticket_proposed',
   'draft_ticket_decided',
+  /** Board Assistant (BOARD-CHAT-PRD R3/R9, wp-161+): durable rows a
+   *  turn produces — a posted transcript message, a drafted
+   *  board_proposals row, a decided proposal. The SSE hint rides
+   *  `interview_updated`/`board_proposal`; these are the audit names. */
+  'assistant_message',
+  'proposal_created',
+  'proposal_resolved',
 ] as const;
 export type EventName = (typeof EVENT_NAMES)[number];
 
@@ -494,11 +501,62 @@ export const BOARD_ITEM_KINDS = [
   'feature',
   'ticket',
   'note',
+  'text',
+  'image',
+  'link',
   'zone',
   'feedback',
   'retro',
 ] as const;
 export type BoardItemKind = (typeof BOARD_ITEM_KINDS)[number];
+
+/** Explicit canvas appearance. NULL means derive the default from note_kind. */
+export const BOARD_ITEM_COLORS = [
+  'yellow',
+  'pink',
+  'blue',
+  'green',
+  'orange',
+  'purple',
+  'gray',
+] as const;
+export type BoardItemColor = (typeof BOARD_ITEM_COLORS)[number];
+
+export const BOARD_CONNECTOR_STATUSES = ['active', 'superseded'] as const;
+export type BoardConnectorStatus = (typeof BOARD_CONNECTOR_STATUSES)[number];
+
+/** Drawing-layer annotation kinds (BOARD-CANVAS-TOOLS-TDD §2.6).
+ *  stroke/highlight carry point lists; rect/ellipse carry bounds;
+ *  arrow carries endpoints. Rendered behind nodes, never as nodes. */
+export const BOARD_ANNOTATION_KINDS = [
+  'stroke',
+  'rect',
+  'ellipse',
+  'arrow',
+  'highlight',
+] as const;
+export type BoardAnnotationKind = (typeof BOARD_ANNOTATION_KINDS)[number];
+
+/** Vote stamps are importance *signals only* — a vote never writes
+ *  `importance` (TOOLS-TDD §2.4). */
+export const VOTE_STAMPS = ['up', 'down', 'question'] as const;
+export type VoteStamp = (typeof VOTE_STAMPS)[number];
+
+/** board_vote_sessions lifecycle — closing is server-enforced; votes
+ *  to a closed session hard-409 (TOOLS-TDD §2.4). */
+export const VOTE_SESSION_STATUSES = ['open', 'closed'] as const;
+export type VoteSessionStatus = (typeof VOTE_SESSION_STATUSES)[number];
+
+/** Decoded-raster formats accepted for canvas image assets (BOARD-CANVAS-TDD
+ *  §Uploads). SVG is excluded in release one — it is not a raster and can
+ *  carry script. GIF must additionally be non-animated (enforced on decode). */
+export const BOARD_ASSET_MIME_TYPES = [
+  'image/png',
+  'image/jpeg',
+  'image/webp',
+  'image/gif',
+] as const;
+export type BoardAssetMimeType = (typeof BOARD_ASSET_MIME_TYPES)[number];
 
 export const BOARD_ITEM_STATUSES = [
   'icebox',
@@ -1227,6 +1285,9 @@ export const NOTE_KINDS = [
   'question',
   'decision',
   'feedback',
+  /** Canvas comment pins: `kind='feedback'` + `note_kind='comment'`
+   *  (BOARD-CANVAS-TOOLS-TDD §2.3). */
+  'comment',
 ] as const;
 export type NoteKind = (typeof NOTE_KINDS)[number];
 
@@ -1638,3 +1699,47 @@ export const TEST_ENV_REQUEST_STATUSES = [
   'expired',
 ] as const;
 export type TestEnvRequestStatus = (typeof TEST_ENV_REQUEST_STATUSES)[number];
+
+// ---------- board assistant (BOARD-CHAT-PRD/TDD, wp-161+) ----------
+
+/** board_proposals.op — ONE logical change per proposal; ops sharing a
+ *  `batch_id` render/decide as a checkpoint batch (PRD R3). Commits
+ *  always route through the single-item write path so legality lives
+ *  in exactly one place. `serve` writes the canonical `serves` goal
+ *  edge; `connect` is a drawn hint only. `delete-item` is a soft delete
+ *  (`status: 'discarded'`) — `consumed`/`frozen` items refuse. */
+export const BOARD_PROPOSAL_OPS = [
+  'create-item',
+  'patch-item',
+  'move-item',
+  'serve',
+  'connect',
+  'connector-remove',
+  'delete-item',
+] as const;
+export type BoardProposalOp = (typeof BOARD_PROPOSAL_OPS)[number];
+
+/** board_proposals.status — `stale` marks an accept whose OCC fence
+ *  (`base_updated_at`) no longer matches; the assistant may re-derive.
+ *  Identical pending drafts supersede their predecessors. */
+export const BOARD_PROPOSAL_STATUSES = [
+  'pending',
+  'accepted',
+  'rejected',
+  'stale',
+  'superseded',
+] as const;
+export type BoardProposalStatus = (typeof BOARD_PROPOSAL_STATUSES)[number];
+
+/** v1 skill set (PRD R2) — `/organize`/`/import` are deferred; the
+ *  synthesis hand-off is a run-end action, not a skill. */
+export const BOARD_ASSISTANT_SKILLS = [
+  'interview',
+  'expand',
+  'critique',
+] as const;
+export type BoardAssistantSkill = (typeof BOARD_ASSISTANT_SKILLS)[number];
+
+/** Board-assistant routing-registry kind (TDD contract amendment 4) —
+ *  resolves through `resolveModelRoute`, never hardcoded. */
+export const ASSISTANT_ROUTE_KIND = 'assistant';

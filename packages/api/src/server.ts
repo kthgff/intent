@@ -79,6 +79,7 @@ import Fastify, {
 import YAML from 'yaml';
 import { z } from 'zod';
 import { registerAlignmentRoutes } from './alignment.js';
+import { registerBoardAssistantRoutes } from './board-assistant.js';
 import { registerBoardRoutes } from './board.js';
 import { registerDesignRoutes } from './design.js';
 import {
@@ -93,9 +94,11 @@ import { registerEvidenceRoutes } from './evidence.js';
 import { registerFeatureRoutes } from './features.js';
 import { registerLinkRoutes } from './links.js';
 import { deviationMetrics, gateDwell } from './metrics.js';
+import { resolveAssistantProvider } from './openrouter.js';
 import { registerRadarRoutes } from './radar.js';
 import { registerRegisterRoutes } from './registers.js';
 import { registerReleaseRoutes } from './releases.js';
+import { registerRepoRoutes } from './repos.js';
 import { registerReviewRoutes } from './review.js';
 import { StreamHub } from './sse.js';
 import { registerTelemetryRoutes } from './telemetry.js';
@@ -274,6 +277,10 @@ export interface ServerOptions {
   bind?: string;
   /** Path of the global config.yaml for PUT /settings persistence. */
   globalConfigPath?: string;
+  /** Override for tests: where POST /repos/clone clones into. */
+  reposDir?: string;
+  /** Override for tests: git seam for POST /repos/clone. */
+  gitClone?: Parameters<typeof registerRepoRoutes>[1]['runGit'];
   /**
    * Built UI bundle (vite `dist/`, wp-099) — served static behind the
    * same token auth on every route; absent/missing → the placeholder
@@ -281,6 +288,9 @@ export interface ServerOptions {
    * `index.html`; real file misses under it 404.
    */
   uiDist?: string;
+  /** Test seam — inject a stubbed fetch for the assistant provider so
+   *  tests never call live OpenRouter (wp-164 AC). */
+  assistantFetch?: typeof fetch;
 }
 
 export interface ApiServer extends FastifyInstance {
@@ -3590,6 +3600,28 @@ export function createServer(opts: ServerOptions): ApiServer {
   });
 
   // ------------------------------------------------------------------
+  // Board Assistant — `…/assistant*` + `…/proposals` (BOARD-CHAT-TDD,
+  // wp-164). Gated on `ui.board_chat` — flag-off boards expose no
+  // assistant surface at all. The provider resolves once here:
+  // registry kind `assistant` → OpenRouter; missing key/model → the
+  // deterministic engine still serves every route (PRD R10).
+  // ------------------------------------------------------------------
+  if (config.ui.board_chat) {
+    const { provider, model } = resolveAssistantProvider({
+      config,
+      ...(opts.assistantFetch ? { fetchImpl: opts.assistantFetch } : {}),
+    });
+    registerBoardAssistantRoutes(app, {
+      store,
+      actor,
+      provider,
+      model,
+      workspace,
+      notify: (e) => hub.notify(e as StreamEvent),
+    });
+  }
+
+  // ------------------------------------------------------------------
   // /design — structured mockups + design approvals (PRD §15.4, wp-149)
   // ------------------------------------------------------------------
   registerDesignRoutes(app, {
@@ -3694,6 +3726,18 @@ export function createServer(opts: ServerOptions): ApiServer {
         ...(req.ticketId ? { ticketId: req.ticketId } : {}),
       }),
     notify: (e) => hub.notify(e),
+  });
+
+  // /repos/clone — connect a GitHub repo: clone into the managed
+  // data dir + register `repos.<name>` (Settings → Code Repos).
+  registerRepoRoutes(app, {
+    config,
+    ...(opts.reposDir ? { reposDir: opts.reposDir } : {}),
+    ...(opts.gitClone ? { runGit: opts.gitClone } : {}),
+    persist: (patch) => {
+      const merged = mergeConfigFile(globalConfigPath, patch);
+      Object.assign(config, merged);
+    },
   });
 
   // /scope-radar — wp-142 Scope Creep Radar (PRD §15.5): computed

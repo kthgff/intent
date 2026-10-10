@@ -1,23 +1,25 @@
-import type { BoardItem } from '@veto/core';
 /**
- * S-19 — Quick Capture (s-19-capture-tray.md). Minimal, mobile-safe
+ * S-19 — Quick Capture form (s-19-capture-tray.md). Minimal, mobile-safe
  * ingress: one input, guessed type with one-tap correction, project,
- * board-or-tray destination, immediate durable confirmation. The
- * exported `CaptureForm` is the same component the global ⌘⇧C modal
- * hosts — capture must never turn into an interview.
+ * board-or-tray destination, immediate durable confirmation. Shared by
+ * the global ⌘⇧C modal (App.tsx, `compact`) and the Easy Edit capture
+ * section — capture must never turn into an interview.
  */
-import { useEffect, useMemo, useState } from 'react';
+import type { BoardItem } from '@veto/core';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { type IdeaBoardRow, client } from '../api';
-import { ErrorBox, Loading } from '../components';
-import { guessCaptureKind, noteKindMeta } from '../discovery';
-import { projectPath, useProject } from '../project';
+import { type IdeaBoardRow, client } from './api';
+import { ErrorBox } from './components';
+import { DictationField } from './dictation';
+import { guessCaptureKind, noteKindMeta } from './discovery';
+import { projectPath } from './project';
 
 export function CaptureForm({
   workspaces,
   boards,
   noteKinds,
   defaultWorkspace,
+  defaultDestination,
   compact = false,
   onSaved,
   onNavigate,
@@ -26,6 +28,11 @@ export function CaptureForm({
   boards: IdeaBoardRow[];
   noteKinds: string[];
   defaultWorkspace?: string;
+  /** Pre-selected destination slug — a board the caller knows belongs to
+   *  `defaultWorkspace` (Easy Edit passes the current board). Falls back
+   *  to the tray when absent or when the fetched board list doesn't carry
+   *  the slug. */
+  defaultDestination?: string;
   compact?: boolean;
   onSaved?: (item: BoardItem, destination: string) => void;
   /** Fired when the save-banner destination link is followed — the
@@ -39,10 +46,16 @@ export function CaptureForm({
   // first workspace's set, so the form refetches on workspace change
   // (never offer another workspace's boards as a destination).
   const [localBoards, setLocalBoards] = useState<IdeaBoardRow[]>(boards);
+  // True while the authoritative board list is in flight — the
+  // destination-reset check below must not fire on the cleared interim
+  // list or a valid `defaultDestination` collapses to tray on mount.
+  const [boardsPending, setBoardsPending] = useState(boards.length === 0);
   const [text, setText] = useState('');
   const [kind, setKind] = useState('idea');
   const [kindTouched, setKindTouched] = useState(false);
-  const [destination, setDestination] = useState<string>('tray');
+  const [destination, setDestination] = useState<string>(
+    defaultDestination ?? 'tray',
+  );
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState<BoardItem | null>(null);
   const [error, setError] = useState<unknown>(null);
@@ -59,25 +72,31 @@ export function CaptureForm({
     // Clear immediately — the previous workspace's boards are not valid
     // destinations while the new list is in flight.
     setLocalBoards([]);
+    setBoardsPending(true);
     let live = true;
     client
       .ideaBoards(workspace)
       .then((r) => {
         if (live) setLocalBoards(r.boards);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        if (live) setBoardsPending(false);
+      });
     return () => {
       live = false;
     };
   }, [workspace]);
 
   // A chosen board destination belongs to the previous workspace —
-  // reset to tray when the workspace changes under it.
+  // reset to tray when the workspace changes under it. The check waits
+  // for a settled list so an in-flight refetch never falsifies it.
   useEffect(() => {
+    if (boardsPending) return;
     setDestination((d) =>
       d !== 'tray' && !localBoards.some((b) => b.board === d) ? 'tray' : d,
     );
-  }, [localBoards]);
+  }, [localBoards, boardsPending]);
 
   const save = async () => {
     if (!workspace || !text.trim()) return;
@@ -132,23 +151,19 @@ export function CaptureForm({
   return (
     <div className={compact ? 'capture-form compact' : 'capture-form'}>
       {error != null && <ErrorBox error={error} />}
-      <textarea
-        aria-label="capture text"
-        rows={compact ? 3 : 5}
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        placeholder="Idea, want, problem, question, feedback…"
-        // biome-ignore lint/a11y/noAutofocus: modal opens on an explicit ⌘⇧C — focus belongs inside
-        autoFocus={compact}
-      />
-      <fieldset
-        className="row"
-        aria-label="type"
-        style={{ border: 'none', padding: 0, margin: 0 }}
-      >
-        <span className="muted" style={{ fontSize: 12 }}>
-          type
-        </span>
+      <DictationField>
+        <textarea
+          aria-label="capture text"
+          rows={compact ? 3 : 5}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="Idea, want, problem, question, feedback…"
+          // biome-ignore lint/a11y/noAutofocus: modal opens on an explicit ⌘⇧C — focus belongs inside
+          autoFocus={compact}
+        />
+      </DictationField>
+      <fieldset className="row capture-kind-picker" aria-label="type">
+        <span className="muted capture-kind-label">type</span>
         {noteKinds.map((k) => (
           <button
             key={k}
@@ -163,7 +178,7 @@ export function CaptureForm({
           </button>
         ))}
       </fieldset>
-      <div className="row">
+      <div className="row capture-destination">
         <label className="muted" htmlFor="cap-ws">
           project
         </label>
@@ -228,49 +243,5 @@ export function CaptureForm({
         </output>
       )}
     </div>
-  );
-}
-
-export default function Capture() {
-  const ws = useProject();
-  const [boards, setBoards] = useState<IdeaBoardRow[]>([]);
-  const [noteKinds, setNoteKinds] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    client
-      .boardTaxonomy()
-      .then((t) => setNoteKinds(t.note_kinds))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
-
-  useEffect(() => {
-    if (!ws) return;
-    client
-      .ideaBoards(ws)
-      .then((r) => setBoards(r.boards))
-      .catch(() => {});
-  }, [ws]);
-
-  const wsBoards = useMemo(() => boards, [boards]);
-
-  if (loading) return <Loading />;
-  return (
-    <section>
-      <h1 className="page-title">Quick capture</h1>
-      <p className="page-sub">
-        Record an idea or production signal — decide where it belongs later
-        (S-19).
-      </p>
-      <div className="card" style={{ maxWidth: 640 }}>
-        <CaptureForm
-          workspaces={[ws]}
-          boards={wsBoards}
-          noteKinds={noteKinds}
-          defaultWorkspace={ws}
-        />
-      </div>
-    </section>
   );
 }

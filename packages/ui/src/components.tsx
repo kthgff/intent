@@ -5,8 +5,8 @@
  */
 import type { GateKind } from '@veto/core';
 import {
-  type KeyboardEvent as ReactKeyboardEvent,
   type ReactElement,
+  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
   cloneElement,
   isValidElement,
@@ -20,7 +20,7 @@ import { useEscapeKey } from './hooks';
 
 export function Loading({ label = 'Loading…' }: { label?: string }) {
   return (
-    <output className="state" style={{ display: 'block' }}>
+    <output className="state state-loading">
       <span className="spinner" aria-hidden="true" />
       {label}
     </output>
@@ -37,7 +37,7 @@ export function Empty({
   return (
     <div className="state state-empty">
       <div>{label}</div>
-      {action && <div style={{ marginTop: 10 }}>{action}</div>}
+      {action && <div className="state-action">{action}</div>}
     </div>
   );
 }
@@ -74,13 +74,13 @@ export function ErrorBox({
     <div className="state state-error" role="alert">
       <div>{friendly ?? msg}</div>
       {(friendly || code) && (
-        <div className="card-meta" style={{ marginTop: 6 }}>
+        <div className="card-meta state-detail">
           {friendly && friendly !== msg && <span>{msg} </span>}
           {code && <span className="badge spec-dim">{code}</span>}
         </div>
       )}
       {(onRetry || onDismiss) && (
-        <div className="row" style={{ justifyContent: 'center', marginTop: 10 }}>
+        <div className="row state-actions">
           {onRetry && (
             <button type="button" className="small" onClick={onRetry}>
               Retry
@@ -101,9 +101,7 @@ export function ErrorBox({
 
 /** kebab/snake machine ids → "Human readable". */
 export function humanize(s: string): string {
-  return s
-    .replace(/[-_]/g, ' ')
-    .replace(/\b\w/g, (c) => c.toUpperCase());
+  return s.replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 /** Abbreviation overrides — everything else falls back to humanize(). */
@@ -356,7 +354,7 @@ export function ConfirmDialog({
     <Modal label={title} onClose={onCancel}>
       <strong>{title}</strong>
       {body && <p className="muted">{body}</p>}
-      <div className="row" style={{ marginTop: 12 }}>
+      <div className="row modal-actions">
         <button
           type="button"
           className={danger ? 'danger' : 'primary'}
@@ -485,28 +483,28 @@ export function DiffView({
     <div className="diff-view">
       {header && <div className="diff-head muted">{header}</div>}
       <pre className="diff">
-      {diff.split('\n').map((line, i) => {
-        const cls =
-          line.startsWith('+++') ||
-          line.startsWith('---') ||
-          line.startsWith('diff ') ||
-          line.startsWith('index ')
-            ? 'diff-meta'
-            : line.startsWith('+')
-              ? 'diff-add'
-              : line.startsWith('-')
-                ? 'diff-del'
-                : line.startsWith('@')
-                  ? 'diff-hunk'
-                  : '';
-        return (
-          // biome-ignore lint/suspicious/noArrayIndexKey: diff lines have no stable id
-          <span key={i} className={cls}>
-            {line}
-            {'\n'}
-          </span>
-        );
-      })}
+        {diff.split('\n').map((line, i) => {
+          const cls =
+            line.startsWith('+++') ||
+            line.startsWith('---') ||
+            line.startsWith('diff ') ||
+            line.startsWith('index ')
+              ? 'diff-meta'
+              : line.startsWith('+')
+                ? 'diff-add'
+                : line.startsWith('-')
+                  ? 'diff-del'
+                  : line.startsWith('@')
+                    ? 'diff-hunk'
+                    : '';
+          return (
+            // biome-ignore lint/suspicious/noArrayIndexKey: diff lines have no stable id
+            <span key={i} className={cls}>
+              {line}
+              {'\n'}
+            </span>
+          );
+        })}
       </pre>
     </div>
   );

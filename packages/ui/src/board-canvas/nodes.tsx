@@ -17,7 +17,14 @@ import {
   NodeToolbar,
   Position,
 } from '@xyflow/react';
-import { ExternalLink, ImageOff, Lock } from 'lucide-react';
+import {
+  ExternalLink,
+  ImageOff,
+  Lock,
+  MessageSquare,
+  ThumbsDown,
+  ThumbsUp,
+} from 'lucide-react';
 import {
   createContext,
   memo,
@@ -26,6 +33,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { DictationField } from '../dictation';
 import { isConsumedItem, noteKindMeta } from '../discovery';
 import { type CanvasColor, type CanvasNode, ZONE_MIN_SIZE } from './model';
 
@@ -43,7 +51,12 @@ export interface CanvasActions {
    *  is the text the editor was seeded with, so an unchanged edit
    *  issues no write (display fallbacks like `title ?? body` must not
    *  become spurious cross-field writes). */
-  commitText(id: string, field: TextField, text: string, baseline: string): void;
+  commitText(
+    id: string,
+    field: TextField,
+    text: string,
+    baseline: string,
+  ): void;
   /** Explicit color override; null restores the type-derived color. */
   setColor(id: string, color: CanvasColor | null): void;
   /** Create a copy of the item offset beside the original. */
@@ -217,41 +230,131 @@ export function EditableText({
     return (
       <p
         className={`canvas-node-text${text ? '' : ' is-empty'}`}
-        onDoubleClick={locked || !actions.editable ? undefined : () => actions.startEdit(id)}
+        onDoubleClick={
+          locked || !actions.editable ? undefined : () => actions.startEdit(id)
+        }
       >
         {text || placeholder}
       </p>
     );
   }
   return (
-    <textarea
-      ref={ref}
-      className="canvas-node-editor nodrag"
-      value={draft}
-      aria-label={field === 'title' ? 'Item title' : 'Item text'}
-      onChange={(e) => {
-        setDraft(e.target.value);
-        actions.saveDraft(id, field, e.target.value);
-      }}
-      onBlur={() => actions.commitText(id, field, draft, baseline.current)}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') {
-          e.stopPropagation();
-          actions.commitText(id, field, draft, baseline.current);
-        }
-        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-          e.preventDefault();
-          e.stopPropagation();
-          actions.commitText(id, field, draft, baseline.current);
-        }
-      }}
-    />
+    <DictationField className="nodrag">
+      <textarea
+        ref={ref}
+        className="canvas-node-editor nodrag"
+        value={draft}
+        aria-label={field === 'title' ? 'Item title' : 'Item text'}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          actions.saveDraft(id, field, e.target.value);
+        }}
+        onBlur={() => actions.commitText(id, field, draft, baseline.current)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            e.stopPropagation();
+            actions.commitText(id, field, draft, baseline.current);
+          }
+          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            e.stopPropagation();
+            actions.commitText(id, field, draft, baseline.current);
+          }
+        }}
+      />
+    </DictationField>
   );
 }
 
 function titleOf(data: CanvasNode['data']): string {
   return data.item.title ?? data.item.body ?? '';
 }
+
+/** Field the editor should write — whichever of `title`/`body` backs
+ *  the node's rendered text. Display falls back (`title ?? body` on
+ *  notes/frames, `body ?? title` on text nodes), so a captured
+ *  body-only sticky renders via `title` fallback — seeding `title`
+ *  with that text and writing back would fork the two fields (title
+ *  = old body, stale body hidden underneath). When the preferred
+ *  field is unset, edit the sibling that actually holds the text.
+ *  Text nodes are born `title: ''` — an empty-string placeholder, so
+ *  only a non-empty title steals their `body` editor. */
+export function editFieldOf(
+  data: CanvasNode['data'],
+  prefer: TextField,
+): TextField {
+  const item = data.item;
+  if (prefer === 'title') {
+    return item.title == null ? 'body' : 'title';
+  }
+  return item.body == null && item.title ? 'title' : 'body';
+}
+
+/** Vote tallies + open-comment count — visible only while a session is
+ *  open (or `?votes=show`), and never rely on color alone (TOOLS-TDD
+ *  §2.4/§3). */
+function NodeBadges({ data }: { data: CanvasNode['data'] }) {
+  if (!data.votes && data.commentCount === 0) return null;
+  return (
+    <span className="canvas-node-votes" aria-label="votes and comments">
+      {data.votes && data.votes.up > 0 && (
+        <span className="vote-badge up" title={`${data.votes.up} up-votes`}>
+          <ThumbsUp size={10} aria-hidden />
+          {data.votes.up}
+        </span>
+      )}
+      {data.votes && data.votes.down > 0 && (
+        <span
+          className="vote-badge down"
+          title={`${data.votes.down} down-votes`}
+        >
+          <ThumbsDown size={10} aria-hidden />
+          {data.votes.down}
+        </span>
+      )}
+      {data.votes && data.votes.question > 0 && (
+        <span
+          className="vote-badge q"
+          title={`${data.votes.question} questions`}
+        >
+          ?{data.votes.question}
+        </span>
+      )}
+      {data.commentCount > 0 && (
+        <span
+          className="vote-badge comments"
+          title={`${data.commentCount} open comments`}
+        >
+          <MessageSquare size={10} aria-hidden />
+          {data.commentCount}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** Compact comment pin (TOOLS-TDD §2.3) — a `kind='feedback'` +
+ *  `note_kind='comment'` item rendered as a 44 px pin with its thread
+ *  count. Click opens the thread popover (canvas-level state);
+ *  resolved pins render muted. */
+export const CommentPinNode = memo(function CommentPinNode({
+  data,
+}: NodeProps<CanvasNode>) {
+  const resolved = data.item.note_status === 'resolved';
+  return (
+    <div
+      className={`canvas-comment-pin${resolved ? ' is-resolved' : ''}`}
+      title={
+        resolved ? 'Resolved comment thread' : 'Comment thread — click to open'
+      }
+    >
+      <MessageSquare size={16} aria-hidden />
+      {data.threadSize > 1 && (
+        <span className="pin-count">{data.threadSize}</span>
+      )}
+    </div>
+  );
+});
 
 export const StickyNode = memo(function StickyNode({
   id,
@@ -291,7 +394,7 @@ export const StickyNode = memo(function StickyNode({
         </span>
         <EditableText
           id={id}
-          field="title"
+          field={editFieldOf(data, 'title')}
           text={titleOf(data)}
           editing={data.editing}
           locked={data.locked}
@@ -303,9 +406,70 @@ export const StickyNode = memo(function StickyNode({
           {consumed && item.consumed_by && ` · →${item.consumed_by}`}
           {data.virtualZone && ` · ${data.virtualZone}`}
         </footer>
+        <NodeBadges data={data} />
         <Handles locked={data.locked} />
       </article>
     </>
+  );
+});
+
+/** Ghost card — a pending `board_proposals` row projected on-canvas
+ *  (BOARD-CHAT-TDD UI, wp-166). Read-only chrome by construction: no
+ *  handles, no editing, no selection toolbar — the row is truth and
+ *  the ghost vanishes on resolve. Click surfaces the source proposal
+ *  via the canvas-level `onGhostClick` prop.
+ *
+ *  CSS spec for wp-165's `/* ---- BOARD-CHAT *\/` block in styles.css
+ *  (owned by wp-165 — the inline styles below are the interim
+ *  fallback so ghost chrome works before that block lands; lift them
+ *  into these rules):
+ *    .canvas-ghost { outline: 2px dashed var(--canvas-selection);
+ *                    outline-offset: 2px; opacity: .85;
+ *                    cursor: pointer; }
+ *    .canvas-ghost.is-ghost-remove { opacity: .5; }
+ *    .canvas-ghost.is-ghost-remove .canvas-node-text {
+ *                    text-decoration: line-through; }
+ *    .canvas-ghost .ghost-proposed { badge chrome — translucent white
+ *                    bg like .canvas-note-kind .badge }
+ *    .canvas-connector.is-ghost { stroke-dasharray: 6 4; }
+ *    .canvas-connector.is-ghost-remove { stroke: var(--canvas-danger,
+ *                    #dc2626); }
+ *    .canvas-connector-label .ghost-proposed { badge chrome }
+ */
+export const GhostNode = memo(function GhostNode({
+  data,
+}: NodeProps<CanvasNode>) {
+  const ghost = data.ghost;
+  if (!ghost) return null;
+  const { item } = data;
+  const meta = noteKindMeta(item.note_kind);
+  const title = item.title ?? item.body ?? '';
+  const remove = ghost.treatment === 'remove';
+  return (
+    <article
+      className={`canvas-note canvas-note-${data.color} canvas-ghost is-ghost-${ghost.treatment}`}
+      style={{
+        outline: '2px dashed var(--canvas-selection)',
+        outlineOffset: 2,
+        opacity: remove ? 0.5 : 0.85,
+        cursor: 'pointer',
+      }}
+      title={`Proposed ${ghost.proposal.op} — assistant · ${ghost.proposal.created_by}`}
+    >
+      <span className="canvas-note-kind">
+        {meta.icon} {meta.label}
+        <span className="badge ghost-proposed">proposed</span>
+      </span>
+      <p
+        className={`canvas-node-text${title ? '' : ' is-empty'}`}
+        style={remove ? { textDecoration: 'line-through' } : undefined}
+      >
+        {title || 'Untitled idea'}
+      </p>
+      <footer className="canvas-note-foot">
+        assistant · {ghost.proposal.created_by}
+      </footer>
+    </article>
   );
 });
 
@@ -328,12 +492,13 @@ export const TextNode = memo(function TextNode({
       {selected && <SelectionToolbar id={id} data={data} />}
       <EditableText
         id={id}
-        field="body"
+        field={editFieldOf(data, 'body')}
         text={data.item.body ?? data.item.title ?? ''}
         editing={data.editing}
         locked={data.locked}
         placeholder="Start typing…"
       />
+      <NodeBadges data={data} />
       <Handles locked={data.locked} />
     </div>
   );
@@ -358,12 +523,21 @@ export const ZoneNode = memo(function ZoneNode({
       {selected && <SelectionToolbar id={id} data={data} />}
       <EditableText
         id={id}
-        field="title"
+        field={editFieldOf(data, 'title')}
         text={titleOf(data)}
         editing={data.editing}
         locked={data.locked}
         placeholder="Frame"
       />
+      {data.item.presentation_order != null && (
+        <span
+          className="canvas-zone-slide"
+          title={`Slide ${data.item.presentation_order} in presentation`}
+        >
+          ▶ {data.item.presentation_order}
+        </span>
+      )}
+      <NodeBadges data={data} />
       <Handles locked={data.locked} />
     </div>
   );

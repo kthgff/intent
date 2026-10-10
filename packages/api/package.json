@@ -13,6 +13,7 @@
   "dependencies": {
     "@veto/conductor": "workspace:*",
     "@veto/config": "workspace:*",
+    "@veto/prompts": "workspace:*",
     "@veto/core": "workspace:*",
     "@veto/gitops": "workspace:*",
     "@veto/kb": "workspace:*",

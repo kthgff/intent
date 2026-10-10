@@ -4,7 +4,7 @@
  * structured output blocks the pipeline rather than guessing (AGENTS.md).
  */
 import { z } from 'zod';
-import type { RsQualityDimension } from './enums.js';
+import type { BoardAnnotationKind, RsQualityDimension } from './enums.js';
 import {
   ACTOR_TYPES,
   ALIGNMENT_FINDING_KINDS,
@@ -14,8 +14,15 @@ import {
   ALIGNMENT_TRIGGERS,
   ASSUMPTION_STATUSES,
   BACKENDS,
+  BOARD_ANNOTATION_KINDS,
+  BOARD_ASSET_MIME_TYPES,
+  BOARD_ASSISTANT_SKILLS,
+  BOARD_CONNECTOR_STATUSES,
+  BOARD_ITEM_COLORS,
   BOARD_ITEM_KINDS,
   BOARD_ITEM_STATUSES,
+  BOARD_PROPOSAL_OPS,
+  BOARD_PROPOSAL_STATUSES,
   BOARD_STATUSES,
   BOARD_TYPES,
   CALL_USAGE_SOURCES,
@@ -121,6 +128,8 @@ import {
   TICKET_WORK_TYPES,
   USAGE_GRANULARITIES,
   USAGE_SOURCES,
+  VOTE_SESSION_STATUSES,
+  VOTE_STAMPS,
 } from './enums.js';
 
 const enumOf = (values: readonly string[]) =>
@@ -897,6 +906,12 @@ export const BoardItemSchema = z.object({
   y: z.number().nullish(),
   w: z.number().nullish(),
   h: z.number().nullish(),
+  /** Explicit presentation override; NULL derives from note_kind. */
+  color: enumOf(BOARD_ITEM_COLORS).nullish(),
+  z_index: z.number().int().nullish(),
+  /** Frame-presentation ordering (TOOLS-TDD §2.5): nullable int on
+   *  zone items; unordered zones are skipped by present mode. */
+  presentation_order: z.number().int().nullish(),
   zone: z.string().nullish(),
   /** D33: goal board_item ids this item serves — the canonical edge. */
   serves: z.array(z.string()).nullish(),
@@ -906,6 +921,143 @@ export const BoardItemSchema = z.object({
   updated_at: z.string().nullish(),
 });
 export type BoardItem = z.infer<typeof BoardItemSchema>;
+
+export const BoardConnectorSchema = z.object({
+  id: z.string().min(1),
+  workspace: z.string().min(1),
+  board: z.string().min(1),
+  source_item_id: z.string().min(1),
+  target_item_id: z.string().min(1),
+  label: z.string().nullish(),
+  status: enumOf(BOARD_CONNECTOR_STATUSES),
+  created_at: z.string().nullish(),
+  updated_at: z.string().nullish(),
+});
+export type BoardConnector = z.infer<typeof BoardConnectorSchema>;
+
+// ---- canvas tool extensions (BOARD-CANVAS-TOOLS-TDD §2.7) ----
+
+const finite = z.number().finite();
+
+/** Point-list geometry for pen/highlight strokes. The 2 000-point cap
+ *  is the fail-closed server-side bound — clients simplify strokes
+ *  (Ramer–Douglas–Peucker) before posting. */
+export const StrokeGeometrySchema = z
+  .object({
+    pts: z
+      .array(z.object({ x: finite, y: finite }).strict())
+      .min(2)
+      .max(2000),
+  })
+  .strict();
+export type StrokeGeometry = z.infer<typeof StrokeGeometrySchema>;
+
+/** Bounds geometry for rect/ellipse shapes. */
+export const BoundsGeometrySchema = z
+  .object({
+    x: finite,
+    y: finite,
+    w: finite.positive(),
+    h: finite.positive(),
+  })
+  .strict();
+export type BoundsGeometry = z.infer<typeof BoundsGeometrySchema>;
+
+/** Endpoint geometry for arrows. */
+export const ArrowGeometrySchema = z
+  .object({ x1: finite, y1: finite, x2: finite, y2: finite })
+  .strict();
+export type ArrowGeometry = z.infer<typeof ArrowGeometrySchema>;
+
+export const AnnotationGeometrySchema = z.union([
+  StrokeGeometrySchema,
+  BoundsGeometrySchema,
+  ArrowGeometrySchema,
+]);
+export type AnnotationGeometry = z.infer<typeof AnnotationGeometrySchema>;
+
+/** Per-kind geometry validator — a `rect` row can never carry a point
+ *  list; kind↔geometry pairing fails closed at the route boundary. */
+export function annotationGeometrySchema(
+  kind: BoardAnnotationKind,
+): z.ZodType<AnnotationGeometry> {
+  switch (kind) {
+    case 'stroke':
+    case 'highlight':
+      return StrokeGeometrySchema;
+    case 'rect':
+    case 'ellipse':
+      return BoundsGeometrySchema;
+    case 'arrow':
+      return ArrowGeometrySchema;
+  }
+}
+
+/** Drawing-layer row — an SVG-layer object, never an RF node
+ *  (TOOLS-TDD §2.6). `geometry` is stored as JSON text. */
+export const BoardAnnotationSchema = z.object({
+  id: z.string().min(1),
+  workspace: z.string().min(1),
+  board: z.string().min(1),
+  kind: enumOf(BOARD_ANNOTATION_KINDS),
+  geometry: AnnotationGeometrySchema,
+  // Free-text per spec §2.6 — pen/highlight colors aren't sticky colors.
+  color: z.string().nullish(),
+  created_by: z.string().nullish(),
+  created_at: z.string().nullish(),
+  updated_at: z.string().nullish(),
+});
+export type BoardAnnotation = z.infer<typeof BoardAnnotationSchema>;
+
+/** Vote-session row — opens/closes a counting window. `status` moves
+ *  open→closed under an OCC fence; closed is terminal. */
+export const BoardVoteSessionSchema = z.object({
+  id: z.string().min(1),
+  workspace: z.string().min(1),
+  board: z.string().min(1),
+  opened_by: z.string().nullish(),
+  closes_at: z.string().nullish(),
+  status: enumOf(VOTE_SESSION_STATUSES),
+  created_at: z.string().nullish(),
+  updated_at: z.string().nullish(),
+});
+export type BoardVoteSession = z.infer<typeof BoardVoteSessionSchema>;
+
+/** One voter's stamp on one item inside one session — the composite
+ *  PK is the one-vote-per-voter-per-session rule; a re-vote updates
+ *  `stamp` in place. */
+export const BoardVoteSchema = z.object({
+  workspace: z.string().min(1),
+  board: z.string().min(1),
+  item_id: z.string().min(1),
+  voter: z.string().min(1),
+  session_id: z.string().min(1),
+  stamp: enumOf(VOTE_STAMPS),
+  created_at: z.string().nullish(),
+  updated_at: z.string().nullish(),
+});
+export type BoardVote = z.infer<typeof BoardVoteSchema>;
+
+/** Image asset contract (BOARD-CANVAS-TDD §Contract amendments #5). File
+ *  bytes live in the app-managed data dir under `storage_key`, never in
+ *  Postgres. NOTE: the upload route is disabled until a patched multipart
+ *  plugin exists for the pinned Fastify major — see the design doc. */
+export const BoardAssetSchema = z.object({
+  id: z.string().min(1),
+  workspace: z.string().min(1),
+  board: z.string().min(1),
+  /** Owning canvas image item (board_items.id, kind='image'). */
+  item_id: z.string().min(1),
+  /** Verified-decoded MIME — never trusted from the client. */
+  mime_type: enumOf(BOARD_ASSET_MIME_TYPES),
+  byte_size: z.number().int().nonnegative(),
+  sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  /** Key beneath the Veto data root (board-assets/…), never absolute. */
+  storage_key: z.string().min(1),
+  original_filename: z.string().nullish(),
+  created_at: z.string().nullish(),
+});
+export type BoardAsset = z.infer<typeof BoardAssetSchema>;
 
 export const InitiativeRowSchema = z.object({
   workspace: z.string().min(1),
@@ -1667,6 +1819,11 @@ export const InterviewMessageRowSchema = z.object({
   branch: z.string().nullish(),
   role: enumOf(INTERVIEW_MESSAGE_ROLES),
   content: z.string(),
+  /** Per-turn actor attribution (BOARD-CHAT amendment 1, wp-161) —
+   *  NULL on pre-existing rows; display falls back to the session's
+   *  `created_by`. Required on board-thread writes (the thread is
+   *  shared across teammates). */
+  created_by: z.string().nullish(),
   created_at: z.string().nullish(),
 });
 export type InterviewMessageRow = z.infer<typeof InterviewMessageRowSchema>;
@@ -2840,3 +2997,204 @@ export const IncidentTicketProposalRowSchema = z.object({
 export type IncidentTicketProposalRow = z.infer<
   typeof IncidentTicketProposalRowSchema
 >;
+
+// ---------- board assistant (BOARD-CHAT-PRD/TDD, wp-161) ----------
+
+/** `patch-item` field set — the single-item PATCH surface minus
+ *  geometry (`move-item`), minus `serves` (the `serve` op owns the
+ *  goal edge), minus `status` (`delete-item` owns `discarded`). Every
+ *  field optional; at least one must be present — an empty patch is
+ *  meaningless and fails closed. */
+export const BoardItemPatchSchema = z
+  .object({
+    title: z.string().nullish(),
+    body: z.string().nullish(),
+    kind: enumOf(BOARD_ITEM_KINDS).optional(),
+    note_kind: enumOf(NOTE_KINDS).nullish(),
+    importance: enumOf(NOTE_IMPORTANCES).nullish(),
+    note_status: enumOf(NOTE_STATUSES).nullish(),
+    topic: z.string().nullish(),
+    applies_to: z.array(z.string()).nullish(),
+    rationale: z.string().nullish(),
+    color: enumOf(BOARD_ITEM_COLORS).nullish(),
+    ref: z.string().nullish(),
+  })
+  .strict()
+  .refine((p) => Object.values(p).some((v) => v !== undefined), {
+    message: 'patch must set at least one field',
+  });
+export type BoardItemPatch = z.infer<typeof BoardItemPatchSchema>;
+
+/** Proposal ops (TDD op table) — discriminated on `op`, strict, so
+ *  malformed structured output fails closed at draft AND at accept.
+ *  The op object IS the stored `payload` (self-contained JSON). */
+export const ProposalOpSchema = z.discriminatedUnion('op', [
+  z
+    .object({
+      op: z.literal('create-item'),
+      kind: enumOf(BOARD_ITEM_KINDS).optional(),
+      note_kind: enumOf(NOTE_KINDS).nullish(),
+      title: z.string().nullish(),
+      body: z.string().nullish(),
+      ref: z.string().nullish(),
+      topic: z.string().nullish(),
+      importance: enumOf(NOTE_IMPORTANCES).nullish(),
+      applies_to: z.array(z.string()).nullish(),
+      rationale: z.string().nullish(),
+      color: enumOf(BOARD_ITEM_COLORS).nullish(),
+      /** x/y optional at draft — computePlacement fills them before
+       *  the proposal is shown (TDD placement). */
+      x: z.number().finite().optional(),
+      y: z.number().finite().optional(),
+      w: z.number().finite().nullish(),
+      h: z.number().finite().nullish(),
+      zone: z.string().nullish(),
+      /** Same-batch alias: other ops in the same draft may reference
+       *  this string where an item id is expected (`zone`, `id`,
+       *  `goal_item_id`, connector endpoints). Resolved to the created
+       *  item id inside the accept transaction; a pending reference
+       *  outside the batch refuses with a retryable error (D69). */
+      temp_id: z.string().min(1).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      op: z.literal('patch-item'),
+      id: z.string().min(1),
+      patch: BoardItemPatchSchema,
+    })
+    .strict(),
+  z
+    .object({
+      op: z.literal('move-item'),
+      id: z.string().min(1),
+      x: z.number().finite().nullish(),
+      y: z.number().finite().nullish(),
+      zone: z.string().nullish(),
+    })
+    .strict(),
+  z
+    .object({
+      op: z.literal('serve'),
+      id: z.string().min(1),
+      goal_item_id: z.string().min(1),
+    })
+    .strict(),
+  z
+    .object({
+      op: z.literal('connect'),
+      source_item_id: z.string().min(1),
+      target_item_id: z.string().min(1),
+      label: z.string().nullish(),
+    })
+    .strict(),
+  z
+    .object({
+      op: z.literal('connector-remove'),
+      id: z.string().min(1),
+    })
+    .strict(),
+  z
+    .object({
+      op: z.literal('delete-item'),
+      id: z.string().min(1),
+    })
+    .strict(),
+]);
+export type ProposalOp = z.infer<typeof ProposalOpSchema>;
+
+/** board_proposals.provenance — item → source statement(s) → the
+ *  transcript turn (`seq` on the row). */
+export const ProposalProvenanceSchema = z
+  .object({
+    statement_ids: z.array(z.string()).default([]),
+    branch: z.string().nullish(),
+  })
+  .strict();
+export type ProposalProvenance = z.infer<typeof ProposalProvenanceSchema>;
+
+/** `board_proposals` row (DB-SCHEMA, TDD data model) — one durable,
+ *  attributable, reversible proposal. `base_updated_at` is the OCC
+ *  fence captured at draft time for item-targeting ops; a stale base
+ *  409s the accept and marks the row `stale`. */
+export const BoardProposalRowSchema = z
+  .object({
+    workspace: z.string().min(1),
+    org: z.string().nullish(),
+    proposal_id: z.string().min(1),
+    board: z.string().min(1),
+    /** The board's assistant thread session. */
+    session_id: z.string().min(1),
+    /** Checkpoint grouping — the batch accept-all scope. */
+    batch_id: z.string().nullish(),
+    /** Transcript seq that produced the proposal. */
+    seq: z.number().int().nullish(),
+    op: enumOf(BOARD_PROPOSAL_OPS),
+    payload: ProposalOpSchema,
+    base_updated_at: z.string().nullish(),
+    /** Related item ids (explainability — anchor/zone neighbors). */
+    anchor: z.array(z.string()).nullish(),
+    provenance: ProposalProvenanceSchema.nullish(),
+    status: enumOf(BOARD_PROPOSAL_STATUSES),
+    created_by: z.string().min(1),
+    decided_by: z.string().nullish(),
+    decided_at: z.string().nullish(),
+    created_at: z.string().nullish(),
+    updated_at: z.string().nullish(),
+  })
+  /** The `op` column and `payload.op` must agree — a divergent row is
+   *  ambiguous (indexing vs execution disagree) and fails closed. */
+  .refine((r) => r.payload.op === r.op, {
+    message: 'payload.op must equal op',
+    path: ['payload'],
+  });
+export type BoardProposalRow = z.infer<typeof BoardProposalRowSchema>;
+
+/** converse() output (TDD turn pipeline step 3) — the assistant's
+ *  command-mode reply plus zero or more proposal ops. Parsed
+ *  fail-closed: malformed output = zero ops, the reply says so. */
+export const ConverseOutputSchema = z
+  .object({
+    reply: z.string(),
+    ops: z.array(ProposalOpSchema).default([]),
+  })
+  .strict();
+export type ConverseOutput = z.infer<typeof ConverseOutputSchema>;
+
+/** Skill surface descriptor returned by `GET …/assistant` (TDD REST
+ *  table) — the panel renders pills from this list. */
+export const AssistantSkillInfoSchema = z.object({
+  skill: enumOf(BOARD_ASSISTANT_SKILLS),
+  label: z.string(),
+  description: z.string().nullish(),
+});
+export type AssistantSkillInfo = z.infer<typeof AssistantSkillInfoSchema>;
+
+// ---------- completion provider seam (TDD contract amendment 4) ----------
+
+/** One chat-completions turn message (OpenAI-compatible shape — the
+ *  same envelope OpenRouter and a self-hosted vLLM serve). */
+export interface ConverseMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+}
+
+export interface ConverseOptions {
+  /** JSON schema for `response_format`-style structured output when the
+   *  route allows it; caller-side zod validation stays authoritative
+   *  either way (fail-closed). */
+  jsonSchema?: { name: string; schema: Record<string, unknown> };
+  /** Route-resolved `max_output_tokens` ceiling. */
+  maxOutputTokens?: number;
+}
+
+/** The ONLY way assistant code reaches an LLM — resolved once at
+ *  server start via `resolveModelRoute(config, 'assistant')`; absent
+ *  key/route → `undefined` and every consumer degrades
+ *  deterministically (PRD R10). No streaming in v1. */
+export interface CompletionProvider {
+  converse(
+    messages: ConverseMessage[],
+    opts?: ConverseOptions,
+  ): Promise<string>;
+}

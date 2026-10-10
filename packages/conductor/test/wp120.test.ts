@@ -390,6 +390,57 @@ describe('validated resolution + decide lifecycle', () => {
     expect(reopened.status).toBe('open');
     expect(reopened.resolution_verified).toBe(0);
   });
+
+  it('pr_refs must match a recorded ticket_repos.pr_url; unverified refs are dropped, not stored', async () => {
+    await seedSource();
+    const r = await ingestTelemetry(ctx(), {
+      source_id: 'otel-prod',
+      events: [evt()],
+    });
+    const inc = r.incidents_opened.at(0);
+    await decideIncidentStatus(ctx(), {
+      id: inc.id,
+      action: 'investigate',
+      expected: 'open',
+    });
+
+    // A fabricated PR url can never settle an incident.
+    await expect(
+      decideIncidentStatus(ctx(), {
+        id: inc.id,
+        action: 'resolve',
+        expected: 'investigating',
+        evidence: {
+          resolution: 'fix shipped',
+          pr_refs: ['https://gh/o/r/pull/999'],
+        },
+      }),
+    ).rejects.toThrow(/does not resolve/);
+
+    // The shepherd-recorded repo row is the PR registry — a matching
+    // pr_ref resolves (normalized: trailing slash/case tolerated), and
+    // supplied-but-fake refs land nowhere.
+    await store.upsertTicketRepo({
+      workspace: WS,
+      ticket_id: 'SR-1',
+      repo: 'app',
+      pr_url: 'https://GH/o/r/pull/9',
+    });
+    const resolved = await decideIncidentStatus(ctx(), {
+      id: inc.id,
+      action: 'resolve',
+      expected: 'investigating',
+      evidence: {
+        resolution: 'fix shipped',
+        pr_refs: ['https://gh/o/r/pull/9/', 'https://gh/o/r/pull/999'],
+        deployment_refs: ['dep_fake'],
+      },
+    });
+    expect(resolved.status).toBe('resolved');
+    // Stored lists carry only the existence-verified subset.
+    expect(resolved.pr_refs).toEqual(['https://gh/o/r/pull/9/']);
+    expect(resolved.deployment_refs).toEqual([]);
+  });
 });
 
 describe('draft-ticket gate', () => {

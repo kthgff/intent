@@ -13,11 +13,13 @@
  * merge queue picks the FIFO order — the UI renders ready tickets
  * first, oldest evaluation first.
  */
+import { Check, X } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { type MergeChecklistItem, type MergeReadiness, client } from '../api';
-import { Empty, ErrorBox, Loading, fmtAge } from '../components';
+import { ConfirmDialog, Empty, ErrorBox, Loading, fmtAge } from '../components';
 import { useLoad, useStreamRefresh } from '../hooks';
+import { projectPath, useProject } from '../project';
 
 /** Checklist presentation order (DELIVERY §2 sequence). */
 const ITEM_ORDER = [
@@ -48,13 +50,8 @@ export function queueOrder(tickets: MergeReadiness[]): MergeReadiness[] {
 }
 
 export default function MergeCenter() {
-  const workspaces = useLoad(() => client.workspaces(), []);
-  const [ws, setWs] = useState('');
-  const effective = ws || workspaces.data?.workspaces[0]?.name || '';
-  const state = useLoad(
-    () => (effective ? client.mergeCenter(effective) : Promise.resolve(null)),
-    [effective],
-  );
+  const effective = useProject();
+  const state = useLoad(() => client.mergeCenter(effective), [effective]);
   useStreamRefresh(state.reload, [
     'merge_ready',
     'merge_attempted',
@@ -66,25 +63,12 @@ export default function MergeCenter() {
   ]);
 
   return (
-    <section>
+    <section className="merge-center-screen">
       <h1 className="page-title">Merge Center</h1>
       <p className="page-sub">
         Per-ticket merge readiness — Veto executes the merge when every check is
         green (DELIVERY §2).
       </p>
-      <div className="row">
-        <select
-          aria-label="workspace"
-          value={effective}
-          onChange={(e) => setWs(e.target.value)}
-        >
-          {(workspaces.data?.workspaces ?? []).map((w) => (
-            <option key={w.name} value={w.name}>
-              {w.name}
-            </option>
-          ))}
-        </select>
-      </div>
       {state.loading && <Loading label="Evaluating readiness…" />}
       {state.error != null && <ErrorBox error={state.error} />}
       {state.data && state.data.tickets.length === 0 && (
@@ -117,6 +101,7 @@ export function ReadinessCard({
 }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<unknown>(null);
+  const [confirmMerge, setConfirmMerge] = useState(false);
 
   const act = async (action: 'merge') => {
     setBusy(true);
@@ -142,7 +127,7 @@ export function ReadinessCard({
       <div className="card-title">
         <strong>
           <Link
-            to={`/tickets/${encodeURIComponent(ws)}/${encodeURIComponent(r.ticket_id)}`}
+            to={projectPath(ws, `/tickets/${encodeURIComponent(r.ticket_id)}`)}
           >
             {r.ticket_id}
           </Link>
@@ -163,7 +148,12 @@ export function ReadinessCard({
       <ul className="checklist" aria-label="readiness checklist">
         {orderedItems(r).map((item) => (
           <li key={item.id} className={`check-${item.ok ? 'ok' : 'blocked'}`}>
-            <span aria-hidden>{item.ok ? '✓' : '✗'}</span> {item.label}
+            {item.ok ? (
+              <Check size={13} aria-hidden />
+            ) : (
+              <X size={13} aria-hidden />
+            )}{' '}
+            {item.label}
             {item.detail ? (
               <span className="muted"> — {item.detail}</span>
             ) : null}
@@ -188,7 +178,7 @@ export function ReadinessCard({
             `rebase` run owns the rewrite (never a silent force-push).
           </p>
           <Link
-            to={`/tickets/${encodeURIComponent(ws)}/${encodeURIComponent(r.ticket_id)}`}
+            to={projectPath(ws, `/tickets/${encodeURIComponent(r.ticket_id)}`)}
           >
             Open ticket / rebase run →
           </Link>
@@ -210,7 +200,7 @@ export function ReadinessCard({
             className="primary"
             disabled={busy}
             title="execute merge — gh pr merge via the ticket action"
-            onClick={() => void act('merge')}
+            onClick={() => setConfirmMerge(true)}
           >
             Merge now
           </button>
@@ -220,11 +210,24 @@ export function ReadinessCard({
             here. */}
         <Link
           className="btn small"
-          to={`/tickets/${encodeURIComponent(ws)}/${encodeURIComponent(r.ticket_id)}/pr`}
+          to={projectPath(ws, `/tickets/${encodeURIComponent(r.ticket_id)}/pr`)}
         >
           PR panel →
         </Link>
       </div>
+      {confirmMerge && (
+        <ConfirmDialog
+          title={`Merge ${r.ticket_id}?`}
+          body="Executes the merge across this ticket's repos via the conductor's merge queue."
+          confirmLabel="Merge now"
+          busy={busy}
+          onConfirm={() => {
+            setConfirmMerge(false);
+            void act('merge');
+          }}
+          onCancel={() => setConfirmMerge(false)}
+        />
+      )}
     </li>
   );
 }

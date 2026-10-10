@@ -12,6 +12,7 @@ import type { KnowledgeSlotRow, StatementRow } from '@veto/core';
 import { useState } from 'react';
 import { type PanelStatement, type Understanding, client } from '../api';
 import { StatusBadge } from '../components';
+import { DictationField } from '../dictation';
 import { statementProvenance } from '../discovery';
 
 interface PanelProps {
@@ -24,7 +25,16 @@ interface PanelProps {
 
 function SlotChip({ slot }: { slot: KnowledgeSlotRow }) {
   return (
-    <span className={`badge slot-${slot.state}`} title={slot.value ?? ''}>
+    <span
+      className={`badge slot-${slot.state}`}
+      title={slot.value ?? ''}
+      // Chips carry their value in the tooltip — tabIndex + aria-label
+      // make it reachable without a pointer.
+      tabIndex={0}
+      aria-label={`${slot.slot}: ${slot.state}${
+        slot.value ? ` — ${slot.value}` : ''
+      }`}
+    >
       {slot.slot}: {slot.state}
     </span>
   );
@@ -48,6 +58,8 @@ export function StatementRowView({
   onError: (msg: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const [disputing, setDisputing] = useState(false);
+  const [disputeReason, setDisputeReason] = useState('');
   const [correction, setCorrection] = useState(statement.text);
 
   const act = async (fn: () => Promise<unknown>, what: string) => {
@@ -71,11 +83,13 @@ export function StatementRowView({
       </details>
       {editing ? (
         <div className="row">
-          <input
-            aria-label="corrected statement"
-            value={correction}
-            onChange={(e) => setCorrection(e.target.value)}
-          />
+          <DictationField>
+            <input
+              aria-label="corrected statement"
+              value={correction}
+              onChange={(e) => setCorrection(e.target.value)}
+            />
+          </DictationField>
           <button
             type="button"
             className="small primary"
@@ -102,8 +116,65 @@ export function StatementRowView({
             Cancel
           </button>
         </div>
-      ) : (
+      ) : disputing ? (
         <div className="row">
+          <DictationField>
+            <input
+              aria-label="dispute reason"
+              placeholder="Why is this wrong?"
+              value={disputeReason}
+              onChange={(e) => setDisputeReason(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && disputeReason.trim()) {
+                  const reason = disputeReason.trim();
+                  setDisputing(false);
+                  setDisputeReason('');
+                  void act(
+                    () =>
+                      client.decideStatement(statement.statement_id, {
+                        workspace: ws,
+                        action: 'dispute',
+                        reason,
+                      }),
+                    'Dispute failed',
+                  );
+                }
+              }}
+              // biome-ignore lint/a11y/noAutofocus: revealed by explicit click
+              autoFocus
+            />
+          </DictationField>
+          <button
+            type="button"
+            className="small primary"
+            disabled={!disputeReason.trim()}
+            onClick={() => {
+              const reason = disputeReason.trim();
+              setDisputing(false);
+              setDisputeReason('');
+              void act(
+                () =>
+                  client.decideStatement(statement.statement_id, {
+                    workspace: ws,
+                    action: 'dispute',
+                    reason,
+                  }),
+                'Dispute failed',
+              );
+            }}
+          >
+            Dispute
+          </button>
+          <button
+            type="button"
+            className="small"
+            onClick={() => setDisputing(false)}
+          >
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <div className="row actions">
           {statement.status !== 'confirmed' && (
             <button
               type="button"
@@ -119,7 +190,7 @@ export function StatementRowView({
                 )
               }
             >
-              confirm
+              Confirm
             </button>
           )}
           <button
@@ -130,26 +201,14 @@ export function StatementRowView({
               setEditing(true);
             }}
           >
-            correct
+            Correct
           </button>
           <button
             type="button"
             className="small"
-            onClick={() => {
-              const reason = window.prompt('Dispute reason?');
-              if (!reason) return;
-              void act(
-                () =>
-                  client.decideStatement(statement.statement_id, {
-                    workspace: ws,
-                    action: 'dispute',
-                    reason,
-                  }),
-                'Dispute failed',
-              );
-            }}
+            onClick={() => setDisputing(true)}
           >
-            dispute
+            Dispute
           </button>
           <button
             type="button"
@@ -165,7 +224,7 @@ export function StatementRowView({
               )
             }
           >
-            reject
+            Reject
           </button>
         </div>
       )}
@@ -220,10 +279,22 @@ export default function UnderstandingPanel({
 
   return (
     <aside className="understanding" aria-label="understanding panel">
-      <h2 style={{ marginTop: 0 }}>Understanding</h2>
-      <div className="muted" style={{ marginBottom: 8 }}>
-        draft {u.readiness.draft_ready ? '✓' : '✗'} · approval{' '}
-        {u.readiness.approval_ready ? '✓' : '✗'}
+      <h2>Understanding</h2>
+      <div className="muted understanding-readiness">
+        draft{' '}
+        <span
+          className={u.readiness.draft_ready ? 'readiness-ok' : 'readiness-no'}
+        >
+          {u.readiness.draft_ready ? 'ready ✓' : 'not ready ✗'}
+        </span>
+        {' · '}approval{' '}
+        <span
+          className={
+            u.readiness.approval_ready ? 'readiness-ok' : 'readiness-no'
+          }
+        >
+          {u.readiness.approval_ready ? 'ready ✓' : 'blocked ✗'}
+        </span>
       </div>
       {u.readiness.approval_blockers.length > 0 && (
         <ul className="list" aria-label="readiness blockers">
@@ -324,17 +395,19 @@ export default function UnderstandingPanel({
               {d.statement?.text ?? d.statement_id}
               {d.rationale && <div className="muted">{d.rationale}</div>}
               <div className="row">
-                <input
-                  aria-label="ruling"
-                  placeholder="ruling…"
-                  value={decisionText[d.decision_id] ?? ''}
-                  onChange={(e) =>
-                    setDecisionText({
-                      ...decisionText,
-                      [d.decision_id]: e.target.value,
-                    })
-                  }
-                />
+                <DictationField>
+                  <input
+                    aria-label="ruling"
+                    placeholder="ruling…"
+                    value={decisionText[d.decision_id] ?? ''}
+                    onChange={(e) =>
+                      setDecisionText({
+                        ...decisionText,
+                        [d.decision_id]: e.target.value,
+                      })
+                    }
+                  />
+                </DictationField>
                 {(['confirmed', 'rejected'] as const).map((a) => (
                   <button
                     key={a}
@@ -342,7 +415,7 @@ export default function UnderstandingPanel({
                     className="small"
                     onClick={() => void decide(d.decision_id, a)}
                   >
-                    {a}
+                    {a === 'confirmed' ? 'Confirm' : 'Reject'}
                   </button>
                 ))}
                 <button
@@ -350,7 +423,7 @@ export default function UnderstandingPanel({
                   className="small"
                   onClick={() => void dismiss(d.decision_id)}
                 >
-                  dismiss
+                  Dismiss
                 </button>
               </div>
             </li>

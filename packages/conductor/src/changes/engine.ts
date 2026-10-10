@@ -294,28 +294,35 @@ async function clearDecisionGate(
   }
 }
 
-/** Persist a status + audit fields in one row write + event. */
+/** Persist a status + audit fields in one row write + event.
+ *  `opts.expected` switches the write to the OCC update — the UPDATE
+ *  predicate IS the fence (see store.updateChangesetExpected). */
 async function writeState(
   ctx: ChangesCtx,
   cs: ChangesetRow,
   patch: Partial<ChangesetRow>,
-  event?: EventName,
-  data: Record<string, unknown> = {},
-  expected?: { statuses?: string[]; updated_at?: string | undefined },
+  opts?: {
+    event?: EventName;
+    data?: Record<string, unknown>;
+    expected?: { statuses?: string[]; updated_at?: string | undefined };
+  },
 ): Promise<ChangesetRow> {
   const next: ChangesetRow = { ...cs, ...patch, updated_at: nowIso(ctx) };
-  if (expected) {
-    const updated = await ctx.store.updateChangesetExpected(next, expected);
+  if (opts?.expected) {
+    const updated = await ctx.store.updateChangesetExpected(
+      next,
+      opts.expected,
+    );
     if (!updated) {
       throw conflict(
         `changeset ${cs.changeset_id} changed state mid-transition — aborting`,
       );
     }
-    if (event) await emit(ctx, updated, event, data);
+    if (opts.event) await emit(ctx, updated, opts.event, opts.data ?? {});
     return updated;
   }
   await ctx.store.upsertChangeset(next);
-  if (event) await emit(ctx, next, event, data);
+  if (opts?.event) await emit(ctx, next, opts.event, opts.data ?? {});
   return next;
 }
 
@@ -590,13 +597,18 @@ export async function analyzeChangeset(
   const next = await writeState(
     ctx,
     cs,
-    { status: 'awaiting-decision', analysis },
-    'note_added',
     {
-      kind: 'changeset-analyzed',
-      affected: analysis.affected_subjects.length,
-      releases: analysis.affected_releases.map((r) => r.release_id),
-      conflicts: analysis.conflicts.map((c) => c.changeset_id),
+      status: 'awaiting-decision',
+      analysis,
+    },
+    {
+      event: 'note_added',
+      data: {
+        kind: 'changeset-analyzed',
+        affected: analysis.affected_subjects.length,
+        releases: analysis.affected_releases.map((r) => r.release_id),
+        conflicts: analysis.conflicts.map((c) => c.changeset_id),
+      },
     },
   );
   await surfaceDecisionGate(ctx, next);
@@ -905,9 +917,14 @@ export async function applyChangeset(
         status: 'awaiting-decision',
         decided_at: null,
       },
-      'note_added',
-      { kind: 'changeset-approval-expired', expires_on: cs.expires_on },
-      { updated_at: cs.updated_at ?? undefined },
+      {
+        event: 'note_added',
+        data: {
+          kind: 'changeset-approval-expired',
+          expires_on: cs.expires_on,
+        },
+        expected: { updated_at: cs.updated_at ?? undefined },
+      },
     );
     await surfaceDecisionGate(ctx, cs);
     await notifyOwners(
@@ -943,11 +960,11 @@ export async function applyChangeset(
     ctx,
     cs,
     { status: 'applying' },
-    undefined,
-    {},
     {
-      statuses: ['approved', 'applying', 'apply-failed'],
-      updated_at: cs.updated_at ?? undefined,
+      expected: {
+        statuses: ['approved', 'applying', 'apply-failed'],
+        updated_at: cs.updated_at ?? undefined,
+      },
     },
   );
 
@@ -1116,11 +1133,13 @@ export async function applyChangeset(
         status: failed ? 'apply-failed' : 'applying',
         reconciliation,
       },
-      'changeset_applied',
       {
-        applied: outcome.applied.map((a) => a.seq),
-        skipped: outcome.skipped.map((s) => s.seq),
-        failed: outcome.failed.map((f) => f.seq),
+        event: 'changeset_applied',
+        data: {
+          applied: outcome.applied.map((a) => a.seq),
+          skipped: outcome.skipped.map((s) => s.seq),
+          failed: outcome.failed.map((f) => f.seq),
+        },
       },
     );
 
@@ -1176,8 +1195,10 @@ export async function applyChangeset(
           failed_at: ts,
         },
       },
-      'note_added',
-      { kind: 'changeset-apply-error', error: (e as Error).message },
+      {
+        event: 'note_added',
+        data: { kind: 'changeset-apply-error', error: (e as Error).message },
+      },
     );
     throw new ChangesetError(
       'conflict',
@@ -1209,11 +1230,13 @@ async function invalidateConflictingApprovals(
         expires_on: at,
         decided_at: null,
       },
-      'note_added',
       {
-        kind: 'changeset-approval-invalidated',
-        by: cs.changeset_id,
-        overlap: c.overlap,
+        event: 'note_added',
+        data: {
+          kind: 'changeset-approval-invalidated',
+          by: cs.changeset_id,
+          overlap: c.overlap,
+        },
       },
     );
     await surfaceDecisionGate(ctx, next);
@@ -1304,12 +1327,14 @@ export async function verifyChangeset(
     ctx,
     cs,
     { status: 'verified', reconciliation },
-    'changeset_verified',
     {
-      post_apply_drift: drift.length,
-      releases: (
-        (cs.analysis as ChangesetAnalysis | null)?.affected_releases ?? []
-      ).map((r) => r.release_id),
+      event: 'changeset_verified',
+      data: {
+        post_apply_drift: drift.length,
+        releases: (
+          (cs.analysis as ChangesetAnalysis | null)?.affected_releases ?? []
+        ).map((r) => r.release_id),
+      },
     },
   );
   await notifyOwners(
@@ -1346,10 +1371,15 @@ export async function attachRetro(
     ctx.actor,
   );
   const retro_ref = `doc:${cs.changeset_id}:retro.md:v${v.version}`;
-  return writeState(ctx, cs, { retro_ref }, 'note_added', {
-    kind: 'changeset-retro',
-    retro_ref,
-  });
+  return writeState(
+    ctx,
+    cs,
+    { retro_ref },
+    {
+      event: 'note_added',
+      data: { kind: 'changeset-retro', retro_ref },
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1413,8 +1443,7 @@ export async function rebaseChangesetItem(
         ctx,
         cs,
         { status: 'awaiting-decision', decided_at: null },
-        'note_added',
-        { kind: 'changeset-rebased' },
+        { event: 'note_added', data: { kind: 'changeset-rebased' } },
       );
       await surfaceDecisionGate(ctx, upd);
     }
@@ -1443,10 +1472,7 @@ export async function abandonChangeset(
     ctx,
     cs,
     { status: 'abandoned' },
-    'note_added',
-    {
-      kind: 'changeset-abandoned',
-    },
+    { event: 'note_added', data: { kind: 'changeset-abandoned' } },
   );
   await clearDecisionGate(ctx, cs);
   return next;
@@ -1475,8 +1501,10 @@ export async function reopenChangeset(
       decided_at: null,
       expires_on: null,
     },
-    'note_added',
-    { kind: 'changeset-reopened', from: cs.status },
+    {
+      event: 'note_added',
+      data: { kind: 'changeset-reopened', from: cs.status },
+    },
   );
   return next;
 }
@@ -1507,8 +1535,13 @@ export async function sweepChangesetExpiry(
       ctx,
       cs,
       { status: 'awaiting-decision', decided_at: null },
-      'note_added',
-      { kind: 'changeset-approval-expired', expires_on: cs.expires_on },
+      {
+        event: 'note_added',
+        data: {
+          kind: 'changeset-approval-expired',
+          expires_on: cs.expires_on,
+        },
+      },
     );
     await surfaceDecisionGate(ctx, next);
     await notifyOwners(

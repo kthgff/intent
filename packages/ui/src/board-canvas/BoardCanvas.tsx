@@ -14,7 +14,14 @@
  *     recovery that restores durable state and keeps drafts;
  *   - session undo/redo as *new fenced writes* (history.ts).
  */
-import type { BoardConnector, BoardItem } from '@veto/core';
+import type {
+  BoardAnnotation,
+  BoardConnector,
+  BoardItem,
+  BoardProposalRow,
+  BoardVote,
+  BoardVoteSession,
+} from '@veto/core';
 import {
   Background,
   BackgroundVariant,
@@ -31,18 +38,25 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError, type IdeaBoardDetail } from '../api';
 import { ConnectorEdge } from './ConnectorEdge';
+import { AnnotationLayer, DrawCapture, annotationBounds } from './annotations';
+import { projectProposals } from './assistant';
 import {
+  BULK_FIELDS,
   CommandHistory,
   type ItemMutation,
   type ItemPatch,
+  PATCHABLE_FIELDS,
+  type PatchableField,
   makeCommand,
   makeCreateCommand,
 } from './history';
 import { arrange } from './layout';
+import { BoardMinimap } from './minimap';
 import {
   type CanvasEdge,
   type CanvasNode,
   type CanvasTool,
+  type DrawKind,
   absoluteRect,
   containingZone,
   defaultSizeFor,
@@ -52,6 +66,8 @@ import {
 import {
   type CanvasActions,
   CanvasActionsProvider,
+  CommentPinNode,
+  GhostNode,
   ImageNode,
   LinkNode,
   StickyNode,
@@ -60,16 +76,27 @@ import {
   ZoneNode,
 } from './nodes';
 import {
+  ArrangePreviewBar,
+  CommentThread,
   ConflictNotice,
   ConnectorBar,
+  DrawBar,
   MultiSelectBar,
   ObjectsPanel,
   SaveBadge,
   type SaveState,
-  ToolRail,
+  TimerChip,
   TrayDock,
+  VoteSessionChip,
+  VoteStampBar,
   ZoomControls,
 } from './overlays';
+import { PresentationBar } from './presentation';
+import { commentThreads, threadKeyOf } from './tools/comment';
+import { orderedZones } from './tools/presentation';
+import { ToolRail } from './tools/rail';
+import { nodeAtPoint } from './tools/select';
+import { openSession, visibleTallies } from './tools/vote';
 
 const nodeTypes = {
   sticky: StickyNode,
@@ -77,6 +104,8 @@ const nodeTypes = {
   zone: ZoneNode,
   link: LinkNode,
   image: ImageNode,
+  comment: CommentPinNode,
+  ghost: GhostNode,
 };
 const edgeTypes = { connector: ConnectorEdge };
 const defaultEdgeOptions = { type: 'connector' as const };
@@ -106,9 +135,10 @@ export interface BoardCanvasHandlers {
   /** Create an item at a flow coordinate; resolves to the row. */
   add(input: {
     kind: string;
+    note_kind?: string;
     title: string;
     body?: string;
-    ref?: string;
+    ref?: string | null;
     x: number;
     y: number;
     w?: number;
@@ -127,6 +157,21 @@ export interface BoardCanvasHandlers {
   removeConnector(id: string): Promise<void>;
   /** Promote a tray item onto the board at an optional drop point. */
   promote(item: BoardItem, pos?: { x: number; y: number }): Promise<void>;
+  /** Drawing layer — one durable POST per completed stroke/shape. */
+  addAnnotation(input: {
+    kind: BoardAnnotation['kind'];
+    geometry: BoardAnnotation['geometry'];
+  }): Promise<BoardAnnotation>;
+  /** Drawings are not governed artifacts — a real delete is legal. */
+  removeAnnotation(id: string): Promise<void>;
+  /** Vote stamps — upsert the caller's row in the open session. */
+  castVote(input: {
+    session_id: string;
+    item_id: string;
+    stamp: BoardVote['stamp'];
+  }): Promise<BoardVote>;
+  openVoteSession(): Promise<BoardVoteSession>;
+  closeVoteSession(session: BoardVoteSession): Promise<BoardVoteSession>;
   /** Durable re-read (SSE invalidation, conflict recovery). */
   refresh(): void;
   /** Non-blocking notice surface (toasts). */
@@ -140,9 +185,26 @@ export interface BoardCanvasProps {
   tray: BoardItem[];
   /** Below-900px read mode: no editing gestures, inspector read-only. */
   readOnly: boolean;
+  /** Note-kind options for the bulk bar's type verb (Easy Edit parity). */
+  taxonomy: string[];
+  /** `ui.canvas_draw` — the draw group + layer render behind this flag. */
+  drawEnabled: boolean;
+  /** `?votes=show` — surface the latest session's tallies while closed. */
+  showVotes: boolean;
   selected: string | null;
   onSelect(id: string | null): void;
   handlers: BoardCanvasHandlers;
+  /** BOARD-CHAT-TDD (wp-166): pending `board_proposals` rows projected
+   *  as ghost nodes/edges. Dormant until wp-165 wires IdeaBoard —
+   *  absent/empty renders exactly the unmodified canvas. */
+  proposals?: BoardProposalRow[];
+  /** Ghost click surfaces the source proposal (wp-165 → thread
+   *  scroll). Optional: ghosts stay inert without it. */
+  onGhostClick?: (proposal: BoardProposalRow) => void;
+  /** BOARD-CHAT deep-link (wp-165): pan/zoom to a flow-coordinate
+   *  center point. `seq` retriggers identical coordinates (clicking
+   *  the same proposal twice). */
+  focus?: { x: number; y: number; seq: number } | null;
 }
 
 interface ConflictState {
@@ -174,9 +236,15 @@ function InnerCanvas({
   board,
   tray,
   readOnly,
+  taxonomy,
+  drawEnabled,
+  showVotes,
   selected,
   onSelect,
   handlers,
+  proposals,
+  onGhostClick,
+  focus,
 }: BoardCanvasProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [tool, setTool] = useState<CanvasTool>('select');
@@ -191,6 +259,27 @@ function InnerCanvas({
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const [conflict, setConflict] = useState<ConflictState | null>(null);
   const [historyTick, setHistoryTick] = useState(0);
+  // TOOLS-TDD tool state — vote stamp, draw shape, thread popover,
+  // presentation mode, and the annotation under delete-selection are
+  // all transient (lost on reload by design, §1 durability table).
+  const [voteStamp, setVoteStamp] = useState<'up' | 'down' | 'question'>('up');
+  const [drawKind, setDrawKind] = useState<DrawKind>('stroke');
+  const [openThread, setOpenThread] = useState<string | null>(null);
+  const [presenting, setPresenting] = useState(false);
+  const [presentIndex, setPresentIndex] = useState(0);
+  const [livePath, setLivePath] = useState<string | null>(null);
+  const [selectedAnnotation, setSelectedAnnotation] = useState<string | null>(
+    null,
+  );
+  const [sessionBusy, setSessionBusy] = useState(false);
+  // Arrange preview — positions staged on the canvas, written only on
+  // Apply (TOOLS-TDD §3 cluster/auto-layout: preview before write).
+  const [arrangePreview, setArrangePreview] = useState<{
+    label: string;
+    mutations: ItemMutation[];
+    before: BoardItem[];
+    lockedSkipped: number;
+  } | null>(null);
 
   const history = useRef(new CommandHistory());
   const draftTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
@@ -214,13 +303,41 @@ function InnerCanvas({
     return m;
   }, [data]);
 
+  // Vote tallies the badges may show — an open session's live counts,
+  // or the latest session under `?votes=show` (TOOLS-TDD §2.4).
+  const tallies = useMemo(
+    () => visibleTallies(data.votes ?? [], data.vote_sessions ?? [], showVotes),
+    [data.votes, data.vote_sessions, showVotes],
+  );
+  const openVote = useMemo(
+    () => openSession(data.vote_sessions ?? []),
+    [data.vote_sessions],
+  );
+
   const projected = useMemo(
-    () => projectItems(data.items, editingId),
-    [data.items, editingId],
+    () => projectItems(data.items, editingId, { votes: tallies }),
+    [data.items, editingId, tallies],
   );
   const [nodes, setNodes] = useState<CanvasNode[]>(projected);
   const [edges, setEdges] = useState<CanvasEdge[]>(() =>
     projectConnectors(data.connectors ?? []),
+  );
+
+  // BOARD-CHAT ghost projection (wp-166) — O(pending), memoized on
+  // (proposals, items). Ghosts stay OUT of `nodes`/`edges` state so
+  // they can never enter selection, marquee, history, or undo; they
+  // are appended only at the React Flow boundary below.
+  const ghosts = useMemo(
+    () => projectProposals(proposals ?? [], data.items, data.connectors ?? []),
+    [proposals, data.items, data.connectors],
+  );
+  const renderedNodes = useMemo(
+    () => (ghosts.nodes.length ? [...nodes, ...ghosts.nodes] : nodes),
+    [nodes, ghosts],
+  );
+  const renderedEdges = useMemo(
+    () => (ghosts.edges.length ? [...edges, ...ghosts.edges] : edges),
+    [edges, ghosts],
   );
 
   // Server state replaces the projection wholesale; keep the selection
@@ -255,9 +372,20 @@ function InnerCanvas({
     [nodes],
   );
 
-  const { screenToFlowPosition, setCenter, getViewport } = useReactFlow();
+  const { screenToFlowPosition, setCenter, getViewport, fitView, fitBounds } =
+    useReactFlow();
   const savedViewport = useMemo(() => readViewport(ws, board), [ws, board]);
   const shellRef = useRef<HTMLDivElement>(null);
+
+  // BOARD-CHAT deep-link (wp-165): clicking a proposal/message pans the
+  // viewport to its position. seq-keyed — a repeated request re-centers.
+  useEffect(() => {
+    if (!focus) return;
+    void setCenter(focus.x, focus.y, {
+      zoom: Math.max(getViewport().zoom, 1),
+      duration: prefersReducedMotion() ? 0 : 300,
+    });
+  }, [focus, setCenter, getViewport]);
 
   const focusNode = useCallback((id: string) => {
     requestAnimationFrame(() => {
@@ -299,12 +427,13 @@ function InnerCanvas({
       mutations: ItemMutation[],
       label: string,
       before: BoardItem[],
+      fields: readonly PatchableField[] = PATCHABLE_FIELDS,
     ): Promise<BoardItem[] | null> => {
       if (mutations.length === 0) return [];
       setSaveState('saving');
       try {
         const rows = await handlers.mutate(mutations);
-        history.current.push(makeCommand(label, before, rows));
+        history.current.push(makeCommand(label, before, rows, fields));
         bumpHistory();
         setSaveState('saved');
         setConflict(null);
@@ -478,6 +607,241 @@ function InnerCanvas({
   );
 
   // ------------------------------------------------------------------
+  // Comment pins (TOOLS-TDD §2.3) — durable `kind='feedback'` +
+  // `note_kind='comment'` items; resolve archives, never deletes.
+  // ------------------------------------------------------------------
+
+  /** Drop a pin at a flow point. `refId` pins to a known node (the
+   *  comment tool's node click); otherwise the topmost node under the
+   *  point is the target, else the pin is free-standing. */
+  const placeComment = useCallback(
+    (pos: { x: number; y: number }, refId?: string) => {
+      const target =
+        refId !== undefined
+          ? (nodes.find((n) => n.id === refId) ?? null)
+          : nodeAtPoint(pos, nodes);
+      void handlers
+        .add({
+          kind: 'feedback',
+          note_kind: 'comment',
+          title: '',
+          ref: target?.id ?? null,
+          x: pos.x,
+          y: pos.y,
+          ...defaultSizeFor('comment'),
+        })
+        .then((created) => {
+          history.current.push(makeCreateCommand(created));
+          bumpHistory();
+          setOpenThread(threadKeyOf(created));
+        })
+        .catch((e) =>
+          handlers.notice(
+            `Comment failed: ${e instanceof Error ? e.message : String(e)}`,
+          ),
+        );
+    },
+    [nodes, handlers, bumpHistory],
+  );
+
+  const commentThreadsByKey = useMemo(
+    () => commentThreads(data.items.map((s) => s.item)),
+    [data.items],
+  );
+
+  const openThreadList = useMemo(
+    () => (openThread ? (commentThreadsByKey.get(openThread) ?? []) : []),
+    [openThread, commentThreadsByKey],
+  );
+
+  /** The item a thread is anchored to — the popover's heading. */
+  const openThreadTitle = useMemo(() => {
+    if (!openThread) return '';
+    const target = itemsById.get(openThread);
+    if (target && target.note_kind !== 'comment') {
+      return target.title ?? target.body ?? 'item';
+    }
+    return 'Free-standing pin';
+  }, [openThread, itemsById]);
+
+  const resolveComment = useCallback(
+    (comment: BoardItem) => {
+      const m = fencedMutation(comment.id, { note_status: 'resolved' });
+      if (!m) return;
+      void applyMutations([m], 'resolve comment', [comment], BULK_FIELDS);
+    },
+    [fencedMutation, applyMutations],
+  );
+
+  /** A reply fills the pin's empty body when one exists; otherwise it
+   *  lands as a new comment row in the same thread. */
+  const replyComment = useCallback(
+    (text: string) => {
+      if (!openThread) return;
+      const empty = openThreadList.find(
+        (c) => !(c.body ?? '').trim() && !(c.title ?? '').trim(),
+      );
+      if (empty) {
+        const m = fencedMutation(empty.id, { body: text });
+        if (!m) return;
+        void applyMutations([m], 'comment', [empty], BULK_FIELDS);
+        return;
+      }
+      const anchor = openThreadList[0] ?? itemsById.get(openThread) ?? null;
+      const base = anchor
+        ? { x: (anchor.x ?? 0) + 24, y: (anchor.y ?? 0) + 24 }
+        : { x: 0, y: 0 };
+      void handlers
+        .add({
+          kind: 'feedback',
+          note_kind: 'comment',
+          title: '',
+          body: text,
+          ref: openThread,
+          x: base.x,
+          y: base.y,
+          ...defaultSizeFor('comment'),
+        })
+        .catch((e) =>
+          handlers.notice(
+            `Comment failed: ${e instanceof Error ? e.message : String(e)}`,
+          ),
+        );
+    },
+    [
+      openThread,
+      openThreadList,
+      itemsById,
+      fencedMutation,
+      applyMutations,
+      handlers,
+    ],
+  );
+
+  // ------------------------------------------------------------------
+  // Vote stamps + sessions (TOOLS-TDD §2.4) — signal only; closed
+  // sessions are enforced server-side (a 409 surfaces as a notice).
+  // ------------------------------------------------------------------
+
+  /** Shared write-failure surface (TOOLS-TDD §3): a 409 is a concurrent
+   *  conflict — the save-state chip + a truth refresh, never a silent
+   *  drop; anything else is a plain notice. */
+  const surfaceWriteError = useCallback(
+    (e: unknown, fallback: string) => {
+      if (e instanceof ApiError && e.status === 409) {
+        setSaveState('conflict');
+        handlers.refresh();
+      } else {
+        handlers.notice(
+          `${fallback}: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
+    },
+    [handlers],
+  );
+
+  const castVote = useCallback(
+    (node: CanvasNode) => {
+      if (!openVote) {
+        handlers.notice('No vote session is open — start one first');
+        return;
+      }
+      void handlers
+        .castVote({
+          session_id: openVote.id,
+          item_id: node.id,
+          stamp: voteStamp,
+        })
+        .catch((e) => surfaceWriteError(e, 'Vote rejected'));
+    },
+    [openVote, voteStamp, handlers, surfaceWriteError],
+  );
+
+  const openVoteSession = useCallback(() => {
+    setSessionBusy(true);
+    void handlers
+      .openVoteSession()
+      .catch((e) => surfaceWriteError(e, 'Could not open session'))
+      .finally(() => setSessionBusy(false));
+  }, [handlers, surfaceWriteError]);
+
+  const closeVoteSession = useCallback(
+    (session: BoardVoteSession) => {
+      setSessionBusy(true);
+      void handlers
+        .closeVoteSession(session)
+        .catch((e) => surfaceWriteError(e, 'Could not close session'))
+        .finally(() => setSessionBusy(false));
+    },
+    [handlers, surfaceWriteError],
+  );
+
+  // ------------------------------------------------------------------
+  // Drawing layer (TOOLS-TDD §2.6) — one POST per completed gesture;
+  // annotations are rows, never nodes.
+  // ------------------------------------------------------------------
+
+  const commitAnnotation = useCallback(
+    (geometry: BoardAnnotation['geometry']) => {
+      void handlers
+        .addAnnotation({ kind: drawKind, geometry })
+        .catch((e) => surfaceWriteError(e, 'Drawing failed'));
+    },
+    [drawKind, handlers, surfaceWriteError],
+  );
+
+  const deleteAnnotation = useCallback(() => {
+    if (!selectedAnnotation) return;
+    const id = selectedAnnotation;
+    setSelectedAnnotation(null);
+    void handlers
+      .removeAnnotation(id)
+      .catch((e) => surfaceWriteError(e, 'Drawing removal failed'));
+  }, [selectedAnnotation, handlers, surfaceWriteError]);
+
+  // ------------------------------------------------------------------
+  // Presentation (TOOLS-TDD §2.5) — ordered zones only; Esc exits.
+  // ------------------------------------------------------------------
+
+  const slides = useMemo(
+    () => orderedZones(data.items.map((s) => s.item)),
+    [data.items],
+  );
+
+  const presentTo = useCallback(
+    (index: number) => {
+      const slide = slides[index];
+      if (!slide) return;
+      setPresentIndex(index);
+      // fitView honors reduced motion — zero duration jumps (§3).
+      const duration = prefersReducedMotion() ? 0 : 400;
+      void fitView({ nodes: [{ id: slide.id }], duration, padding: 0.15 });
+    },
+    [slides, fitView],
+  );
+
+  const startPresentation = useCallback(() => {
+    if (slides.length === 0) {
+      handlers.notice('No ordered frames — set a slide order on a frame first');
+      return;
+    }
+    setPresenting(true);
+    presentTo(0);
+    // Focus lands on the chrome once it mounts — keyboard flow (and
+    // screen readers) move with the mode, not left on the canvas.
+    requestAnimationFrame(() =>
+      shellRef.current
+        ?.querySelector<HTMLElement>('.canvas-present-bar button')
+        ?.focus(),
+    );
+  }, [slides.length, presentTo, handlers]);
+
+  const exitPresentation = useCallback(() => {
+    setPresenting(false);
+    shellRef.current?.focus();
+  }, []);
+
+  // ------------------------------------------------------------------
   // Creation
   // ------------------------------------------------------------------
 
@@ -560,11 +924,19 @@ function InnerCanvas({
         void createAt(e.clientX, e.clientY, tool);
         return;
       }
+      // Comment pins stay placeable in read mode — participation, not
+      // mutation chrome (TOOLS-TDD §2.3/§3).
+      if (tool === 'comment') {
+        placeComment(screenToFlowPosition({ x: e.clientX, y: e.clientY }));
+        return;
+      }
       if (tool === 'connector') setPendingSource(null);
+      setOpenThread(null);
+      setSelectedAnnotation(null);
       onSelect(null);
       setSelectedConnector(null);
     },
-    [tool, createAt, onSelect],
+    [tool, createAt, onSelect, placeComment, screenToFlowPosition],
   );
 
   const onDoubleClickCapture = useCallback(
@@ -586,6 +958,28 @@ function InnerCanvas({
 
   const onNodeClick = useCallback(
     (_e: unknown, node: CanvasNode) => {
+      // Ghost click surfaces the source proposal (wp-165 wires this
+      // to the thread scroll) — never a selection.
+      const ghost = node.data.ghost;
+      if (ghost) {
+        onGhostClick?.(ghost.proposal);
+        return;
+      }
+      if (tool === 'vote') {
+        castVote(node);
+        return;
+      }
+      if (tool === 'comment') {
+        // Comment tool on a pin opens its thread; on any other node it
+        // attaches a new pin beside that node (TOOLS-TDD §2.3).
+        if (node.type === 'comment') {
+          setOpenThread(threadKeyOf(node.data.item));
+        } else {
+          const r = absoluteRect(node, nodes);
+          placeComment({ x: r.x + r.w + 12, y: r.y }, node.id);
+        }
+        return;
+      }
       if (tool === 'connector' && !node.data.locked) {
         if (pendingSource && pendingSource !== node.id) {
           void handlers
@@ -602,9 +996,31 @@ function InnerCanvas({
         }
         return;
       }
+      // Selecting a comment pin opens its thread popover (TOOLS-TDD
+      // §2.3) — a second click on empty space closes it.
+      if (node.type === 'comment') {
+        setOpenThread(threadKeyOf(node.data.item));
+      }
       onSelect(node.id);
     },
-    [tool, pendingSource, handlers, onSelect],
+    [
+      tool,
+      pendingSource,
+      handlers,
+      onSelect,
+      castVote,
+      placeComment,
+      onGhostClick,
+      nodes,
+    ],
+  );
+
+  const onEdgeClick = useCallback(
+    (_e: unknown, edge: CanvasEdge) => {
+      const ghost = edge.data?.ghost;
+      if (ghost) onGhostClick?.(ghost.proposal);
+    },
+    [onGhostClick],
   );
 
   const onConnect = useCallback(
@@ -862,8 +1278,11 @@ function InnerCanvas({
             (c.source_item_id === n.id || c.target_item_id === n.id),
         ),
     );
+    // Confirm threshold (TOOLS-TDD §2.2): ≥10 rows always confirms;
+    // any material content confirms too — empty throwaway stickies
+    // under that bar discard without a prompt.
     if (
-      material &&
+      (material || targets.length >= 10) &&
       !window.confirm(
         `Discard ${targets.length} item${targets.length === 1 ? '' : 's'}? They move to discarded status and can be restored.`,
       )
@@ -887,6 +1306,9 @@ function InnerCanvas({
     });
   }, [nodes, data.connectors, applyMutations, onSelect]);
 
+  /** Cluster/auto-layout — positions stage on the canvas first and
+   *  only write on Apply (TOOLS-TDD §3: preview before write, locked
+   *  items never move and are reported, one undoable OCC batch). */
   const arrangeBy = useCallback(
     (by: 'type' | 'status' | 'zone') => {
       const selectedSet = new Set(selectedIds);
@@ -898,22 +1320,24 @@ function InnerCanvas({
         scope.map((n) => n.data.item),
         by,
       );
-      const preview = scope.filter(
-        (n) => !n.data.locked && positions.has(n.id),
-      );
-      if (
-        !window.confirm(
-          `Arrange ${preview.length} item${preview.length === 1 ? '' : 's'} by ${by}? This is one undoable batch.`,
-        )
-      ) {
-        return;
-      }
+      const moving = scope.filter((n) => !n.data.locked && positions.has(n.id));
+      const lockedSkipped = scope.filter(
+        (n) => n.data.locked && positions.has(n.id),
+      ).length;
       const mutations: ItemMutation[] = [];
       const before: BoardItem[] = [];
-      for (const n of preview) {
+      for (const n of moving) {
         const item = n.data.item;
         const pos = positions.get(n.id);
         if (!pos || item.updated_at == null) continue;
+        // Only stage rows that actually move — an identical position
+        // is not a write.
+        if (
+          Math.abs((item.x ?? 0) - pos.x) < 0.5 &&
+          Math.abs((item.y ?? 0) - pos.y) < 0.5
+        ) {
+          continue;
+        }
         mutations.push({
           id: item.id,
           expected_updated_at: item.updated_at,
@@ -921,10 +1345,56 @@ function InnerCanvas({
         });
         before.push(item);
       }
-      void applyMutations(mutations, `arrange by ${by}`, before);
+      if (mutations.length === 0) {
+        handlers.notice(
+          lockedSkipped > 0
+            ? `Nothing to arrange — ${lockedSkipped} locked item${lockedSkipped === 1 ? '' : 's'} stay put`
+            : 'Already arranged',
+        );
+        return;
+      }
+      // Stage the preview: shift the nodes visually, write on Apply.
+      const movedById = new Map(mutations.map((m) => [m.id, m.patch] as const));
+      setNodes((ns) =>
+        ns.map((n) => {
+          const p = movedById.get(n.id);
+          if (!p) return n;
+          const parent = n.parentId
+            ? ns.find((z) => z.id === n.parentId)
+            : undefined;
+          return {
+            ...n,
+            position: parent
+              ? {
+                  x: (p.x ?? 0) - parent.position.x,
+                  y: (p.y ?? 0) - parent.position.y,
+                }
+              : { x: p.x ?? 0, y: p.y ?? 0 },
+          };
+        }),
+      );
+      setArrangePreview({
+        label: `arrange by ${by}`,
+        mutations,
+        before,
+        lockedSkipped,
+      });
     },
-    [nodes, selectedIds, applyMutations],
+    [nodes, selectedIds, handlers],
   );
+
+  const confirmArrange = useCallback(() => {
+    const preview = arrangePreview;
+    setArrangePreview(null);
+    if (!preview) return;
+    void applyMutations(preview.mutations, preview.label, preview.before);
+  }, [arrangePreview, applyMutations]);
+
+  const cancelArrange = useCallback(() => {
+    setArrangePreview(null);
+    // Durable state never moved — restore the projection wholesale.
+    setNodes(projected);
+  }, [projected]);
 
   // ------------------------------------------------------------------
   // Tray promote / paste
@@ -1013,11 +1483,63 @@ function InnerCanvas({
       if (e.key === ' ' && !e.repeat) {
         if ((e.target as HTMLElement)?.closest('button, a')) return;
         e.preventDefault();
+        if (presenting) {
+          presentTo(Math.min(presentIndex + 1, slides.length - 1));
+          return;
+        }
         setSpacePan(true);
+        return;
+      }
+      // Presentation mode owns arrows while active (TOOLS-TDD §2.5).
+      if (presenting) {
+        if (e.key === 'Escape') {
+          exitPresentation();
+          return;
+        }
+        if (
+          e.key === 'ArrowRight' ||
+          e.key === 'ArrowDown' ||
+          e.key === 'PageDown'
+        ) {
+          e.preventDefault();
+          presentTo(Math.min(presentIndex + 1, slides.length - 1));
+          return;
+        }
+        if (
+          e.key === 'ArrowLeft' ||
+          e.key === 'ArrowUp' ||
+          e.key === 'PageUp'
+        ) {
+          e.preventDefault();
+          presentTo(Math.max(presentIndex - 1, 0));
+          return;
+        }
+        if (e.key === 'Home') {
+          e.preventDefault();
+          presentTo(0);
+          return;
+        }
+        if (e.key === 'End') {
+          e.preventDefault();
+          presentTo(slides.length - 1);
+          return;
+        }
         return;
       }
       if (e.key === 'Escape') {
         if (editingId) return; // textarea handles its own Escape
+        if (openThread) {
+          setOpenThread(null);
+          return;
+        }
+        if (arrangePreview) {
+          cancelArrange();
+          return;
+        }
+        if (selectedAnnotation) {
+          setSelectedAnnotation(null);
+          return;
+        }
         if (pendingSource) {
           setPendingSource(null);
           return;
@@ -1033,7 +1555,18 @@ function InnerCanvas({
         onSelect(null);
         return;
       }
-      if (readOnly) return;
+      if (readOnly) {
+        // Read mode keeps read-adjacent participation tools reachable
+        // by keyboard (TOOLS-TDD §3 — select/vote/comment only).
+        const k = e.key.toLowerCase();
+        const readTools: Record<string, CanvasTool> = {
+          v: 'select',
+          k: 'comment',
+          o: 'vote',
+        };
+        if (readTools[k]) setTool(readTools[k] as CanvasTool);
+        return;
+      }
       if (e.key === 'Enter') {
         if ((e.target as HTMLElement)?.closest('button, a')) return;
         // Focused node → begin editing its primary text (the a11y hint
@@ -1043,6 +1576,10 @@ function InnerCanvas({
         return;
       }
       if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selectedAnnotation) {
+          deleteAnnotation();
+          return;
+        }
         if (selectedConnector) {
           supersedeConnector();
           return;
@@ -1058,6 +1595,9 @@ function InnerCanvas({
         z: 'zone',
         c: 'connector',
         l: 'link',
+        k: 'comment',
+        o: 'vote',
+        ...(drawEnabled ? { d: 'draw' as CanvasTool } : {}),
       };
       if (map[k]) setTool(map[k] as CanvasTool);
     };
@@ -1085,6 +1625,17 @@ function InnerCanvas({
     discardSelection,
     onSelect,
     nodes,
+    presenting,
+    presentIndex,
+    slides.length,
+    presentTo,
+    exitPresentation,
+    openThread,
+    arrangePreview,
+    cancelArrange,
+    selectedAnnotation,
+    deleteAnnotation,
+    drawEnabled,
   ]);
 
   // ------------------------------------------------------------------
@@ -1112,6 +1663,13 @@ function InnerCanvas({
       '--canvas-label-scale',
       String(Math.min(2, Math.max(1, inverse))),
     );
+    // Minor grid holds full strength through working zooms (≥0.6×),
+    // then fades linearly to invisible at 0.25× where 24px cells
+    // densify into moiré.
+    shellRef.current?.style.setProperty(
+      '--canvas-grid-minor-opacity',
+      String(Math.min(1, Math.max(0, (viewport.zoom - 0.25) / 0.35))),
+    );
   }, []);
 
   useEffect(() => {
@@ -1135,9 +1693,40 @@ function InnerCanvas({
     [nodes, setCenter, getViewport, onSelect],
   );
 
+  /** One fenced batch per bulk verb — the same `mutations → PATCH`
+   *  path Easy Edit's bulk bar uses (selection parity, TOOLS-TDD §3).
+   *  Locked members stay selected but are never written. */
+  const bulkPatch = useCallback(
+    (patch: ItemPatch, label: string) => {
+      const targets = nodes.filter((n) => n.selected && !n.data.locked);
+      const mutations: ItemMutation[] = [];
+      const before: BoardItem[] = [];
+      for (const n of targets) {
+        const item = n.data.item;
+        if (item.updated_at == null) continue;
+        mutations.push({
+          id: item.id,
+          expected_updated_at: item.updated_at,
+          patch,
+        });
+        before.push(item);
+      }
+      void applyMutations(mutations, label, before, BULK_FIELDS).then(
+        (rows) => {
+          if (rows) onSelect(null);
+        },
+      );
+    },
+    [nodes, applyMutations, onSelect],
+  );
+
   const connSelected = selectedConnector
     ? connectorsById.get(selectedConnector)
     : undefined;
+
+  const lockedSelected = nodes.filter(
+    (n) => n.selected && n.data.locked,
+  ).length;
 
   return (
     <CanvasActionsProvider value={actions}>
@@ -1152,14 +1741,15 @@ function InnerCanvas({
         onPaste={onPaste}
       >
         <ReactFlow<CanvasNode, CanvasEdge>
-          nodes={nodes}
-          edges={edges}
+          nodes={renderedNodes}
+          edges={renderedEdges}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           defaultEdgeOptions={defaultEdgeOptions}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onNodeClick={onNodeClick}
+          onEdgeClick={onEdgeClick}
           onPaneClick={onPaneClick}
           onNodeDragStop={onNodeDragStop}
           onConnect={onConnect}
@@ -1199,6 +1789,7 @@ function InnerCanvas({
             gap={24}
             lineWidth={1}
             color="var(--canvas-grid)"
+            style={{ opacity: 'var(--canvas-grid-minor-opacity, 1)' }}
           />
           <Background
             id="grid-major"
@@ -1207,9 +1798,52 @@ function InnerCanvas({
             lineWidth={1}
             color="var(--canvas-grid-major)"
           />
+          {/* Drawing layer — durable `board_annotations` rendered as one
+              SVG layer behind the node layer; never RF nodes (§2.6). */}
+          {drawEnabled && (
+            <AnnotationLayer
+              annotations={data.annotations ?? []}
+              selectedId={selectedAnnotation}
+              onSelect={(id) => {
+                setSelectedAnnotation(id);
+                onSelect(null);
+              }}
+              livePath={livePath}
+              liveKind={drawKind}
+            />
+          )}
+          {/* Minimap is chrome-level/transient — hidden in read mode
+              (<900 px) per §3. */}
+          {!readOnly && <BoardMinimap />}
         </ReactFlow>
 
-        {nodes.length === 0 && (
+        {drawEnabled && !readOnly && tool === 'draw' && (
+          <DrawCapture
+            drawKind={drawKind}
+            onLive={setLivePath}
+            onCommit={commitAnnotation}
+          />
+        )}
+
+        {presenting && (
+          <>
+            <div className="canvas-present-backdrop" aria-hidden />
+            <PresentationBar
+              index={presentIndex}
+              total={slides.length}
+              title={
+                slides[presentIndex]?.title ?? slides[presentIndex]?.body ?? ''
+              }
+              onPrev={() => presentTo(Math.max(presentIndex - 1, 0))}
+              onNext={() =>
+                presentTo(Math.min(presentIndex + 1, slides.length - 1))
+              }
+              onExit={exitPresentation}
+            />
+          </>
+        )}
+
+        {nodes.length === 0 && ghosts.nodes.length === 0 && (
           <section className="canvas-empty" aria-label="Empty board">
             <div className="canvas-empty-mark" aria-hidden>
               ◆
@@ -1248,7 +1882,7 @@ function InnerCanvas({
 
         {readOnly && (
           <output className="canvas-read-mode" aria-live="polite">
-            Read-only view · Pan, zoom, or open Board objects
+            Read-only view · Pan, zoom, comment, or vote
           </output>
         )}
 
@@ -1257,11 +1891,27 @@ function InnerCanvas({
           onTool={(t) => {
             setTool(t);
             setPendingSource(null);
+            setSelectedAnnotation(null);
           }}
           objectsOpen={objectsOpen}
           onToggleObjects={() => setObjectsOpen((o) => !o)}
           readOnly={readOnly}
+          drawEnabled={drawEnabled}
+          canPresent={slides.length > 0}
+          onPresent={startPresentation}
         />
+        <div className="canvas-top-right">
+          <TimerChip />
+          {!readOnly && (
+            <VoteSessionChip
+              session={openVote}
+              totalVotes={data.votes?.length ?? 0}
+              busy={sessionBusy}
+              onOpen={openVoteSession}
+              onClose={closeVoteSession}
+            />
+          )}
+        </div>
         <div className="canvas-history" role="toolbar" aria-label="history">
           <button
             type="button"
@@ -1284,9 +1934,29 @@ function InnerCanvas({
         </div>
         <ZoomControls />
         <SaveBadge state={saveState} />
-        {!readOnly && (
+        {arrangePreview && (
+          <ArrangePreviewBar
+            count={arrangePreview.mutations.length}
+            lockedSkipped={arrangePreview.lockedSkipped}
+            onConfirm={confirmArrange}
+            onCancel={cancelArrange}
+          />
+        )}
+        {!readOnly && !arrangePreview && (
           <MultiSelectBar
             count={selectedIds.length}
+            lockedCount={lockedSelected}
+            taxonomy={taxonomy}
+            onSetStatus={(status) =>
+              bulkPatch({ status }, `status → ${status}`)
+            }
+            onSetType={(note_kind) =>
+              bulkPatch({ note_kind }, `type → ${note_kind}`)
+            }
+            onSetImportance={(importance) =>
+              bulkPatch({ importance }, `importance → ${importance}`)
+            }
+            onMoveTray={() => bulkPatch({ board: null }, 'move to tray')}
             onDiscard={discardSelection}
             onArrange={arrangeBy}
             onClear={() => {
@@ -1294,6 +1964,45 @@ function InnerCanvas({
               onSelect(null);
             }}
           />
+        )}
+        {tool === 'vote' && (
+          <VoteStampBar stamp={voteStamp} onStamp={setVoteStamp} />
+        )}
+        {tool === 'draw' && drawEnabled && !readOnly && (
+          <DrawBar kind={drawKind} onKind={setDrawKind} />
+        )}
+        {openThread && (
+          <CommentThread
+            thread={openThreadList}
+            targetTitle={openThreadTitle}
+            busy={false}
+            onResolve={resolveComment}
+            onReply={replyComment}
+            onClose={() => setOpenThread(null)}
+          />
+        )}
+        {selectedAnnotation && !readOnly && (
+          <div
+            className="canvas-multibar"
+            role="toolbar"
+            aria-label="drawing actions"
+          >
+            <span className="canvas-selection-count">Drawing selected</span>
+            <button
+              type="button"
+              className="toolbar-btn danger"
+              onClick={deleteAnnotation}
+            >
+              Delete drawing
+            </button>
+            <button
+              type="button"
+              className="toolbar-btn"
+              onClick={() => setSelectedAnnotation(null)}
+            >
+              Cancel
+            </button>
+          </div>
         )}
         {connSelected && !readOnly && (
           <ConnectorBar
@@ -1307,6 +2016,23 @@ function InnerCanvas({
             Click the canvas to place — Esc cancels
           </output>
         )}
+        {tool === 'comment' && (
+          <output className="canvas-place-hint">
+            Click the canvas or an item to pin a comment — Esc cancels
+          </output>
+        )}
+        {tool === 'vote' && (
+          <output className="canvas-place-hint">
+            {openVote
+              ? `Click an item to stamp ${voteStamp === 'question' ? 'a question' : `a ${voteStamp}-vote`} — Esc cancels`
+              : 'No vote session is open — start one to stamp'}
+          </output>
+        )}
+        {tool === 'draw' && drawEnabled && !readOnly && (
+          <output className="canvas-place-hint">
+            Drag to draw — Esc cancels
+          </output>
+        )}
         {tool === 'connector' && (
           <output className="canvas-place-hint">
             {pendingSource
@@ -1317,9 +2043,24 @@ function InnerCanvas({
         {objectsOpen && (
           <ObjectsPanel
             nodes={nodes}
+            annotations={drawEnabled ? (data.annotations ?? []) : []}
             onLocate={(id) => {
               locate(id);
               setObjectsOpen(false);
+            }}
+            onLocateAnnotation={(a) => {
+              // Non-spatial access to a drawing: fit its bounds and
+              // select it so the delete action is keyboard-reachable.
+              const r = annotationBounds(a);
+              const duration = prefersReducedMotion() ? 0 : 300;
+              if (r) {
+                void fitBounds(
+                  { x: r.x, y: r.y, width: r.w, height: r.h },
+                  { padding: 0.4, duration },
+                );
+              }
+              setSelectedAnnotation(a.id);
+              onSelect(null);
             }}
             onClose={() => setObjectsOpen(false)}
           />

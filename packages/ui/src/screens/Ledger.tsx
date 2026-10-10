@@ -17,6 +17,7 @@ import {
   fmtTokens,
   humanize,
 } from '../components';
+import { DictationField } from '../dictation';
 import { useLoad } from '../hooks';
 import { projectPath, useProject } from '../project';
 
@@ -119,14 +120,15 @@ export function TicketLedger({ ws, id }: { ws: string; id: string }) {
             </option>
           ))}
         </select>
-        <input
-          aria-label="search events"
-          type="search"
-          placeholder="search events…"
-          style={{ width: 200 }}
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+        <DictationField style={{ width: 200, flex: '0 0 auto' }}>
+          <input
+            aria-label="search events"
+            type="search"
+            placeholder="search events…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </DictationField>
         {(eventFilter || stageFilter || q) && (
           <span className="muted">
             {shown.length} of {events.length}

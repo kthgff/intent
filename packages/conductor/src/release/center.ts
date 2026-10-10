@@ -250,11 +250,22 @@ export async function createRelease(
     created_at: ts,
     updated_at: ts,
   };
-  const inserted = await ctx.store.insertRelease(row);
+  // Row + release_created event commit in ONE transaction — a crash
+  // between them must not mint a draft with no audit event.
+  const inserted = await ctx.store.transaction(async (store) => {
+    const ins = await store.insertRelease(row);
+    if (!ins) return null;
+    await releaseEvent({ ...ctx, store }, release_id, 'release_created', {
+      title: args.title,
+      target: args.target ?? null,
+    });
+    return ins;
+  });
   if (!inserted) {
     // Lost the race — a concurrent create with the same client_ref
     // committed first (release_id is freshly allocated, so nothing
-    // else can collide).
+    // else can collide). The winner re-read happens OUTSIDE the rolled
+    // back tx so a still-in-flight winner can commit first.
     const winner = clientRef
       ? await ctx.store.getReleaseByClientRef({
           workspace: ctx.workspace,
@@ -267,10 +278,6 @@ export async function createRelease(
       `release create lost a constraint race and no client_ref '${clientRef}' row exists — cannot map to a conflict-free response`,
     );
   }
-  await releaseEvent(ctx, release_id, 'release_created', {
-    title: args.title,
-    target: args.target ?? null,
-  });
   return inserted;
 }
 

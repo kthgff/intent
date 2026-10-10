@@ -8,8 +8,10 @@ import type { TriageQuestion } from '@veto/core';
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { client } from '../api';
-import { Empty, ErrorBox, Loading } from '../components';
+import { ConfirmDialog, Empty, ErrorBox, Loading } from '../components';
+import { DictationField } from '../dictation';
 import { useLoad } from '../hooks';
+import { projectPath } from '../project';
 import {
   type WizardState,
   acceptAll,
@@ -25,10 +27,12 @@ import {
 function OptionList({
   q,
   state,
+  busy,
   onAnswer,
 }: {
   q: TriageQuestion;
   state: WizardState;
+  busy: boolean;
   onAnswer: (v: string) => void;
 }) {
   const [other, setOther] = useState('');
@@ -36,16 +40,19 @@ function OptionList({
   if (q.format === 'text') {
     return (
       <div>
-        <textarea
-          aria-label="answer"
-          value={other}
-          onChange={(e) => setOther(e.target.value)}
-          placeholder={q.default ?? 'Type your answer…'}
-        />
+        <DictationField>
+          <textarea
+            aria-label="answer"
+            value={other}
+            disabled={busy}
+            onChange={(e) => setOther(e.target.value)}
+            placeholder={q.default ?? 'Type your answer…'}
+          />
+        </DictationField>
         <button
           type="button"
           className="primary"
-          disabled={!other.trim()}
+          disabled={busy || !other.trim()}
           onClick={() => onAnswer(other.trim())}
         >
           Answer
@@ -56,10 +63,18 @@ function OptionList({
   if (q.format === 'yesno') {
     return (
       <div className="option-list">
-        {['yes', 'no'].map((v) => (
-          <button key={v} type="button" onClick={() => onAnswer(v)}>
-            {v}
-            {defaultAnswer(q) === v && (
+        {[
+          { key: 'yes', label: 'Yes' },
+          { key: 'no', label: 'No' },
+        ].map((v) => (
+          <button
+            key={v.key}
+            type="button"
+            disabled={busy}
+            onClick={() => onAnswer(v.key)}
+          >
+            {v.label}
+            {defaultAnswer(q) === v.key && (
               <span className="badge recommended">recommended</span>
             )}
           </button>
@@ -75,6 +90,8 @@ function OptionList({
             <button
               key={o.key}
               type="button"
+              disabled={busy}
+              aria-pressed={picked.includes(o.key)}
               className={picked.includes(o.key) ? 'primary' : ''}
               onClick={() =>
                 setPicked((p) =>
@@ -94,7 +111,7 @@ function OptionList({
         <button
           type="button"
           className="primary"
-          disabled={picked.length === 0}
+          disabled={busy || picked.length === 0}
           onClick={() => onAnswer(picked.join(','))}
         >
           Answer ({picked.length} selected)
@@ -107,7 +124,12 @@ function OptionList({
     <div>
       <div className="option-list" aria-label="options">
         {q.options.map((o) => (
-          <button key={o.key} type="button" onClick={() => onAnswer(o.key)}>
+          <button
+            key={o.key}
+            type="button"
+            disabled={busy}
+            onClick={() => onAnswer(o.key)}
+          >
             {o.label}
             {o.recommended && (
               <span className="badge recommended">recommended</span>
@@ -117,15 +139,18 @@ function OptionList({
       </div>
       {(q.allow_other || q.options.length === 0) && (
         <div className="row">
-          <input
-            aria-label="other answer"
-            placeholder="Other…"
-            value={other}
-            onChange={(e) => setOther(e.target.value)}
-          />
+          <DictationField>
+            <input
+              aria-label="other answer"
+              placeholder="Other…"
+              disabled={busy}
+              value={other}
+              onChange={(e) => setOther(e.target.value)}
+            />
+          </DictationField>
           <button
             type="button"
-            disabled={!other.trim()}
+            disabled={busy || !other.trim()}
             onClick={() => onAnswer(other.trim())}
           >
             Other
@@ -143,6 +168,9 @@ export default function Wizard() {
   const [state, setState] = useState<WizardState | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<unknown>(null);
+  const [confirmBail, setConfirmBail] = useState<
+    'force_ready' | 'wont_do' | null
+  >(null);
 
   const questions = useMemo(
     () => detail.data?.triage?.questions ?? [],
@@ -160,7 +188,7 @@ export default function Wizard() {
         answers: answersPayload(s),
         expected_status: detail.data?.ticket.status,
       });
-      navigate(`/tickets/${encodeURIComponent(ws)}/${encodeURIComponent(id)}`);
+      navigate(projectPath(ws, `/tickets/${encodeURIComponent(id)}`));
     } catch (e) {
       setSubmitError(e);
     } finally {
@@ -175,7 +203,7 @@ export default function Wizard() {
         action,
         expected_status: detail.data?.ticket.status,
       });
-      navigate(`/tickets/${encodeURIComponent(ws)}/${encodeURIComponent(id)}`);
+      navigate(projectPath(ws, `/tickets/${encodeURIComponent(id)}`));
     } catch (e) {
       setSubmitError(e);
       setSubmitting(false);
@@ -187,9 +215,10 @@ export default function Wizard() {
   if (!detail.data) return <Empty />;
 
   const onAnswer = async (value: string | string[]) => {
-    if (!q) return;
+    if (!q || submitting) return;
     const next = answer(wiz, q.id, value);
     setState(next);
+    setSubmitting(true);
     setSubmitError(null);
     try {
       await client.answers(ws, id, {
@@ -198,7 +227,11 @@ export default function Wizard() {
         expected_status: detail.data?.ticket.status,
       });
     } catch (e) {
+      // Revert — the answer never landed; the UI must not claim it did.
       setSubmitError(e);
+      setState(wiz);
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -214,17 +247,23 @@ export default function Wizard() {
   };
 
   return (
-    <section>
+    <section className="wizard-screen">
       <h1 className="page-title">Questions — {id}</h1>
       <p className="page-sub">
-        <Link
-          to={`/tickets/${encodeURIComponent(ws)}/${encodeURIComponent(id)}`}
-        >
+        <Link to={projectPath(ws, `/tickets/${encodeURIComponent(id)}`)}>
           ← ticket
         </Link>{' '}
         · answering clears the gate and re-runs triage
       </p>
-      <div className="wizard-progress" aria-label="progress">
+      <div
+        className="wizard-progress"
+        role="progressbar"
+        aria-label="progress"
+        aria-valuemin={0}
+        aria-valuemax={prog.total}
+        aria-valuenow={prog.done}
+        aria-valuetext={`${prog.done} of ${prog.total} resolved`}
+      >
         <div
           style={{
             width: `${prog.total ? (prog.done / prog.total) * 100 : 0}%`,
@@ -239,7 +278,12 @@ export default function Wizard() {
         <div className="card">
           <h2 style={{ marginTop: 0 }}>{q.question}</h2>
           <p className="wizard-why">{q.why}</p>
-          <OptionList q={q} state={wiz} onAnswer={(v) => void onAnswer(v)} />
+          <OptionList
+            q={q}
+            state={wiz}
+            busy={submitting}
+            onAnswer={(v) => void onAnswer(v)}
+          />
           <div className="row" style={{ marginTop: 14 }}>
             <button type="button" onClick={onSkip} disabled={submitting}>
               Skip (accept: {defaultAnswer(q) || 'default'})
@@ -272,20 +316,49 @@ export default function Wizard() {
         <button
           type="button"
           className="small"
+          title="Skip remaining questions and mark the ticket ready"
           disabled={submitting}
-          onClick={() => void bail('force_ready')}
+          onClick={() => setConfirmBail('force_ready')}
         >
-          force-ready
+          Force ready
         </button>
         <button
           type="button"
           className="small danger"
+          title="Abandon this ticket entirely — leaves the pipeline"
           disabled={submitting}
-          onClick={() => void bail('wont_do')}
+          onClick={() => setConfirmBail('wont_do')}
         >
-          wont-do
+          Won't do
         </button>
       </div>
+      {confirmBail === 'force_ready' && (
+        <ConfirmDialog
+          title="Force ready"
+          body="Skips the remaining questions and marks the ticket ready without full triage."
+          confirmLabel="Force ready"
+          busy={submitting}
+          onConfirm={() => {
+            setConfirmBail(null);
+            void bail('force_ready');
+          }}
+          onCancel={() => setConfirmBail(null)}
+        />
+      )}
+      {confirmBail === 'wont_do' && (
+        <ConfirmDialog
+          title="Won't do"
+          body="Marks this ticket as won't-do — it leaves the pipeline. The decision is recorded in the ledger."
+          confirmLabel="Won't do"
+          danger
+          busy={submitting}
+          onConfirm={() => {
+            setConfirmBail(null);
+            void bail('wont_do');
+          }}
+          onCancel={() => setConfirmBail(null)}
+        />
+      )}
     </section>
   );
 }

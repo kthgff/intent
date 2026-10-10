@@ -173,8 +173,8 @@ export default function Board() {
     data !== null && data.cards.length === 0 && data.ops.length === 0;
 
   return (
-    <section>
-      <div className="row" style={{ marginBottom: 12 }}>
+    <section className="pipeline-screen">
+      <div className="row screen-toolbar board-toolbar">
         <select
           aria-label="kind filter"
           className="auto"
@@ -192,7 +192,6 @@ export default function Board() {
           <input
             type="checkbox"
             className="auto"
-            style={{ marginRight: 4 }}
             checked={onlyMoves}
             onChange={(e) => setOnlyMoves(e.target.checked)}
           />

@@ -5,7 +5,7 @@
  * A dense table projection over the same durable `board_items` the
  * canvas renders — sortable, filterable, checkbox multi-select, bulk
  * OCC-fenced operations, a collapsible tray section with one-click
- * promotion, and a write-first edit drawer. Geometry and connectors
+ * promotion, and a full-page item editor. Geometry and connectors
  * never appear here; discarded items stay visible but muted.
  */
 import type { BoardItem, StatementRow } from '@veto/core';
@@ -27,9 +27,12 @@ import {
   useRef,
   useState,
 } from 'react';
+import { CaptureForm } from '../CaptureForm';
+import { type IdeaBoardRow, client } from '../api';
 import { ConfirmDialog, StatusBadge, fmtAge } from '../components';
+import { DictationField } from '../dictation';
 import { noteKindMeta } from '../discovery';
-import { EditDrawer } from './EditDrawer';
+import { ItemEditorPage, type SaveOutcome } from './ItemEditorPage';
 import {
   type BoardCommand,
   CommandHistory,
@@ -57,8 +60,11 @@ export interface EasyEditProps {
   ws: string;
   board: string;
   taxonomy: string[];
-  /** Single-item OCC write (drawer fields, promote, discard). */
-  patchItem: (item: BoardItem, patch: Record<string, unknown>) => void;
+  /** Single-item OCC write (item-page fields, promote, discard). */
+  patchItem: (
+    item: BoardItem,
+    patch: Record<string, unknown>,
+  ) => Promise<SaveOutcome>;
   /** Atomic batch OCC write — bulk ops only. */
   mutate: (mutations: ItemMutation[]) => Promise<BoardItem[]>;
   /** Tray → board promotion (engine path, no geometry). */
@@ -67,9 +73,16 @@ export interface EasyEditProps {
   add: (input: { kind?: string; note_kind?: string }) => Promise<BoardItem>;
   /** Create a tray item via capture. */
   capture: (title: string) => Promise<unknown>;
+  /** Reload durable state after the capture form writes — the form owns
+   *  its own save path; the view re-reads, never merges. */
+  refresh: () => void;
   notice: (msg: string) => void;
-  /** Route-level write in flight (drawer disables alongside it). */
+  /** Route-level write in flight (the editor disables alongside it). */
   busy: boolean;
+  editorId: string | null;
+  boardName: string;
+  openEditor: (id: string) => void;
+  closeEditor: () => void;
 }
 
 function storageKey(ws: string, board: string): string {
@@ -153,8 +166,13 @@ export default function EasyEdit({
   promote,
   add,
   capture,
+  refresh,
   notice,
   busy: routeBusy,
+  editorId,
+  boardName,
+  openEditor,
+  closeEditor,
 }: EasyEditProps) {
   const persisted = useMemo(() => loadView(ws, board), [ws, board]);
   const [sort, setSort] = useState<SortKey>(persisted?.sort ?? 'updated_at');
@@ -165,10 +183,11 @@ export default function EasyEdit({
   }));
   const [checked, setChecked] = useState<ReadonlySet<string>>(new Set());
   const [focusId, setFocusId] = useState<string | null>(null);
-  const [drawerId, setDrawerId] = useState<string | null>(null);
   const [trayOpen, setTrayOpen] = useState(true);
   const [hintOpen, setHintOpen] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
+  const [capOpen, setCapOpen] = useState(false);
+  const [capBoards, setCapBoards] = useState<IdeaBoardRow[]>([]);
   const [opBusy, setOpBusy] = useState(false);
   const busy = routeBusy || opBusy;
   const [undo, setUndo] = useState<{ label: string; cmd: BoardCommand } | null>(
@@ -187,11 +206,23 @@ export default function EasyEdit({
     () => applyView(rows, filter, sort, dir),
     [rows, filter, sort, dir],
   );
-  const boardRows = view.filter((r) => r.section === 'board');
-  const trayRows = view.filter((r) => r.section === 'tray');
+  const boardRows = useMemo(
+    () => view.filter((r) => r.section === 'board'),
+    [view],
+  );
+  const trayRows = useMemo(
+    () => view.filter((r) => r.section === 'tray'),
+    [view],
+  );
   const capped = boardRows.length > ROW_CAP;
-  const shownBoard = capped ? boardRows.slice(0, ROW_CAP) : boardRows;
-  const visibleRows = [...shownBoard, ...(trayOpen ? trayRows : [])];
+  const shownBoard = useMemo(
+    () => (capped ? boardRows.slice(0, ROW_CAP) : boardRows),
+    [boardRows, capped],
+  );
+  const visibleRows = useMemo(
+    () => [...shownBoard, ...(trayOpen ? trayRows : [])],
+    [shownBoard, trayOpen, trayRows],
+  );
   const moveFocus = useCallback((id: string | null) => {
     setFocusId(id);
     const target = Array.from(
@@ -214,8 +245,23 @@ export default function EasyEdit({
     saveView(ws, board, { sort, dir, filter });
   }, [ws, board, sort, dir, filter]);
 
+  // Seed the capture form's destination list; the form refetches
+  // internally on workspace change, so a stale board is never offered.
+  useEffect(() => {
+    let live = true;
+    client
+      .ideaBoards(ws)
+      .then((r) => {
+        if (live) setCapBoards(r.boards);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [ws]);
+
   // SSE refresh lands new durable rows — prune view-state ids that no
-  // longer exist; the drawer follows the refreshed row automatically.
+  // longer exist; the editor follows the refreshed row automatically.
   useEffect(() => {
     const ids = new Set(rows.map((r) => r.item.id));
     setChecked((c) => {
@@ -223,8 +269,18 @@ export default function EasyEdit({
       return next.size === c.size ? c : next;
     });
     if (focusId && !ids.has(focusId)) setFocusId(null);
-    if (drawerId && !ids.has(drawerId)) setDrawerId(null);
-  }, [rows, focusId, drawerId]);
+    if (editorId && !ids.has(editorId)) {
+      notice("That item is no longer available. You're back in Easy Edit.");
+      closeEditor();
+    }
+  }, [rows, focusId, editorId, notice, closeEditor]);
+
+  const previousEditorId = useRef<string | null>(editorId);
+  useEffect(() => {
+    const prior = previousEditorId.current;
+    previousEditorId.current = editorId;
+    if (prior && !editorId) requestAnimationFrame(() => moveFocus(prior));
+  }, [editorId, moveFocus]);
 
   useEffect(
     () => () => {
@@ -352,6 +408,18 @@ export default function EasyEdit({
     void bulk({ status: 'discarded' }, `discard ${checked.size} items`);
   };
 
+  /** Capture save landed — re-read durable state, focus the new row
+   *  once it renders (board rows land in the table, tray saves in the
+   *  tray section; other-board saves navigate via the banner link). */
+  const onCaptured = useCallback(
+    (item: BoardItem, dest: string) => {
+      if (dest === board || dest === 'tray') pendingFocus.current = item.id;
+      refresh();
+      notice(`captured → ${dest === 'tray' ? 'tray' : dest}`);
+    },
+    [board, refresh, notice],
+  );
+
   const createNote = useCallback(() => {
     if (busy) return;
     setOpBusy(true);
@@ -361,9 +429,7 @@ export default function EasyEdit({
         setFocusId(item.id);
       })
       .catch((e) =>
-        notice(
-          `Create failed: ${e instanceof Error ? e.message : String(e)}`,
-        ),
+        notice(`Create failed: ${e instanceof Error ? e.message : String(e)}`),
       )
       .finally(() => setOpBusy(false));
   }, [add, notice, busy]);
@@ -371,8 +437,7 @@ export default function EasyEdit({
   const onKeyDown = (e: KeyboardEvent) => {
     if (
       isTypingTarget(e.target) ||
-      (e.target instanceof HTMLElement &&
-        e.target.closest('button, .ee-drawer'))
+      (e.target instanceof HTMLElement && e.target.closest('button'))
     )
       return;
     const ids = visibleRows.map((r) => r.item.id);
@@ -391,7 +456,7 @@ export default function EasyEdit({
       case 'Enter':
       case 'e': {
         const row = view.find((r) => r.item.id === focusId);
-        if (row) setDrawerId(row.item.id);
+        if (row) openEditor(row.item.id);
         break;
       }
       case 'x': {
@@ -404,8 +469,7 @@ export default function EasyEdit({
         searchRef.current?.focus();
         break;
       case 'Escape':
-        if (drawerId) setDrawerId(null);
-        else if (hintOpen) setHintOpen(false);
+        if (hintOpen) setHintOpen(false);
         else setChecked(new Set());
         break;
       case '?':
@@ -430,9 +494,14 @@ export default function EasyEdit({
     [rows],
   );
 
-  const drawerRow = drawerId
-    ? rows.find((r) => r.item.id === drawerId)
+  const editorRow = editorId
+    ? rows.find((r) => r.item.id === editorId)
     : undefined;
+
+  const edit = (id: string) => {
+    setFocusId(id);
+    openEditor(id);
+  };
 
   const kindLabel = (row: TableRow) =>
     row.item.kind === 'note'
@@ -468,10 +537,10 @@ export default function EasyEdit({
             e.preventDefault();
             e.stopPropagation();
             setFocusId(item.id);
-            if (e.key === 'Enter') setDrawerId(item.id);
+            if (e.key === 'Enter') edit(item.id);
           }
         }}
-        onDoubleClick={() => setDrawerId(item.id)}
+        onDoubleClick={() => edit(item.id)}
       >
         <td className="ee-check">
           <input
@@ -489,12 +558,17 @@ export default function EasyEdit({
           </span>
         </td>
         <td className="ee-text" title={item.title ?? item.body ?? ''}>
-          {item.title || item.body || item.ref || 'Untitled'}
+          <span className="ee-mobile-kind" aria-hidden="true">
+            {noteKindMeta(item.note_kind).icon}
+          </span>
+          <span className="ee-text-value">
+            {item.title || item.body || item.ref || 'Untitled'}
+          </span>
         </td>
         <td className="ee-type">
           {item.kind === 'note' ? noteKindMeta(item.note_kind).label : '—'}
         </td>
-        <td>
+        <td className="ee-status">
           <StatusBadge status={item.status} />
         </td>
         <td className="ee-imp">{item.importance ?? '—'}</td>
@@ -510,7 +584,7 @@ export default function EasyEdit({
               aria-label={`Locked — ${item.status}`}
               onClick={(e) => {
                 e.stopPropagation();
-                setDrawerId(item.id);
+                edit(item.id);
               }}
             >
               <Lock size={14} aria-hidden />
@@ -523,7 +597,7 @@ export default function EasyEdit({
               title="Edit"
               onClick={(e) => {
                 e.stopPropagation();
-                setDrawerId(item.id);
+                edit(item.id);
               }}
             >
               <Pencil size={14} aria-hidden />
@@ -543,28 +617,88 @@ export default function EasyEdit({
     >
       <button type="button" className="ee-th" onClick={() => toggleSort(key)}>
         {label}
-        {sort === key && (
-          <span aria-hidden>{dir === 'asc' ? ' ▲' : ' ▼'}</span>
-        )}
+        {sort === key && <span aria-hidden>{dir === 'asc' ? ' ▲' : ' ▼'}</span>}
       </button>
     </th>
   );
 
+  if (editorRow) {
+    return (
+      <div className="ee-root">
+        <ItemEditorPage
+          row={editorRow}
+          boardName={boardName}
+          taxonomy={taxonomy}
+          busy={busy}
+          onPatch={(patch) => patchItem(editorRow.item, patch)}
+          onPromote={() => promote(editorRow.item)}
+          onBack={closeEditor}
+        />
+      </div>
+    );
+  }
+
   return (
-    <div className="ee-root" onKeyDown={onKeyDown}>
-      <div className="ee-toolbar">
+    <div ref={rootRef} className="ee-root" onKeyDown={onKeyDown}>
+      <section
+        className={`ee-capture${capOpen ? ' open' : ''}`}
+        aria-label="Quick capture"
+      >
+        <button
+          type="button"
+          className="ee-capture-toggle"
+          aria-expanded={capOpen}
+          onClick={() => setCapOpen((open) => !open)}
+        >
+          <span className="ee-capture-mark">
+            <Plus size={16} aria-hidden />
+          </span>
+          <span>
+            <strong>Capture an idea</strong>
+            <small>Add it to this board or send it to the tray.</small>
+          </span>
+          <span className="spacer" />
+          {capOpen ? (
+            <ChevronUp size={16} aria-hidden />
+          ) : (
+            <ChevronDown size={16} aria-hidden />
+          )}
+        </button>
+        {capOpen && (
+          <CaptureForm
+            workspaces={[ws]}
+            boards={capBoards}
+            noteKinds={taxonomy}
+            defaultWorkspace={ws}
+            defaultDestination={board}
+            onSaved={onCaptured}
+          />
+        )}
+      </section>
+
+      <div className="ee-list-heading">
+        <div>
+          <h1>Items</h1>
+          <p>
+            {view.length} {view.length === 1 ? 'item' : 'items'} in this view
+          </p>
+        </div>
+      </div>
+      <div className="ee-toolbar" aria-label="Item tools">
         <label className="ee-search">
           <Search size={14} aria-hidden />
-          <input
-            ref={searchRef}
-            type="search"
-            placeholder="Search items…  ( / )"
-            aria-label="Search items"
-            value={filter.search}
-            onChange={(e) =>
-              setFilter((f) => ({ ...f, search: e.target.value }))
-            }
-          />
+          <DictationField>
+            <input
+              ref={searchRef}
+              type="search"
+              placeholder="Search items…  ( / )"
+              aria-label="Search items"
+              value={filter.search}
+              onChange={(e) =>
+                setFilter((f) => ({ ...f, search: e.target.value }))
+              }
+            />
+          </DictationField>
         </label>
         <select
           aria-label="Filter by kind"
@@ -853,13 +987,13 @@ export default function EasyEdit({
                   onChange={toggleAll}
                 />
               </th>
-              {th('Kind', 'kind')}
-              {th('Text', 'text')}
+              {th('Kind', 'kind', 'ee-kind')}
+              {th('Text', 'text', 'ee-text')}
               {th('Type', 'note_kind', 'ee-type')}
-              {th('Status', 'status')}
+              {th('Status', 'status', 'ee-status')}
               {th('Importance', 'importance', 'ee-imp')}
               {th('Updated', 'updated_at', 'ee-updated')}
-              <th aria-label="actions" />
+              <th className="ee-act" aria-label="actions" />
             </tr>
           </thead>
           <tbody>
@@ -913,7 +1047,7 @@ export default function EasyEdit({
                   focused={focusId === row.item.id}
                   onFocus={() => setFocusId(row.item.id)}
                   onCheck={() => toggleCheck(row)}
-                  onEdit={() => setDrawerId(row.item.id)}
+                  onEdit={() => edit(row.item.id)}
                   onPromote={() => {
                     setOpBusy(true);
                     promote(row.item)
@@ -935,17 +1069,6 @@ export default function EasyEdit({
           </p>
         )}
       </div>
-
-      {drawerRow && (
-        <EditDrawer
-          key={drawerRow.item.id}
-          row={drawerRow}
-          taxonomy={taxonomy}
-          busy={busy}
-          onPatch={(patch) => patchItem(drawerRow.item, patch)}
-          onClose={() => setDrawerId(null)}
-        />
-      )}
     </div>
   );
 }
@@ -1005,10 +1128,15 @@ function TrayRowView({
         </span>
       </td>
       <td className="ee-text" title={item.title ?? item.body ?? ''}>
-        {item.title ?? item.body ?? item.ref ?? '(untitled)'}
+        <span className="ee-mobile-kind" aria-hidden="true">
+          {noteKindMeta(item.note_kind).icon}
+        </span>
+        <span className="ee-text-value">
+          {item.title ?? item.body ?? item.ref ?? '(untitled)'}
+        </span>
       </td>
       <td className="ee-type">{item.note_kind ?? '—'}</td>
-      <td>
+      <td className="ee-status">
         <StatusBadge status={item.status} />
       </td>
       <td className="ee-imp">{item.importance ?? '—'}</td>

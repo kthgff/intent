@@ -30,6 +30,7 @@ import {
   fmtAge,
   humanize,
 } from '../components';
+import { DictationField } from '../dictation';
 import { useLoad, useStreamRefresh } from '../hooks';
 import { projectPath } from '../project';
 import { defaultAnswer } from '../wizard';
@@ -209,7 +210,7 @@ export default function TicketFocus() {
   }, [tabKey]);
 
   return (
-    <section>
+    <section className="ticket-focus-screen">
       <p className="page-sub" style={{ marginBottom: 2 }}>
         <Link to={projectPath(ws)}>← Board</Link>
       </p>
@@ -759,12 +760,14 @@ function InlineQuestion({
       {err != null && <ErrorBox error={err} />}
       {q.format === 'text' ? (
         <div className="row">
-          <input
-            aria-label="answer"
-            placeholder={q.default ?? 'Type your answer…'}
-            value={other}
-            onChange={(e) => setOther(e.target.value)}
-          />
+          <DictationField>
+            <input
+              aria-label="answer"
+              placeholder={q.default ?? 'Type your answer…'}
+              value={other}
+              onChange={(e) => setOther(e.target.value)}
+            />
+          </DictationField>
           <button
             type="button"
             className="primary"
@@ -799,12 +802,14 @@ function InlineQuestion({
       )}
       {q.format !== 'text' && q.format !== 'yesno' && q.allow_other && (
         <div className="row">
-          <input
-            aria-label="other answer"
-            placeholder="Other…"
-            value={other}
-            onChange={(e) => setOther(e.target.value)}
-          />
+          <DictationField>
+            <input
+              aria-label="other answer"
+              placeholder="Other…"
+              value={other}
+              onChange={(e) => setOther(e.target.value)}
+            />
+          </DictationField>
           <button
             type="button"
             disabled={off || !other.trim()}
@@ -1409,11 +1414,13 @@ function FileCorrection({
       {err != null && <ErrorBox error={err} />}
       <div className="row" style={{ alignItems: 'flex-end' }}>
         <Field label="Defect title">
-          <input
-            placeholder="what went wrong"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-          />
+          <DictationField>
+            <input
+              placeholder="what went wrong"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+            />
+          </DictationField>
         </Field>
         <Field label="Severity">
           <select
@@ -1441,11 +1448,13 @@ function FileCorrection({
         </button>
       </div>
       <Field label="Description (optional)">
-        <input
-          placeholder="description (optional)"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-        />
+        <DictationField>
+          <input
+            placeholder="description (optional)"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        </DictationField>
       </Field>
     </div>
   );

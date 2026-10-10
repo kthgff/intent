@@ -300,6 +300,47 @@ describe('board lifecycle', () => {
     expect((await store.getBoard(WS, 'ideas'))?.status).toBe('archived');
   });
 
+  it('records a status_changed audit event with the actor — none on a no-op', async () => {
+    await createBoard(store, {
+      workspace: WS,
+      board: 'ideas',
+      board_type: 'exploration',
+      actor: human,
+      now,
+    });
+    await setBoardStatus(store, {
+      workspace: WS,
+      board: 'ideas',
+      status: 'approved',
+      actor: human,
+      now,
+    });
+    const events = await store.listEvents({
+      workspace: WS,
+      event: 'status_changed',
+    });
+    expect(events).toHaveLength(1);
+    expect(events[0].actor_id).toBe('keith');
+    expect(events[0].refs).toEqual(['board:ideas']);
+    expect(events[0].data).toMatchObject({
+      kind: 'board-status',
+      board: 'ideas',
+      from: 'draft',
+      to: 'approved',
+    });
+    // A no-op transition writes no audit row.
+    await setBoardStatus(store, {
+      workspace: WS,
+      board: 'ideas',
+      status: 'approved',
+      actor: agent,
+      now,
+    });
+    expect(
+      await store.listEvents({ workspace: WS, event: 'status_changed' }),
+    ).toHaveLength(1);
+  });
+
   it('deferred boards resurface as proposals — AI proposes, humans accept', async () => {
     await createBoard(store, {
       workspace: WS,

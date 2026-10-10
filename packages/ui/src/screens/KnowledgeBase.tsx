@@ -17,6 +17,7 @@ import {
   TabPanel,
   Tabs,
 } from '../components';
+import { DictationField } from '../dictation';
 import { useLoad } from '../hooks';
 import { projectPath, useProject } from '../project';
 
@@ -264,11 +265,13 @@ function SectionEditor({
       {editing ? (
         <div>
           <Field label="markdown">
-            <textarea
-              rows={14}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-            />
+            <DictationField>
+              <textarea
+                rows={14}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+              />
+            </DictationField>
           </Field>
           <button
             type="button"

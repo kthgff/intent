@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { type InterviewSession, client } from './api';
 import { DiffView, ErrorBox } from './components';
+import { DictationField } from './dictation';
 import { useStreamRefresh } from './hooks';
 
 export type ChatEditTarget =
@@ -243,17 +244,19 @@ export default function ChatEdit({
         status === 'refused' ||
         status === 'proposal') && (
         <div className="row" style={{ marginTop: 8 }}>
-          <input
-            aria-label="edit instruction"
-            placeholder={
-              status === 'clarify'
-                ? 'Answer Veto’s question…'
-                : `Describe the change to ${target}.md…`
-            }
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && void send()}
-          />
+          <DictationField>
+            <input
+              aria-label="edit instruction"
+              placeholder={
+                status === 'clarify'
+                  ? 'Answer Veto’s question…'
+                  : `Describe the change to ${target}.md…`
+              }
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && void send()}
+            />
+          </DictationField>
           <button
             type="button"
             className="primary"

@@ -17,6 +17,7 @@ import {
   fmtAge,
   fmtTokens,
 } from '../components';
+import { DictationField } from '../dictation';
 import { useLoad, useStreamRefresh } from '../hooks';
 import { projectMru, projectPath } from '../project';
 
@@ -198,7 +199,7 @@ export default function Workspaces() {
   const total = state.data?.projects.length ?? 0;
 
   return (
-    <section>
+    <section className="projects-screen">
       <div className="picker-head">
         <div>
           <h1 className="page-title">Projects</h1>
@@ -208,14 +209,15 @@ export default function Workspaces() {
         </div>
         <div className="picker-actions">
           {total > 1 && (
-            <input
-              className="picker-search"
-              type="search"
-              placeholder="Filter projects…"
-              aria-label="Filter projects"
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-            />
+            <DictationField style={{ width: 200, flex: '0 0 auto' }}>
+              <input
+                type="search"
+                placeholder="Filter projects…"
+                aria-label="Filter projects"
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+              />
+            </DictationField>
           )}
           <button
             type="button"
@@ -227,24 +229,28 @@ export default function Workspaces() {
         </div>
       </div>
       {showAdd && (
-        <div className="card">
-          <div className="row" style={{ alignItems: 'flex-end' }}>
+        <div className="card project-create-card">
+          <div className="row project-create-form">
             <Field label="Name">
-              <input
-                value={name}
-                required
-                pattern="[a-zA-Z0-9][a-zA-Z0-9_-]*"
-                title="letters, digits, _ and -"
-                onChange={(e) => setName(e.target.value)}
-              />
+              <DictationField>
+                <input
+                  value={name}
+                  required
+                  pattern="[a-zA-Z0-9][a-zA-Z0-9_-]*"
+                  title="letters, digits, _ and -"
+                  onChange={(e) => setName(e.target.value)}
+                />
+              </DictationField>
             </Field>
             <Field label="Tickets repo URL">
-              <input
-                value={url}
-                required
-                placeholder="git@github.com:org/tickets.git"
-                onChange={(e) => setUrl(e.target.value)}
-              />
+              <DictationField>
+                <input
+                  value={url}
+                  required
+                  placeholder="git@github.com:org/tickets.git"
+                  onChange={(e) => setUrl(e.target.value)}
+                />
+              </DictationField>
             </Field>
             <button
               type="button"

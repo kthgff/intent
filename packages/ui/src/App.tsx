@@ -12,6 +12,7 @@ import {
   matchPath,
   useLocation,
 } from 'react-router-dom';
+import { CaptureForm } from './CaptureForm';
 import { type IdeaBoardRow, client } from './api';
 import { Modal } from './components';
 import DemoApp, { isDemoMode } from './demo/DemoApp';
@@ -24,7 +25,6 @@ import {
   projectPath,
 } from './project';
 import Boards from './screens/Boards';
-import Capture, { CaptureForm } from './screens/Capture';
 import CodeReview from './screens/CodeReview';
 import CreateImport from './screens/CreateImport';
 import DiscoverySession from './screens/DiscoverySession';
@@ -47,7 +47,7 @@ import Tray from './screens/Tray';
 import Wizard from './screens/Wizard';
 import Workspaces from './screens/Workspaces';
 import type { StreamEventMap } from './sse';
-import { subscribeStream } from './sse';
+import { notificationToastText, subscribeStream } from './sse';
 
 interface Toast {
   id: number;
@@ -65,7 +65,6 @@ const NAV_GROUPS: {
     label: 'Discover',
     items: [
       { sub: '/boards', label: 'Boards' },
-      { sub: '/capture', label: 'Capture' },
       { sub: '/tray', label: 'Tray' },
       { sub: '/new', label: 'Create / Import' },
     ],
@@ -116,8 +115,8 @@ function ProductionApp() {
   const location = useLocation();
   const ws = currentProject(location.pathname);
 
-  // ⌘⇧C — the compact Quick Capture modal (S-19; same component as
-  // /capture, loaded lazily so it never carries the canvas runtime).
+  // ⌘⇧C — the compact Quick Capture modal (S-19; same component the
+  // Easy Edit capture section hosts, kept free of the canvas runtime).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (
@@ -206,7 +205,11 @@ function ProductionApp() {
           refreshBadge();
         } else if (type === 'notification') {
           const n = payload as StreamEventMap['notification'];
-          pushToast(`${n.kind}: ${n.subject}`);
+          // Only durable notification rows are user-facing —
+          // `board_item_updated` hint frames carry no `subject` and
+          // the affected surfaces already refresh from the hint.
+          const text = notificationToastText(n);
+          if (text) pushToast(text);
         }
       },
     });
@@ -282,7 +285,8 @@ function ProductionApp() {
             <Route index element={<Home />} />
             <Route path="boards" element={<Boards />} />
             <Route path="boards/:board" element={<IdeaBoard />} />
-            <Route path="capture" element={<Capture />} />
+            {/* /capture retired (D67) — S-19 lives on Easy Edit. */}
+            <Route path="capture" element={<Navigate to="boards" replace />} />
             <Route path="tray" element={<Tray />} />
             <Route path="new" element={<CreateImport />} />
             <Route path="discovery/:session" element={<DiscoverySession />} />
@@ -308,7 +312,7 @@ function ProductionApp() {
               paths land in the remembered project (or the picker). */}
           <Route path="/boards" element={<FlatRedirect to="boards" />} />
           <Route path="/boards/:ws/*" element={<LegacyProjectRedirect />} />
-          <Route path="/capture" element={<FlatRedirect to="capture" />} />
+          <Route path="/capture" element={<FlatRedirect to="boards" />} />
           <Route path="/tray" element={<FlatRedirect to="tray" />} />
           <Route path="/new" element={<FlatRedirect to="new" />} />
           <Route path="/discovery/:ws/*" element={<LegacyProjectRedirect />} />

@@ -28,6 +28,11 @@ const ACTION_TARGET: Record<string, IncidentRow['status']> = {
   reopen: 'open',
 };
 
+/** pr_ref comparison form — trim + trailing slashes + case fold so a
+ *  caller's 'https://gh/o/r/pull/9/' matches the recorded '…/pull/9'. */
+const normPrRef = (u: string | null | undefined): string =>
+  (u ?? '').trim().replace(/\/+$/, '').toLowerCase();
+
 export interface DecideIncidentArgs {
   id: string;
   action: 'investigate' | 'resolve' | 'close' | 'reopen';
@@ -93,60 +98,59 @@ export async function decideIncidentStatus(
     const prRefs = (ev.pr_refs ?? []).filter(
       (r): r is string => typeof r === 'string' && r.trim() !== '',
     );
-    // Only overwrite refs the evidence actually supplied — absent keys
-    // leave previously-stored refs alone (empty array = explicit clear).
-    if (ev.deployment_refs !== undefined) {
-      resolvedDeploymentRefs = deploymentRefs;
-    }
-    if (ev.ticket_refs !== undefined) resolvedTicketRefs = ticketRefs;
-    if (ev.pr_refs !== undefined) resolvedPrRefs = prRefs;
     if (deploymentRefs.length + ticketRefs.length + prRefs.length === 0) {
       throw new TelemetryServiceError(
         'invalid',
         `resolve requires recorded evidence (deployment/ticket/pr refs) — ${args.id} cannot resolve on assertion alone`,
       );
     }
-    // Presence alone isn't evidence — at least one ref must RESOLVE:
-    // a real deployment id, a real ticket, or a non-empty PR url.
-    // Anything else fails closed (400) — a fabricated ref list can
-    // never settle an incident.
-    let resolvable = false;
+    // Presence alone isn't evidence — every supplied ref must RESOLVE
+    // against a real row before it lands in the incident's stored lists:
+    // a real deployment id, a real ticket, or a PR url matching a
+    // recorded ticket_repos.pr_url in this workspace (no PR table
+    // exists; the repo rows shepherd wrote ARE the authoritative PR
+    // registry). Anything else fails closed (400) — a fabricated ref
+    // list can never settle an incident, and a fabricated entry mixed
+    // into a valid list is dropped, not persisted.
+    const verifiedDeployments: string[] = [];
+    const verifiedTickets: string[] = [];
+    const verifiedPrs: string[] = [];
     if (prRefs.length > 0) {
-      // Presence alone isn't evidence — a pr_ref must match a recorded
-      // ticket_repos.pr_url in this workspace (no PR table exists; the
-      // repo rows shepherd wrote ARE the authoritative PR registry).
       const known = new Set(
         (await ctx.store.listWorkspaceTicketRepos(ctx.workspace))
-          .map((r) => r.pr_url)
-          .filter((u): u is string => typeof u === 'string' && u !== ''),
+          .map((r) => normPrRef(r.pr_url))
+          .filter((u) => u !== ''),
       );
-      resolvable = prRefs.some((r) => known.has(r));
-    }
-    if (!resolvable && deploymentRefs.length > 0) {
-      // Key lookup per ref — not a full deployments scan.
-      for (const ref of deploymentRefs) {
-        const dep = await ctx.store.getDeployment({
-          workspace: ctx.workspace,
-          deployment_id: ref,
-        });
-        if (dep) {
-          resolvable = true;
-          break;
-        }
+      for (const r of prRefs) {
+        if (known.has(normPrRef(r))) verifiedPrs.push(r);
       }
     }
-    if (!resolvable) {
-      for (const t of ticketRefs) {
-        const ticket = await ctx.store.getTicket({
-          workspace: ctx.workspace,
-          ticket_id: t,
-        });
-        if (ticket) {
-          resolvable = true;
-          break;
-        }
-      }
+    // Key lookup per ref — not a full deployments/tickets scan.
+    for (const ref of deploymentRefs) {
+      const dep = await ctx.store.getDeployment({
+        workspace: ctx.workspace,
+        deployment_id: ref,
+      });
+      if (dep) verifiedDeployments.push(ref);
     }
+    for (const t of ticketRefs) {
+      const ticket = await ctx.store.getTicket({
+        workspace: ctx.workspace,
+        ticket_id: t,
+      });
+      if (ticket) verifiedTickets.push(t);
+    }
+    const resolvable =
+      verifiedDeployments.length + verifiedTickets.length + verifiedPrs.length >
+      0;
+    // Only overwrite refs the evidence actually supplied — absent keys
+    // leave previously-stored refs alone (empty array = explicit clear).
+    // The stored value is the VERIFIED subset, never the raw input.
+    if (ev.deployment_refs !== undefined) {
+      resolvedDeploymentRefs = verifiedDeployments;
+    }
+    if (ev.ticket_refs !== undefined) resolvedTicketRefs = verifiedTickets;
+    if (ev.pr_refs !== undefined) resolvedPrRefs = verifiedPrs;
     if (!resolvable) {
       throw new TelemetryServiceError(
         'invalid',

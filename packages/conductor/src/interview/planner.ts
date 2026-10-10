@@ -294,7 +294,13 @@ export async function assertAnswerOrder(
  */
 export async function askQuestion(
   ctx: InterviewCtx,
-  args: { sessionId: string; questionId?: string; branch?: string | null },
+  args: {
+    sessionId: string;
+    questionId?: string;
+    branch?: string | null;
+    /** Attribution on the assistant turn (BOARD-CHAT amendment 1). */
+    createdBy?: string | null;
+  },
 ): Promise<{ candidate: QuestionCandidateRow; message: InterviewMessageRow }> {
   await requireSession(ctx, args.sessionId);
   await assertAnswerOrder(ctx, args.sessionId, args.branch ?? null);
@@ -322,6 +328,7 @@ export async function askQuestion(
     role: 'assistant',
     content: candidate.question,
     branch: args.branch ?? null,
+    createdBy: args.createdBy ?? null,
   });
   return { candidate: asked, message };
 }

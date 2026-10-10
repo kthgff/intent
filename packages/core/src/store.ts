@@ -14,8 +14,13 @@ import type {
   AlignmentFindingRow,
   AlignmentRunRow,
   AssumptionRow,
+  BoardAnnotation,
+  BoardConnector,
   BoardItem,
+  BoardProposalRow,
   BoardRow,
+  BoardVote,
+  BoardVoteSession,
   ChangesetItemRow,
   ChangesetRow,
   Claim,
@@ -474,6 +479,82 @@ export interface Store {
     status?: string;
   }): Promise<BoardItem[]>;
   deleteBoardItem(id: string): Promise<void>;
+  upsertBoardConnector(row: BoardConnector): Promise<void>;
+  getBoardConnector(id: string): Promise<BoardConnector | null>;
+  listBoardConnectors(filter: {
+    workspace: string;
+    board: string;
+    status?: string;
+  }): Promise<BoardConnector[]>;
+  updateBoardConnectorExpected(
+    row: BoardConnector,
+    expectedUpdatedAt: string,
+  ): Promise<BoardConnector | null>;
+
+  /** Canvas drawing layer (TOOLS-TDD §2.6) — SVG objects behind nodes,
+   *  never board_items. Hard delete is legal (drawings are not
+   *  governed artifacts). */
+  upsertBoardAnnotation(row: BoardAnnotation): Promise<void>;
+  getBoardAnnotation(id: string): Promise<BoardAnnotation | null>;
+  listBoardAnnotations(filter: {
+    workspace: string;
+    board: string;
+  }): Promise<BoardAnnotation[]>;
+  updateBoardAnnotationExpected(
+    row: BoardAnnotation,
+    expectedUpdatedAt: string,
+  ): Promise<BoardAnnotation | null>;
+  deleteBoardAnnotation(id: string): Promise<void>;
+
+  /** Vote sessions (TOOLS-TDD §2.4) — open→closed lifecycle under an
+   *  OCC fence on the session row. */
+  upsertBoardVoteSession(row: BoardVoteSession): Promise<void>;
+  getBoardVoteSession(id: string): Promise<BoardVoteSession | null>;
+  listBoardVoteSessions(filter: {
+    workspace: string;
+    board: string;
+  }): Promise<BoardVoteSession[]>;
+  updateBoardVoteSessionExpected(
+    row: BoardVoteSession,
+    expectedUpdatedAt: string,
+  ): Promise<BoardVoteSession | null>;
+
+  /** One vote per (workspace, board, item_id, voter, session_id) —
+   *  insert-or-update-stamp on PK conflict (re-vote = update). */
+  upsertBoardVote(vote: BoardVote): Promise<void>;
+  listBoardVotes(filter: {
+    workspace: string;
+    board: string;
+    session_id?: string;
+  }): Promise<BoardVote[]>;
+
+  // ---- board assistant proposals (BOARD-CHAT-PRD R3, wp-161) ----
+
+  /** Every assistant board mutation is a durable proposal row first —
+   *  ghost-rendered until a human accepts/rejects. `payload` is the
+   *  validated `ProposalOp` object serialized by the impl. */
+  upsertBoardProposal(row: BoardProposalRow): Promise<void>;
+  getBoardProposal(key: {
+    workspace: string;
+    proposal_id: string;
+  }): Promise<BoardProposalRow | null>;
+  listBoardProposals(filter: {
+    workspace: string;
+    board: string;
+    status?: string;
+  }): Promise<BoardProposalRow[]>;
+  /** Draft-time dedupe (TDD proposals lifecycle): mark `pending`
+   *  proposals for this board `superseded` when they target
+   *  `itemId` (the op's `id`/`source_item_id` payload field),
+   *  optionally narrowed to one `op`. Untargeted ops (`create-item`)
+   *  never match — dedupe for creates is the caller's own comparison.
+   *  Returns the number superseded. */
+  supersedePendingProposals(filter: {
+    workspace: string;
+    board: string;
+    itemId: string;
+    op?: string;
+  }): Promise<number>;
 
   // ---- hierarchy: initiatives / features (D26) ----
 

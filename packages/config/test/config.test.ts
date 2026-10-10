@@ -237,6 +237,25 @@ describe('ui.remote_access', () => {
   });
 });
 
+describe('ui.idea_canvas_v2 (s-16 rollout gate, D57)', () => {
+  it('defaults off and accepts an explicit true', () => {
+    writeFileSync(globalConfigPath(), 'schema: 1\nactor: bot\n');
+    expect(
+      resolveConfig(null, loadGlobalConfig(globalConfigPath())).ui
+        .idea_canvas_v2,
+    ).toBe(false);
+
+    writeFileSync(
+      globalConfigPath(),
+      'schema: 1\nactor: bot\nui:\n  idea_canvas_v2: true\n',
+    );
+    expect(
+      resolveConfig(null, loadGlobalConfig(globalConfigPath())).ui
+        .idea_canvas_v2,
+    ).toBe(true);
+  });
+});
+
 describe('actor', () => {
   it('throws a helpful error when actor is missing', () => {
     writeFileSync(globalConfigPath(), 'schema: 1\nbackend: devin\n');

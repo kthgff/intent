@@ -162,10 +162,11 @@ Screens: S-16, S-17, S-18, S-06, S-05.
 
 ### WF-21 — Capture anything, anywhere
 CLI `veto add`, `⌘⇧C` quick-capture, `POST /capture` (webhook/
-email), mobile `/capture` route, or the S-16 tray dock → items land
-in the project tray (`board: null`) → drag onto a canvas or sweep up
-in a tray-scoped synthesis. `feedback` items capture production
-signal onto shipped work. Screens: S-19, S-20, S-16 (tray dock), S-15.
+email), the S-16 Easy Edit capture form, or the S-16 tray dock →
+items land in the project tray (`board: null`) → drag onto a canvas
+or sweep up in a tray-scoped synthesis. `feedback` items capture
+production signal onto shipped work. Screens: S-19, S-20, S-16 (tray
+dock + Easy Edit), S-15.
 
 ### WF-22 — Verify & release
 Ticket(s) merge → `verifying` → `verify_cmd` run or `app_url` smoke
@@ -216,11 +217,11 @@ project-relative; the mounted paths carry the `/projects/:project` prefix.
 | **S-12** | `/metrics` | **Metrics / ROI.** Measure throughput, quality, cost, and the idea-to-release loop. | Date/project/model/stage filters; tickets→release funnel; success/failure; tokens/cost/human gate dwell; fix rounds; deviation/spec-score/spec-bug trends; ACs with verified test evidence; pre-implementation spec defects; rework/escaped defects where connected; idea→merge and idea→released lead time; cost per feature/initiative/goal (D33 serves rollups); board yield; retrieval/citation evaluation health; stale ideas; cohort/drill-down tables; honest unavailable/estimated labels; no individual developer ranking. |
 | **S-13** | `/projects` | **Project switcher and project management.** Enter or maintain a product/codebase context. | Project cards with health, repos, dossier/survey freshness, boards, initiatives/features/tickets, open gates/runs, owners; switch/pin/search; add/import project; connect repos/docs/app URL; sync; archive/remove with impact confirmation; empty/onboarding states. |
 | **S-14** | `/kb` | **Knowledge and evidence.** Inspect and correct the intelligence feeding every run. | Project/repo tree; Dossier tab (architecture/domain/workflows/personas/UI map/docs/glossary/landmines); Code tab (index head/status, symbol/path/exact/semantic search, structural neighbors, source pinned to commit); Traceability tab (verified/suggested edges, provenance/confidence, verify/reject); source/freshness evidence; gap report with severity/disposition and create-board-item action; inline human correction with history/ledger attribution; confirm aliases/personas; survey/index status, manual Sync/Reindex, scheduled refresh, source management. Phase C adds sanitized signatures/incidents here and routes operational failures/proposed tickets through S-10/S-03 rather than creating a new top-level page. |
-| **S-15** | `/boards` | **Boards list.** Pick, create, organize, and assess idea boards in a project. | Board cards with open/consumed/shipped/parked/stale counts, tray count, last synthesis/initiative, saved delivery filter, digest gate, owner/activity; search/sort; templates (blank/PRD prep/retro/research); create/rename/duplicate/archive; seeded Getting Started board; quick capture entry. |
-| **S-16** | `/boards/:id` | **Board canvas + Delivery view.** Capture raw intent, synthesize it, and track spawned work. | Idea mode: autosaved pan/zoom canvas, typed/color stickies (incl. `goal` chip — live progress badge, `active/achieved/abandoned` states, D33), text/docs/images/files/links/voice, zones, connectors (`serves` edge writes on drop/drag), comments/tags, source chips, inspector (incl. serves picker), undo/redo, icebox, tray dock, uploads/ingest. Synthesis: board/zone/selection/new/tray scope (goal-required — inline ask if absent), count/cost/context preview, run/Q&A handoff. Item states open/consumed/shipped/parked/superseded with produced links. Delivery mode: shared S-01 Kanban filtered to board provenance, full card/gate actions, configurable filter (incl. `goal`). |
+| **S-15** | `/boards` | **Boards list.** Pick, create, organize, and assess idea boards in a project. | Board cards with open/consumed/shipped/parked/stale counts, tray count, last synthesis/initiative, saved delivery filter, digest gate, owner/activity; search/sort; templates (blank/PRD prep/retro/research); create/rename/duplicate/archive; seeded Getting Started board. |
+| **S-16** | `/boards/:id` | **Board canvas + Delivery view.** Capture raw intent, synthesize it, and track spawned work. | Idea mode: autosaved pan/zoom canvas, typed/color stickies (incl. `goal` chip — live progress badge, `active/achieved/abandoned` states, D33), text/docs/images/files/links/voice, zones, connectors (`serves` edge writes on drop/drag), comments/tags, source chips, inspector (incl. serves picker), undo/redo, icebox, tray dock, uploads/ingest. Synthesis: board/zone/selection/new/tray scope (goal-required — inline ask if absent), count/cost/context preview, run/Q&A handoff. Item states open/consumed/shipped/parked/superseded with produced links. Easy Edit mode (`?view=edit`, `ui.idea_canvas_v2`): dense OCC-fenced table view — compact expandable capture, sort/filter/search, full-page deep-linked item editor (`&item=<id>`), bulk ops, tray section (D67/D68). Delivery mode: shared S-01 Kanban filtered to board provenance, full card/gate actions, configurable filter (incl. `goal`). |
 | **S-17** | `/features/:ref` | **Feature Focus operational hub.** Govern one delivery unit and its tickets. | Breadcrumb to initiative/board/project; served-goal chips (inherited `serves` chain, D33); Next action; Overview with feature goal and inherited context; Documentation (`feature.md`, `test.md`, versions/diffs/contextual AI); AC slice and coverage/provenance; Tickets rollup and attach/create/decompose; dependencies/blockers; Activity/Runs; test/split/verify states; Status/What's-left rail; priority/owner; re-plan, move/re-parent, cancel cascade. |
 | **S-18** | `/initiatives/:ref` | **Initiative Focus operational hub.** Govern the spec container created from ideas. | Breadcrumb/board/items grounded; served-goal chips + goal one-liner (D33); Next action; Overview/PRD summary/metrics; Documentation (`prd.md`, `tdd.md`, trust delta, contextual AI); Features rollup with tickets/gates/cost; two-pane AC↔board-item provenance viewer/editor with amendment history; Activity/Runs; Status/What's-left; priority/owner/dependencies; re-plan/move/discard/unconsume/cancel cascade; verify/release notes/retro/feedback. |
-| **S-19** | `/capture` | **Quick Capture.** Record an idea or production signal with near-zero friction. | Mobile/desktop minimal form; text/voice/file/link/image input; auto-guessed type with one-tap correction; project; board-or-Tray destination; optional related initiative/feature/ticket; feedback mode; saving/saved/offline/error/retry; add another/open destination. Uses the same component as the global `⌘⇧C` modal without loading the canvas runtime. |
+| **S-19** | `⌘⇧C` modal · `/boards/:id?view=edit` | **Quick Capture** — no standalone page (the `/capture` route is retired, D67). Record an idea or production signal with near-zero friction. | Mobile/desktop minimal form — the shared `CaptureForm` hosted by the Easy Edit capture section and the `⌘⇧C` modal; text/voice/file/link/image input; auto-guessed type with one-tap correction; project; board-or-Tray destination (defaults to the current board on Easy Edit); optional related initiative/feature/ticket; feedback mode; saving/saved/offline/error/retry; add another/open destination. Never loads the canvas runtime. |
 | **S-20** | `/tray` | **Project Tray.** Triage, route, or synthesize captured items that do not yet belong to a board. | Project-scoped search/filter/type/source/age/stale/ingest-state; list/grid and item preview/inspector; edit/supersede; attachment extraction/transcription status and retry; select/bulk move to board/zone/icebox; drag to board; create board from selection; link feedback to subject; synthesize selected/whole tray with context + cost preview; empty/conflict/error states. |
 | **S-21** | `/merge-center` | **Merge Center.** Shepherded merges for `ci-watch` tickets (DELIVERY §2). | Per-ticket readiness checklist (green/blocked per row), merge order queue (ready-first FIFO), blockers with gate names, conflict cards linking to the ticket's rebase run, branch-protection state, repo@head SHAs, execute-merge when green, revert affordance, PR-panel link. |
 | **S-22** | `/releases` (+ `/releases/:ws/:rel`) | **Release Center.** Releases from draft to retro (DELIVERY §3–§7). | Release list + create-draft; scope membership (feature/ticket, partial-AC badge, remove/add with audit); immutable manifest cuts with digests and per-repo merged SHAs; five release gates (manifest/approved/merged/partial-ac/corrections) with unchecked≠pass; human approve/reject bound to the latest digest, stale-approval indicator; freeze + ship actions (OCC `expected_status`); manual deployment evidence form; per-feature exposure control (`available` requires a linked confirmed deployment); three-audience notes draft→approve→publish with unapproved-draft state distinct; retro trigger + retro.md view. |
@@ -254,6 +255,7 @@ project-relative; the mounted paths carry the `/projects/:project` prefix.
 | **Entity rollup table** | S-17 child tickets, S-18 child features, split/re-plan reviews |
 | **Provenance viewer/editor** | S-06 grounded docs, S-18 initiative provenance |
 | **Capture/item inspector** | S-16 canvas, S-20 tray |
+| **DictationField** (`dictation.tsx`) | every free-text input/textarea — Web Speech API mic affordance; hidden where unsupported |
 
 ## 5. Screens per status (state machine → UI map)
 
@@ -357,8 +359,9 @@ project-relative; the mounted paths carry the `/projects/:project` prefix.
   (idea canvas — zone/type/status lane grouping, typed-sticky taxonomy
   chips + colors, per-item statement surface via `boardSurface`, OCC
   item mutations, tray dock, delivery mode = the shared S-01 kanban
-  scoped to the workspace), S-19 `/capture` + the ⌘⇧C modal (shared
-  `CaptureForm`), S-20 `/tray`, and the §15.9 wizard surface
+  scoped to the workspace), the S-19 capture form (shared
+  `CaptureForm` — ⌘⇧C modal + Easy Edit section; `/capture` retired,
+  D67), S-20 `/tray`, and the §15.9 wizard surface
   `/discovery/:ws/:session` — three input modes switchable mid-session,
   question card with planner-provenance ("why this question"), slot
   chips (never a %), resume briefing modal, live Understanding Panel
@@ -396,7 +399,7 @@ project-relative; the mounted paths carry the `/projects/:project` prefix.
 | Product capability | Primary surfaces | Covered? |
 | --- | --- | --- |
 | Onboard/configure a Project and repos | S-02, S-13 | Yes |
-| Capture an idea/feedback instantly | S-19, global Capture modal | Yes |
+| Capture an idea/feedback instantly | S-19 (⌘⇧C modal + S-16 Easy Edit capture form) | Yes |
 | Triage, route, and synthesize unassigned captures | S-20, S-16 tray dock | Yes |
 | Organize ideas visually and park them | S-15, S-16 | Yes |
 | Synthesize scoped ideas with cost/context preview | S-16 → S-04 → S-06 | Yes |
@@ -421,5 +424,5 @@ project-relative; the mounted paths carry the `/projects/:project` prefix.
 
 No additional top-level page is required for Notifications, Search, Create,
 or the global Capture shortcut; they are shared overlays with durable
-destinations in S-01, S-03, S-11, S-19, and S-20. Verification is a lifecycle state
+destinations in S-01, S-03, S-11, and S-20. Verification is a lifecycle state
 inside the operational hubs and failure queue, not a standalone page.

@@ -319,6 +319,29 @@ describe('release center — manifest freeze', () => {
     });
   });
 
+  it('client_ref makes create idempotent — a retry returns the original row', async () => {
+    const a = await createRelease(ctx, { title: 'train', clientRef: 'cli-1' });
+    // Same key, even a different title — the original row answers and
+    // no second release_created event fires.
+    const b = await createRelease(ctx, {
+      title: 'different title',
+      clientRef: 'cli-1',
+    });
+    expect(b.release_id).toBe(a.release_id);
+    expect(b.title).toBe('train');
+    expect((await store.listReleases({ workspace: WS })).length).toBe(1);
+    expect(
+      await store.listEvents({ workspace: WS, event: 'release_created' }),
+    ).toHaveLength(1);
+
+    // A different key mints a second release; no key still works.
+    const c = await createRelease(ctx, { title: 'train', clientRef: 'cli-2' });
+    expect(c.release_id).not.toBe(a.release_id);
+    const d = await createRelease(ctx, { title: 'train' });
+    expect(d.release_id).toMatch(/^REL-\d+$/);
+    expect((await store.listReleases({ workspace: WS })).length).toBe(3);
+  });
+
   it('scope change after a cut appends a new version and resets approvals (invariant 3)', async () => {
     await seedMergedTicket('SR-0401');
     await seedMergedTicket('SR-0402');

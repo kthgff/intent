@@ -53,8 +53,14 @@ export interface SubmitAnswerArgs {
   /** Multiple target slots — one answer may satisfy many (§15.9). */
   slots?: string[];
   branch?: string | null;
+  /** Per-turn actor on the user message (shared-thread attribution,
+   *  BOARD-CHAT amendment 1). */
+  createdBy?: string | null;
   /** LLM extraction seam (wp-143). Omit for the verbatim fallback. */
   extract?: (prompt: string) => Promise<string>;
+  /** Planner seam — forwarded to planNextQuestion; omit for the
+   *  deterministic proposals. */
+  propose?: (prompt: string) => Promise<string>;
   /** Plan + ask the next question after persisting (default true). */
   plan?: boolean;
 }
@@ -125,6 +131,7 @@ export async function submitAnswer(
     role: 'user',
     content: answer,
     branch: args.branch ?? null,
+    createdBy: args.createdBy ?? null,
   });
 
   // 2. Resolve the pending question.
@@ -172,12 +179,14 @@ export async function submitAnswer(
   if (args.plan !== false) {
     const candidate = await planNextQuestion(ctx, {
       sessionId: args.sessionId,
+      ...(args.propose ? { propose: args.propose } : {}),
     });
     if (candidate) {
       const asked = await askQuestion(ctx, {
         sessionId: args.sessionId,
         questionId: candidate.question_id,
         branch: args.branch ?? null,
+        createdBy: 'assistant',
       });
       next = { candidate: asked.candidate, message: asked.message };
     }

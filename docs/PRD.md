@@ -1216,6 +1216,17 @@ mockups/TDD/API contracts/tickets/verification as proposed changes.
 - **Deferred ideas never die**: rejected/deferred boards keep evidence +
   interview + decision; AI may resurface them when circumstances change
   (e.g., an existing component makes them cheap).
+- **Spatial canvas (s-16, D57)**: idea boards render as an infinite
+  pan/zoom canvas (React Flow 12) with typed stickies, free text,
+  zones/frames, drawn connectors, and links — direct manipulation with
+  gesture-end OCC-fenced batch writes, session undo/redo, autosave +
+  SSE refresh, and a right-side semantic inspector (taxonomy,
+  provenance, statements, lifecycle). Placement is user-canonical;
+  grouping only via explicit, previewable, undoable arrange commands.
+  Drawn connectors are topology hints — `serves` stays the canonical
+  edge. Async collaboration only (no live cursors/CRDT); under 900px
+  the board is a read surface; image upload ships once a safe multipart
+  plugin exists. Gated by `ui.idea_canvas_v2`.
 
 ### 15.4 Design artifacts & mockups
 

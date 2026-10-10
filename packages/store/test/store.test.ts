@@ -41,8 +41,8 @@ const run = (over: Partial<RunRow> = {}): RunRow => ({
 });
 
 describe('migrations + meta', () => {
-  it('applies pg/0001_init through 0011 and records schema_meta', async () => {
-    expect(await s().getSchemaVersion()).toBe(11);
+  it('applies pg/0001_init through 0015 and records schema_meta', async () => {
+    expect(await s().getSchemaVersion()).toBe(15);
     const rows = await s().db.query<{ table_name: string }>(
       `SELECT table_name FROM information_schema.tables
        WHERE table_schema='public' ORDER BY table_name`,
@@ -133,12 +133,20 @@ describe('migrations + meta', () => {
       'incident_ticket_proposals',
       // review-fix waves (D56)
       'release_approval_history',
+      // s-16 board canvas
+      'board_connectors',
+      // board canvas tools
+      'board_annotations',
+      'board_vote_sessions',
+      'board_item_votes',
+      // board assistant (wp-161)
+      'board_proposals',
     ]) {
       expect(tables).toContain(t);
     }
     // re-running migrations is idempotent
     await s().migrate();
-    expect(await s().getSchemaVersion()).toBe(11);
+    expect(await s().getSchemaVersion()).toBe(15);
   });
 });
 
@@ -679,6 +687,165 @@ describe('boards + hierarchy', () => {
     expect(tray[0]?.kind).toBe('feedback');
   });
 
+  it('board connectors — CRUD, OCC fence, active-pair uniqueness (s-16)', async () => {
+    await s().upsertBoard({ workspace: 'ws1', board: 'main', name: 'Main' });
+    for (const id of ['bi-1', 'bi-2']) {
+      await s().upsertBoardItem({
+        id,
+        workspace: 'ws1',
+        board: 'main',
+        kind: 'note',
+        status: 'active',
+      });
+    }
+    const conn = {
+      id: 'bc-1',
+      workspace: 'ws1',
+      board: 'main',
+      source_item_id: 'bi-1',
+      target_item_id: 'bi-2',
+      label: null,
+      status: 'active' as const,
+      created_at: '2026-10-05T00:00:00Z',
+      updated_at: '2026-10-05T00:00:00Z',
+    };
+    await s().upsertBoardConnector(conn);
+    expect(
+      await s().listBoardConnectors({ workspace: 'ws1', board: 'main' }),
+    ).toHaveLength(1);
+
+    // OCC fence — stale expected ts returns null, fresh ts succeeds.
+    expect(
+      await s().updateBoardConnectorExpected(
+        { ...conn, label: 'stale', updated_at: 't2' },
+        'wrong-ts',
+      ),
+    ).toBeNull();
+    const updated = await s().updateBoardConnectorExpected(
+      { ...conn, label: 'depends', updated_at: 't2' },
+      conn.updated_at,
+    );
+    expect(updated?.label).toBe('depends');
+
+    // One active connector per ordered pair — a superseded row frees it.
+    const dup = { ...conn, id: 'bc-2' };
+    await expect(s().upsertBoardConnector(dup)).rejects.toThrow();
+    await s().upsertBoardConnector({ ...conn, status: 'superseded' });
+    await s().upsertBoardConnector(dup);
+    expect(
+      (
+        await s().listBoardConnectors({
+          workspace: 'ws1',
+          board: 'main',
+          status: 'active',
+        })
+      ).map((c) => c.id),
+    ).toEqual(['bc-2']);
+  });
+
+  it('board annotations + vote sessions/votes — CRUD, OCC, one-vote upsert (canvas tools)', async () => {
+    await s().upsertBoard({ workspace: 'ws1', board: 'main', name: 'Main' });
+    await s().upsertBoardItem({
+      id: 'bi-1',
+      workspace: 'ws1',
+      board: 'main',
+      kind: 'note',
+      status: 'active',
+    });
+
+    // --- annotations -------------------------------------------------
+    const ann = {
+      id: 'ba-1',
+      workspace: 'ws1',
+      board: 'main',
+      kind: 'stroke' as const,
+      geometry: {
+        pts: [
+          { x: 0, y: 0 },
+          { x: 9, y: 9 },
+        ],
+      },
+      color: 'ink',
+      created_at: '2026-10-05T00:00:00Z',
+      updated_at: '2026-10-05T00:00:00Z',
+    };
+    await s().upsertBoardAnnotation(ann);
+    expect(
+      await s().listBoardAnnotations({ workspace: 'ws1', board: 'main' }),
+    ).toHaveLength(1);
+    expect(
+      await s().updateBoardAnnotationExpected(
+        { ...ann, color: 'blue', updated_at: 't2' },
+        'wrong-ts',
+      ),
+    ).toBeNull();
+    expect(
+      (
+        await s().updateBoardAnnotationExpected(
+          { ...ann, color: 'blue', updated_at: 't2' },
+          ann.updated_at,
+        )
+      )?.color,
+    ).toBe('blue');
+    await s().deleteBoardAnnotation('ba-1');
+    expect(
+      await s().listBoardAnnotations({ workspace: 'ws1', board: 'main' }),
+    ).toHaveLength(0);
+
+    // --- vote sessions -----------------------------------------------
+    const session = {
+      id: 'vs-1',
+      workspace: 'ws1',
+      board: 'main',
+      opened_by: 'keith',
+      closes_at: null,
+      status: 'open' as const,
+      created_at: '2026-10-05T00:00:00Z',
+      updated_at: '2026-10-05T00:00:00Z',
+    };
+    await s().upsertBoardVoteSession(session);
+    const open = await s().listBoardVoteSessions({
+      workspace: 'ws1',
+      board: 'main',
+    });
+    expect(open.map((v) => v.id)).toEqual(['vs-1']);
+    // One open session per board — a second open row violates the index.
+    await expect(
+      s().upsertBoardVoteSession({ ...session, id: 'vs-2' }),
+    ).rejects.toThrow();
+    const closed = await s().updateBoardVoteSessionExpected(
+      { ...session, status: 'closed', updated_at: 't2' },
+      session.updated_at,
+    );
+    expect(closed?.status).toBe('closed');
+
+    // --- votes ---------------------------------------------------------
+    const vote = {
+      workspace: 'ws1',
+      board: 'main',
+      item_id: 'bi-1',
+      voter: 'keith',
+      session_id: 'vs-1',
+      stamp: 'up' as const,
+      created_at: '2026-10-05T00:00:00Z',
+      updated_at: '2026-10-05T00:00:00Z',
+    };
+    await s().upsertBoardVote(vote);
+    // Re-vote upserts the same PK — one row, updated stamp.
+    await s().upsertBoardVote({
+      ...vote,
+      stamp: 'down',
+      updated_at: 't3',
+    });
+    const votes = await s().listBoardVotes({
+      workspace: 'ws1',
+      board: 'main',
+      session_id: 'vs-1',
+    });
+    expect(votes).toHaveLength(1);
+    expect(votes[0]?.stamp).toBe('down');
+  });
+
   it('initiatives + features CRUD', async () => {
     await s().upsertInitiative({
       workspace: 'ws1',
@@ -1064,6 +1231,33 @@ describe('review wave D56', () => {
         { updated_at: '2026-10-05T00:00:00Z' },
       ),
     ).toBeNull();
+  });
+
+  it('updateChangesetExpected refuses an empty predicate set (fail-closed)', async () => {
+    const row = {
+      workspace: 'ws1',
+      changeset_id: 'CS-9',
+      request: 'r',
+      status: 'awaiting-decision',
+      updated_at: '2026-10-05T00:00:00Z',
+    };
+    await s().upsertChangeset(row);
+    // {} and {updated_at: undefined} would both degrade to an
+    // unconditional UPDATE — refused loudly instead.
+    await expect(
+      s().updateChangesetExpected({ ...row, status: 'approved' }, {}),
+    ).rejects.toThrow(/no predicates|unfenced/);
+    await expect(
+      s().updateChangesetExpected(
+        { ...row, status: 'approved' },
+        { updated_at: undefined },
+      ),
+    ).rejects.toThrow(/no predicates|unfenced/);
+    // Row untouched by either refused write.
+    expect(
+      (await s().getChangeset({ workspace: 'ws1', changeset_id: 'CS-9' }))
+        ?.status,
+    ).toBe('awaiting-decision');
   });
 
   it('insertRelease + getReleaseByClientRef: retried creates dedupe', async () => {

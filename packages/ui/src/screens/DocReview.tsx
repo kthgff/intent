@@ -7,6 +7,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import RsQualityPanel from '../RsQuality';
 import { client } from '../api';
 import { DiffView, Empty, ErrorBox, Loading, Markdown } from '../components';
+import { DictationField } from '../dictation';
 import { useLoad } from '../hooks';
 import { projectPath } from '../project';
 
@@ -50,7 +51,7 @@ export default function DocReview() {
   };
 
   return (
-    <section>
+    <section className="doc-review-screen">
       <h1 className="page-title">
         {name}.md — {id}
       </h1>
@@ -109,12 +110,14 @@ export default function DocReview() {
             </div>
             <div className="card">
               <strong>Feedback</strong>
-              <textarea
-                aria-label="feedback"
-                value={feedback}
-                onChange={(e) => setFeedback(e.target.value)}
-                placeholder="What should the agent change?"
-              />
+              <DictationField>
+                <textarea
+                  aria-label="feedback"
+                  value={feedback}
+                  onChange={(e) => setFeedback(e.target.value)}
+                  placeholder="What should the agent change?"
+                />
+              </DictationField>
               <div className="row">
                 <button
                   type="button"

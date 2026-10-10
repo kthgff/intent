@@ -31,6 +31,7 @@ export const NOTE_KIND_META: Record<string, NoteKindMeta> = {
   question: { label: 'Question', icon: '?', color: 'pink' },
   decision: { label: 'Decision', icon: '⚖', color: 'green' },
   feedback: { label: 'Feedback', icon: '↩', color: 'blue' },
+  comment: { label: 'Comment', icon: '💬', color: 'blue' },
 };
 
 export function noteKindMeta(kind: string | null | undefined): NoteKindMeta {

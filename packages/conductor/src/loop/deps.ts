@@ -100,7 +100,12 @@ export interface StreamEvent {
     | 'release_note_approved'
     | 'retro_completed'
     | 'correction_filed'
-    | 'dependent_revalidated';
+    | 'dependent_revalidated'
+    /** Board Assistant proposal write/resolve (BOARD-CHAT-PRD R9,
+     *  wp-161+) — payload `{workspace, board, proposal_id, status}`;
+     *  ghost projections refresh on it. Emitted AFTER the durable
+     *  board_proposals write, never before. */
+    | 'board_proposal';
   payload: unknown;
 }
 

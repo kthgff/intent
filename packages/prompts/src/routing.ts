@@ -69,6 +69,9 @@ const KIND_LATENCY_DEFAULT: Record<string, LatencyClass> = {
   import: 'instant',
   interview: 'interactive',
   discuss: 'interactive',
+  /** Board Assistant turns (BOARD-CHAT-TDD amendment 4) — one
+   *  non-streamed completion per turn, still user-facing. */
+  assistant: 'interactive',
 };
 
 /** Legacy per-kind settings that predate the registry — kept live so

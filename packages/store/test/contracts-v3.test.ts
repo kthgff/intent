@@ -808,3 +808,137 @@ describe('eval lab', () => {
     ).rejects.toThrow();
   });
 });
+
+describe('board assistant proposals (wp-161)', () => {
+  const proposal = (
+    over: Partial<Parameters<typeof store.upsertBoardProposal>[0]>,
+  ) =>
+    store.upsertBoardProposal({
+      workspace: WS,
+      proposal_id: 'bp-1',
+      board: 'b1',
+      session_id: 'iv-b1',
+      batch_id: 'batch-1',
+      seq: 3,
+      op: 'patch-item',
+      payload: { op: 'patch-item', id: 'item-1', patch: { title: 'sharper' } },
+      base_updated_at: '2026-10-05T01:00:00Z',
+      anchor: ['item-2'],
+      provenance: { statement_ids: ['ST-1'], branch: 'run-1' },
+      status: 'pending',
+      created_by: 'keith',
+      created_at: '2026-10-05T02:00:00Z',
+      updated_at: '2026-10-05T02:00:00Z',
+      ...over,
+    });
+
+  it('upsert → get → list with status filter; created_by on transcript', async () => {
+    await proposal({});
+    const got = await store.getBoardProposal({
+      workspace: WS,
+      proposal_id: 'bp-1',
+    });
+    expect(got?.op).toBe('patch-item');
+    expect(got?.payload).toEqual({
+      op: 'patch-item',
+      id: 'item-1',
+      patch: { title: 'sharper' },
+    });
+    expect(got?.provenance?.statement_ids).toEqual(['ST-1']);
+    expect(got?.anchor).toEqual(['item-2']);
+
+    expect(
+      await store.listBoardProposals({ workspace: WS, board: 'b1' }),
+    ).toHaveLength(1);
+    expect(
+      await store.listBoardProposals({
+        workspace: WS,
+        board: 'b1',
+        status: 'rejected',
+      }),
+    ).toHaveLength(0);
+
+    // Transcript attribution column (contract amendment 1).
+    await store.upsertInterviewSession({
+      workspace: WS,
+      session_id: 'iv-b1',
+      subject: 'board:b1',
+      mode: 'conversation',
+      status: 'active',
+      created_by: 'keith',
+    });
+    await store.appendInterviewMessage({
+      workspace: WS,
+      session_id: 'iv-b1',
+      role: 'user',
+      content: 'add a constraint about auth',
+      created_by: 'teammate-2',
+    });
+    const msgs = await store.listInterviewMessages({
+      workspace: WS,
+      session_id: 'iv-b1',
+    });
+    expect(msgs[0]?.created_by).toBe('teammate-2');
+  });
+
+  it('supersedePendingProposals: same-item pending only, op-narrowed', async () => {
+    await proposal({});
+    // Different item — untouched.
+    await proposal({
+      proposal_id: 'bp-2',
+      op: 'move-item',
+      payload: { op: 'move-item', id: 'item-9', x: 5, y: 5 },
+    });
+    // Same item — superseded.
+    await proposal({
+      proposal_id: 'bp-3',
+      op: 'move-item',
+      payload: { op: 'move-item', id: 'item-1', x: 9, y: 9 },
+    });
+    // Non-pending — never superseded.
+    await proposal({ proposal_id: 'bp-4', status: 'accepted' });
+
+    const n = await store.supersedePendingProposals({
+      workspace: WS,
+      board: 'b1',
+      itemId: 'item-1',
+      op: 'patch-item',
+    });
+    expect(n).toBe(1);
+    expect(
+      (await store.getBoardProposal({ workspace: WS, proposal_id: 'bp-1' }))
+        ?.status,
+    ).toBe('superseded');
+    // op narrowing left the move-item pending.
+    expect(
+      (await store.getBoardProposal({ workspace: WS, proposal_id: 'bp-3' }))
+        ?.status,
+    ).toBe('pending');
+    expect(
+      (await store.getBoardProposal({ workspace: WS, proposal_id: 'bp-2' }))
+        ?.status,
+    ).toBe('pending');
+    expect(
+      (await store.getBoardProposal({ workspace: WS, proposal_id: 'bp-4' }))
+        ?.status,
+    ).toBe('accepted');
+
+    // Un-narrowed: same item, any op.
+    expect(
+      await store.supersedePendingProposals({
+        workspace: WS,
+        board: 'b1',
+        itemId: 'item-1',
+      }),
+    ).toBe(1);
+
+    // Untargeted ops (create-item) never match an itemId.
+    expect(
+      await store.supersedePendingProposals({
+        workspace: WS,
+        board: 'b1',
+        itemId: 'nonexistent',
+      }),
+    ).toBe(0);
+  });
+});

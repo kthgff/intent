@@ -310,15 +310,34 @@ packages/ui/src/
 
 The DB remains canonical. React Flow nodes/edges are a view projection:
 
-- custom node types render goal/sticky/document/media/zone/delivery cards;
-- custom edge types render `serves`, provenance, and user connectors;
-- node `data` contains stable refs and display data, not hidden business truth;
-- geometry changes are debounced and batch-written with board version/
-  optimistic concurrency; semantic edits write immediately;
+- custom node types render sticky/text/zone/link/image items (goal and
+  delivery cards keep their own surfaces); a custom connector edge type
+  renders drawn `board_connectors` rows — `serves` stays the canonical
+  domain edge and drawn connectors never write it;
+- node `data` contains the durable row + presentation flags, not hidden
+  business truth; large statement arrays stay out of node data (the
+  inspector loads them on selection);
+- geometry writes once per gesture end through the atomic OCC-fenced
+  batch route (`PATCH /boards/<board>/items`) — one stale member fails
+  the whole batch; semantic edits write immediately via the fenced
+  single-item route;
+- items lacking coordinates project deterministic transient positions —
+  opening a legacy board performs zero writes; zone membership is a
+  `parentId` projection recomputed at gesture end (dragging out clears
+  it) and only real zone item ids are ever written;
+- undo/redo are new fenced writes from a session command stack, not
+  local rewinds; 409 conflicts restore durable state and keep drafts
+  recoverable — no silent merge;
+- collaboration is asynchronous (autosave + SSE refresh + OCC); live
+  cursors and CRDTs are out of scope. Image upload is disabled until a
+  patched multipart plugin exists for the pinned Fastify major (D57);
+- the objects panel exposes the same items without spatial interaction;
+  below 900 px the canvas degrades to a pan/zoom read mode with no
+  mutation affordances;
+- the v2 surface is gated by `ui.idea_canvas_v2` — flag-off renders the
+  grouped classic view (rollback = config flip);
 - unsupported freehand drawing is out of scope unless a later requirement
-  justifies a dedicated drawing layer;
-- accessibility list/outline view exposes the same items without requiring
-  spatial interaction.
+  justifies a dedicated drawing layer.
 
 ## 7. API and event surface
 

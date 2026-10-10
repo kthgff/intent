@@ -831,6 +831,127 @@ note + a `gate_items` row `gate: import-reconcile`, kind `review`):
 - Post-reconciliation the board converts to an ordinary board
   (`convertImportBoard`) with import history preserved.
 
+## 24. Board canvas contracts — spatial surface (s-16, D57)
+
+The canvas renders durable rows; these are the closed wire/durable
+contracts (`packages/core/src/schemas.ts`).
+
+**`BoardItem` canvas fields** — `kind` extended with
+`text|image|link|zone`; `color ∈ yellow|pink|blue|green|orange|purple|
+gray` (NULL = derive from `note_kind`); `z_index` int; `x/y/w/h` are
+absolute canvas coordinates; `zone` written by the canvas holds a zone
+item id (legacy free-form labels remain readable, never written).
+`kind:'link'` requires `ref` = `http:`/`https:` URL at the API
+boundary; `kind:'image'` is refused until the asset route ships (D57).
+
+**Goal taxonomy (D33)** — there is no `goal` `note_kind`: goal-ness is
+conferred by *being a `serves` target* (`isGoalItem` = `id ∈ ⋃ serves`
+— derived, never stored). Coverage seeding and the ≥1-goal synthesis
+bar count goals the same way: ≥1 live item named by another item's
+`serves`.
+
+**`BoardConnector`** — `{id, workspace, board, source_item_id,
+target_item_id, label?, status ∈ active|superseded, created_at,
+updated_at}`. Topology hint only — it never mutates the canonical
+`serves` edge. One active connector per ordered pair per board
+(DB partial unique index); endpoints are immutable — redraw instead.
+
+**`BoardAsset` (dormant)** — `{id, workspace, board, item_id,
+mime_type ∈ image/png|image/jpeg|image/webp|image/gif, byte_size,
+sha256 (64-hex), storage_key, original_filename?, created_at}`.
+`storage_key` is relative beneath the Veto data root — bytes never in
+Postgres. SVG is excluded; GIF must decode non-animated. The upload
+route is disabled pending a Fastify-5-compatible patched
+`@fastify/multipart` (D57).
+
+**Batch mutation** — `PATCH /boards/<board>/items` takes
+`{workspace, mutations:[{id, expected_updated_at, patch⊆{x,y,w,h,zone,
+color,z_index,title,body,note_kind,importance,note_status,board,
+status,presentation_order}}]}`; geometry bounds are enforced
+(coordinates finite ±1e6, extents 40–10000 px). All-or-nothing: any
+stale fence or consumed/frozen member → 409, no writes.
+`presentation_order` is a nullable int allowed on `kind:'zone'` rows
+only — the frame sequence present mode follows (unordered zones are
+skipped, never guessed).
+
+## 25. Canvas tool contracts — collaboration + drawing (D63)
+
+**Comment pins** are `BoardItem`s, not a new entity: `kind:'feedback'`
++ `note_kind:'comment'` (added to `NOTE_KINDS`) + `ref` = target item
+id when attached (null = free-standing). Resolve writes
+`note_status:'resolved'` — archived-not-deleted. Open counts badge the
+target; pins render compact.
+
+**`BoardAnnotation`** — `{id, workspace, board,
+kind ∈ stroke|rect|ellipse|arrow|highlight, geometry, color?,
+created_by?, created_at, updated_at}`. `geometry` is a discriminated
+union: `stroke|highlight` → `{pts}` ≥2 ≤2000 points;
+`rect|ellipse` → `{x,y,w,h}` positive finite bounds;
+`arrow` → `{x1,y1,x2,y2}` finite endpoints. Kind and payload must
+agree — mismatch → 400. `color` is free text (pen palette, not the
+sticky enum). Rendered as one SVG layer under the nodes; deletes are
+real deletes.
+
+**`BoardVoteSession`** — `{id, workspace, board, opened_by?,
+closes_at?, status ∈ open|closed, created_at, updated_at}`. One open
+session per board (partial unique index); close is OCC-fenced and
+terminal.
+
+**`BoardVote`** — `{workspace, board, item_id, voter, session_id,
+stamp ∈ up|down|question, created_at, updated_at}`; composite PK =
+one vote per voter per item per session, re-vote upserts. Stamping a
+closed session → 409. Tallies are display signal only — votes never
+mutate `importance`.
+
+## 26. Board Assistant contracts — proposals + provider seam (BOARD-CHAT-PRD, wp-161+)
+
+The assistant never writes board state directly — every mutation is a
+`board_proposals` row a human accepts before the single-item write path
+commits it. Contracts in `packages/core/src/schemas.ts`.
+
+**`ProposalOpSchema`** — discriminated union on `op` ∈
+`BOARD_PROPOSAL_OPS` (`create-item | patch-item | move-item | serve |
+connect | connector-remove | delete-item`). Payload shapes per the TDD
+op table; `create-item` carries the `POST /boards/:board/items` body
+fields + placement `{x,y,w?,h?,zone?}` + `temp_id?`; `patch-item`/
+`move-item`/`serve`/`connector-remove`/`delete-item` carry `{id, …}`;
+`connect` carries `{source_item_id, target_item_id, label?}` — a
+topology hint, never a `serves` write. **`temp_id` (D69):** a
+`create-item` may declare a draft-scoped alias; other ops in the same
+draft may use that string wherever an item id is expected (`zone`,
+`id`, `goal_item_id`, connector endpoints). Drafting rejects refs that
+resolve to neither a board item nor a declared alias; the accept
+transaction resolves aliases to the created ids (dependency order), a
+singly-accepted create repoints its pending siblings' payloads, and an
+accept that hits a still-pending alias fails 400 with a retryable
+"accept it first" message — the row stays `pending`. Unknown op or
+malformed payload → parse fails (fail-closed, zero ops land).
+
+**`BoardProposalRowSchema`** — the durable row: identity `{workspace,
+proposal_id, board, session_id}`; grouping `batch_id` (checkpoint /
+accept-all scope) + `seq` (transcript seq that drafted it); `op` +
+`payload`; `base_updated_at` (OCC fence captured at draft time — a
+stale base 409s the accept and the row marks `stale`); `anchor`
+(related item ids, explainability); `provenance`
+(`ProposalProvenanceSchema = {statement_ids, branch}`); `status` ∈
+`BOARD_PROPOSAL_STATUSES` (`pending | accepted | rejected | stale |
+superseded`); attribution `created_by` + decision `decided_by,
+decided_at`. **Refine:** `payload.op === op` — a divergent row is
+ambiguous and fails closed.
+
+**`ConverseOutputSchema`** — the provider's structured reply `{reply:
+string, ops: ProposalOp[]}`; `AssistantSkillInfoSchema` describes a
+slash skill on the panel payload `{name, summary, needs_selection}`.
+
+**`CompletionProvider`** (type, `converse(messages, opts): Promise<
+string>`) — the seam the TDD amendment 4 defines; resolved via
+`resolveModelRoute(config, 'assistant')`, never hardcoded.
+
+**Events** — `EVENT_NAMES` += `assistant_message`, `proposal_created`,
+`proposal_resolved` (durable `events` rows for audit); the SSE hint is
+`StreamEvent.type = 'board_proposal'` (conductor deps union) riding
+alongside `interview_updated`.
+
 ## Appendix A. Vocabulary mapping — old → new (wp-132)
 
 The addendum adopts the shared-chat vocabulary (PRD §15.2). Storage

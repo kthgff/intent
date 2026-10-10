@@ -22,12 +22,33 @@ export type StreamEventMap = {
     tokens_out: number;
     tokens_cached: number;
   };
-  notification: Notification;
+  /** `notification` frames carry two payload families under one SSE
+   *  type (D52): durable `notifications` rows (gate/changes/import —
+   *  `subject` present, user-facing) and `board_item_updated` refresh
+   *  hints (board.ts `boardItemTouched`, board-assistant.ts
+   *  `itemsTouched` — no `subject`; surfaces re-read state, never
+   *  toast). */
+  notification:
+    | Notification
+    | {
+        kind: 'board_item_updated';
+        workspace: string;
+        item_id?: string | null;
+        board: string | null;
+      };
   /** A `tickets` row changed — refresh hint for board/focus (s-01). */
   ticket_updated: { workspace: string; ticket_id: string; status?: string };
   /** Interview Orchestrator session state changed (wp-147) — the
    *  Understanding Panel / wizard surface refresh hint. */
   interview_updated: { workspace: string; session_id: string | null };
+  /** BOARD-CHAT (wp-164): a `board_proposals` row was drafted or
+   *  resolved — the panel/ghost refresh hint. */
+  board_proposal: {
+    workspace: string;
+    board: string;
+    proposal_id: string;
+    status: string;
+  };
   // DELIVERY §5 (wp-136) — durable events mirrored onto the stream;
   // payload is the appended `events` row.
   merge_ready: EventRow;
@@ -48,6 +69,15 @@ export type StreamEventMap = {
 
 export type StreamEventType = keyof StreamEventMap;
 
+/** User-facing toast text for a `notification` frame, or null when
+ *  the frame is a refresh hint (`board_item_updated` — D52; surfaces
+ *  re-read state from it, it is never toasted). */
+export function notificationToastText(
+  n: StreamEventMap['notification'],
+): string | null {
+  return 'subject' in n && n.subject ? `${n.kind}: ${n.subject}` : null;
+}
+
 const STREAM_URL = '/api/v1/stream';
 const TYPES: StreamEventType[] = [
   'gate_surfaced',
@@ -58,6 +88,7 @@ const TYPES: StreamEventType[] = [
   'notification',
   'ticket_updated',
   'interview_updated',
+  'board_proposal',
   'merge_ready',
   'merge_attempted',
   'merge_conflict',

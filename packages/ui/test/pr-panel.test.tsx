@@ -4,7 +4,14 @@
  * when every repo row reports pr_state 'merged' (review S5: the
  * revert affordance lives here, never on the merge center).
  */
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import React from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -18,6 +25,7 @@ import PrPanel from '../src/screens/PrPanel';
 afterEach(() => {
   cleanup();
   mocks.ticket.mockReset();
+  mocks.action.mockReset();
 });
 
 const detail = (repos: unknown[], status = 'ci-watch') => ({
@@ -27,9 +35,9 @@ const detail = (repos: unknown[], status = 'ci-watch') => ({
 
 const renderPanel = () =>
   render(
-    <MemoryRouter initialEntries={['/tickets/ws/SR-0001/pr']}>
+    <MemoryRouter initialEntries={['/projects/ws/tickets/SR-0001/pr']}>
       <Routes>
-        <Route path="/tickets/:ws/:id/pr" element={<PrPanel />} />
+        <Route path="/projects/:ws/tickets/:id/pr" element={<PrPanel />} />
       </Routes>
     </MemoryRouter>,
   );
@@ -103,7 +111,11 @@ describe('PrPanel revert affordance', () => {
     );
     renderPanel();
     await waitFor(() => expect(screen.getByText('Revert')).toBeTruthy());
-    screen.getByText('Revert').click();
+    fireEvent.click(screen.getByText('Revert'));
+    // Revert is destructive — it confirms via the dialog first.
+    fireEvent.click(
+      within(screen.getByLabelText('Revert merged PRs?')).getByText('Revert'),
+    );
     await waitFor(() =>
       expect(mocks.action).toHaveBeenCalledWith('ws', 'SR-0001', {
         action: 'revert',

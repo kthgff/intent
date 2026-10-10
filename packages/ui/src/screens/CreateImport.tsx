@@ -5,50 +5,38 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { type ImportPreviewRow, client } from '../api';
-import { Empty, ErrorBox, Field, Loading } from '../components';
-import { useLoad } from '../hooks';
+import { Empty, ErrorBox, Field, Loading, TabPanel, Tabs } from '../components';
+import { DictationField } from '../dictation';
+import { projectPath, useProject } from '../project';
 
 export default function CreateImport() {
+  const ws = useProject();
   const [tab, setTab] = useState<'interview' | 'import'>('interview');
-  const ws = useLoad(() => client.workspaces(), []);
-  const workspaces = ws.data?.workspaces ?? [];
 
   return (
-    <section>
+    <section className="create-import-screen">
       <h1 className="page-title">Create / Import</h1>
-      <div className="tabs">
-        <button
-          type="button"
-          className={tab === 'interview' ? 'active' : ''}
-          onClick={() => setTab('interview')}
-        >
-          Interview
-        </button>
-        <button
-          type="button"
-          className={tab === 'import' ? 'active' : ''}
-          onClick={() => setTab('import')}
-        >
-          Import
-        </button>
-      </div>
-      {ws.loading && <Loading />}
-      {ws.error != null && <ErrorBox error={ws.error} />}
-      {ws.data && workspaces.length === 0 && (
-        <Empty label="No workspaces — add one first." />
-      )}
-      {tab === 'interview' && (
-        <InterviewTab workspaces={workspaces.map((w) => w.name)} />
-      )}
-      {tab === 'import' && (
-        <ImportTab workspaces={workspaces.map((w) => w.name)} />
-      )}
+      <Tabs
+        ariaLabel="create or import"
+        active={tab}
+        onChange={(t) => setTab(t as 'interview' | 'import')}
+        tabs={[
+          { id: 'interview', label: 'Interview' },
+          { id: 'import', label: 'Import' },
+        ]}
+      />
+      <TabPanel id={tab}>
+        {tab === 'interview' ? (
+          <InterviewTab workspace={ws} />
+        ) : (
+          <ImportTab workspace={ws} />
+        )}
+      </TabPanel>
     </section>
   );
 }
 
-function InterviewTab({ workspaces }: { workspaces: string[] }) {
-  const [workspace, setWorkspace] = useState('');
+function InterviewTab({ workspace }: { workspace: string }) {
   const [text, setText] = useState('');
   const [result, setResult] = useState<{ subject: string; run: string } | null>(
     null,
@@ -69,7 +57,7 @@ function InterviewTab({ workspaces }: { workspaces: string[] }) {
   };
 
   return (
-    <div>
+    <div className="create-panel interview-panel">
       <p className="page-sub">
         Rough idea in → agent interviews you through the Q&A wizard →
         well-formed ticket committed.
@@ -81,32 +69,39 @@ function InterviewTab({ workspaces }: { workspaces: string[] }) {
             Interview started — subject <code>{result.subject}</code>, run{' '}
             <code>{result.run}</code>.
           </p>
-          <Link to={`/runs/${encodeURIComponent(result.run)}`}>
-            Watch the run →
-          </Link>
+          <div className="row">
+            <Link
+              className="btn"
+              to={projectPath(
+                workspace,
+                `/runs/${encodeURIComponent(result.run)}`,
+              )}
+            >
+              Watch the run →
+            </Link>
+            <button
+              type="button"
+              className="small"
+              onClick={() => {
+                setResult(null);
+                setText('');
+              }}
+            >
+              Start another
+            </button>
+          </div>
         </div>
       ) : (
         <>
-          <Field label="workspace">
-            <select
-              value={workspace}
-              onChange={(e) => setWorkspace(e.target.value)}
-            >
-              <option value="">choose…</option>
-              {workspaces.map((w) => (
-                <option key={w} value={w}>
-                  {w}
-                </option>
-              ))}
-            </select>
-          </Field>
           <Field label="seed text">
-            <textarea
-              value={text}
-              rows={6}
-              placeholder="Describe the ticket in rough terms…"
-              onChange={(e) => setText(e.target.value)}
-            />
+            <DictationField>
+              <textarea
+                value={text}
+                rows={6}
+                placeholder="Describe the ticket in rough terms…"
+                onChange={(e) => setText(e.target.value)}
+              />
+            </DictationField>
           </Field>
           <button
             type="button"
@@ -122,8 +117,7 @@ function InterviewTab({ workspaces }: { workspaces: string[] }) {
   );
 }
 
-function ImportTab({ workspaces }: { workspaces: string[] }) {
-  const [workspace, setWorkspace] = useState('');
+function ImportTab({ workspace }: { workspace: string }) {
   const [source] = useState('github');
   const [repo, setRepo] = useState('');
   const [milestone, setMilestone] = useState('');
@@ -173,45 +167,38 @@ function ImportTab({ workspaces }: { workspaces: string[] }) {
   };
 
   return (
-    <div>
+    <div className="create-panel import-panel">
       <p className="page-sub">
         Pull issues from a tracker → preview → commit. Imported tickets land at
         status <code>imported</code>.
       </p>
       {error != null && <ErrorBox error={error} />}
-      <div className="row">
-        <Field label="workspace">
-          <select
-            value={workspace}
-            onChange={(e) => setWorkspace(e.target.value)}
-          >
-            <option value="">choose…</option>
-            {workspaces.map((w) => (
-              <option key={w} value={w}>
-                {w}
-              </option>
-            ))}
-          </select>
-        </Field>
+      <div className="row import-fields">
         <Field label="source">
           <select value={source} disabled>
             <option value="github">github milestone/issues</option>
           </select>
         </Field>
         <Field label="repo (org/repo)">
-          <input value={repo} onChange={(e) => setRepo(e.target.value)} />
+          <DictationField>
+            <input value={repo} onChange={(e) => setRepo(e.target.value)} />
+          </DictationField>
         </Field>
         <Field label="milestone">
-          <input
-            value={milestone}
-            onChange={(e) => setMilestone(e.target.value)}
-          />
+          <DictationField>
+            <input
+              value={milestone}
+              onChange={(e) => setMilestone(e.target.value)}
+            />
+          </DictationField>
         </Field>
         <Field label="labels (csv)">
-          <input value={labels} onChange={(e) => setLabels(e.target.value)} />
+          <DictationField>
+            <input value={labels} onChange={(e) => setLabels(e.target.value)} />
+          </DictationField>
         </Field>
       </div>
-      <div className="row">
+      <div className="row import-actions">
         <button
           type="button"
           disabled={busy || !workspace || !repo}
@@ -226,39 +213,61 @@ function ImportTab({ workspaces }: { workspaces: string[] }) {
             disabled={busy}
             onClick={() => void commit()}
           >
-            Commit import
+            Commit preview ({rows.length}{' '}
+            {rows.length === 1 ? 'issue' : 'issues'})
           </button>
         )}
       </div>
       {committed && (
         <div className="card">
           Import committed — run <code>{committed}</code>.{' '}
-          <Link to={`/runs/${encodeURIComponent(committed)}`}>Watch →</Link>
+          <Link
+            to={projectPath(
+              workspace,
+              `/runs/${encodeURIComponent(committed)}`,
+            )}
+          >
+            Watch →
+          </Link>
         </div>
       )}
       {rows !== null &&
         (rows.length === 0 ? (
           <Empty label="No issues matched." />
         ) : (
-          <table>
-            <thead>
-              <tr>
-                {Object.keys(rows[0] ?? {}).map((k) => (
-                  <th key={k}>{k}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r, i) => (
-                // biome-ignore lint/suspicious/noArrayIndexKey: preview rows have no stable id guarantee
-                <tr key={i}>
+          <>
+            <p className="muted">
+              {rows.length} {rows.length === 1 ? 'issue' : 'issues'} matched
+            </p>
+            <table>
+              <thead>
+                <tr>
                   {Object.keys(rows[0] ?? {}).map((k) => (
-                    <td key={k}>{JSON.stringify(r[k] ?? '')}</td>
+                    <th key={k}>{k}</th>
                   ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: preview rows have no stable id guarantee
+                  <tr key={i}>
+                    {Object.keys(rows[0] ?? {}).map((k) => {
+                      const v = r[k];
+                      return (
+                        <td key={k}>
+                          {v === null || v === undefined
+                            ? ''
+                            : typeof v === 'object'
+                              ? JSON.stringify(v)
+                              : String(v)}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
         ))}
     </div>
   );

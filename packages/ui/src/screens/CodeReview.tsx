@@ -116,7 +116,7 @@ export default function CodeReview({
   if (!t) return <Empty />;
 
   return (
-    <section>
+    <section className="code-review-screen">
       {!embedded && (
         <>
           <h1 className="page-title">Code review — {id}</h1>
@@ -136,7 +136,7 @@ export default function CodeReview({
       )}
       {error != null && <ErrorBox error={error} />}
 
-      <div className="counters" style={{ marginBottom: 12 }}>
+      <div className="counters review-counters">
         <div className="counter">
           <div className="v">{review?.findings?.length ?? 0}</div>
           <div className="k">findings</div>
@@ -153,10 +153,10 @@ export default function CodeReview({
         </div>
       </div>
 
-      <div className="row" style={{ marginBottom: 10 }}>
+      <div className="row screen-toolbar review-toolbar">
         <select
           aria-label="severity filter"
-          style={{ width: 'auto' }}
+          className="auto"
           value={sevFilter}
           onChange={(e) => setSevFilter(e.target.value)}
         >

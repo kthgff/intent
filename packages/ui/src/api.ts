@@ -8,7 +8,13 @@
  * cannot set headers; it sends the cookie same-origin).
  */
 import type {
+  AssistantSkillInfo,
+  BoardAnnotation,
+  BoardConnector,
   BoardItem,
+  BoardProposalRow,
+  BoardVote,
+  BoardVoteSession,
   Claim,
   DeploymentRow,
   DossierEntry,
@@ -630,6 +636,11 @@ export interface IdeaBoardDetail {
   board: IdeaBoardRow;
   type_config: IdeaBoardRow['type_config'];
   items: { item: BoardItem; statements: StatementRow[] }[];
+  connectors: BoardConnector[];
+  /** Canvas tools durable surface (BOARD-CANVAS-TOOLS-TDD §2.6/§2.7). */
+  annotations: BoardAnnotation[];
+  votes: BoardVote[];
+  vote_sessions: BoardVoteSession[];
 }
 
 /** Versioned wizard catalog entry (GET /interview-wizards). */
@@ -832,6 +843,55 @@ export interface ScopeRadarReport {
   };
 }
 
+// ---- Board Assistant (BOARD-CHAT-PRD/TDD, wp-161+) ----
+
+/** Deterministic suggestion chip (PRD R2) — computed from board state,
+ *  never an LLM message. */
+export interface AssistantChip {
+  id: string;
+  label: string;
+  /** Text populated into the input on click. */
+  command: string;
+}
+
+/** `GET …/assistant` — one-load panel state (TDD REST table). */
+export interface BoardAssistantState {
+  /** The board's durable thread session (null until first use). */
+  session: InterviewSessionRow | null;
+  messages: InterviewMessageRow[];
+  proposals: BoardProposalRow[];
+  skills: AssistantSkillInfo[];
+  chips: AssistantChip[];
+  pending_question: QuestionCandidateRow | null;
+  /** Fail-loud degradation signal (PRD R10) — `absent` = no completion
+   *  provider configured; deterministic paths still work. */
+  model: 'configured' | 'absent';
+  /** The open interview/expand run branch, when one is active — the
+   *  panel's End-interview affordance keys off it. */
+  active_run: string | null;
+}
+
+/** `POST …/assistant/messages` response — the new transcript rows +
+ *  any proposals the turn drafted. */
+export interface AssistantTurnResult {
+  messages: InterviewMessageRow[];
+  proposals: BoardProposalRow[];
+  pending_question: QuestionCandidateRow | null;
+}
+
+export interface AssistantRunResult {
+  /** Null when the scope had nothing expandable (a zone-only
+   *  selection) — the explanation lands in-thread instead. */
+  branch: string | null;
+  asked: QuestionCandidateRow | null;
+}
+
+export interface AssistantRunEndResult {
+  /** The posted readiness summary text (PRD R7). */
+  summary: string;
+  message: InterviewMessageRow;
+}
+
 const ticketPath = (ws: string, id: string) =>
   `/api/v1/tickets/${encodeURIComponent(ws)}/${encodeURIComponent(id)}`;
 
@@ -981,6 +1041,11 @@ export const client = {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
     }),
+  cloneRepo: (input: { url: string; name?: string }) =>
+    post<{ repo: { name: string; path: string; url: string } }>(
+      '/api/v1/repos/clone',
+      input,
+    ),
   kbList: (scope: string) =>
     api<{ dossiers: DossierEntry[] }>(
       `/api/v1/kb/${encodeURIComponent(scope)}`,
@@ -1169,6 +1234,10 @@ export const client = {
       serves?: string[];
       x?: number;
       y?: number;
+      w?: number;
+      h?: number;
+      color?: BoardItem['color'];
+      z_index?: number;
     },
   ) =>
     post<{ item: BoardItem }>(
@@ -1200,6 +1269,11 @@ export const client = {
       serves?: string[] | null;
       x?: number | null;
       y?: number | null;
+      w?: number | null;
+      h?: number | null;
+      color?: BoardItem['color'];
+      z_index?: number | null;
+      presentation_order?: number | null;
       status?: string;
     },
   ) =>
@@ -1208,6 +1282,159 @@ export const client = {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
     }),
+  patchBoardItems: (
+    board: string,
+    body: {
+      workspace: string;
+      mutations: {
+        id: string;
+        expected_updated_at: string;
+        patch: Partial<
+          Pick<
+            BoardItem,
+            | 'x'
+            | 'y'
+            | 'w'
+            | 'h'
+            | 'zone'
+            | 'color'
+            | 'z_index'
+            | 'presentation_order'
+            | 'title'
+            | 'body'
+            | 'note_kind'
+            | 'importance'
+            | 'note_status'
+            | 'board'
+            | 'status'
+          >
+        >;
+      }[];
+    },
+  ) =>
+    api<{ items: BoardItem[] }>(
+      `/api/v1/boards/${encodeURIComponent(board)}/items`,
+      {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      },
+    ),
+  addBoardConnector: (
+    board: string,
+    body: {
+      workspace: string;
+      source_item_id: string;
+      target_item_id: string;
+      label?: string;
+    },
+  ) =>
+    api<{ connector: BoardConnector }>(
+      `/api/v1/boards/${encodeURIComponent(board)}/connectors`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      },
+    ),
+  patchBoardConnector: (
+    board: string,
+    id: string,
+    body: {
+      workspace: string;
+      label?: string | null;
+      expected_updated_at: string;
+    },
+  ) =>
+    api<{ connector: BoardConnector }>(
+      `/api/v1/boards/${encodeURIComponent(board)}/connectors/${encodeURIComponent(id)}`,
+      {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      },
+    ),
+  removeBoardConnector: (board: string, id: string, workspace: string) =>
+    api<{ connector: BoardConnector }>(
+      `/api/v1/boards/${encodeURIComponent(board)}/connectors/${encodeURIComponent(id)}?workspace=${encodeURIComponent(workspace)}`,
+      { method: 'DELETE' },
+    ),
+  // ---- canvas tool extensions (BOARD-CANVAS-TOOLS-TDD) ----
+  addBoardAnnotation: (
+    board: string,
+    body: {
+      workspace: string;
+      kind: BoardAnnotation['kind'];
+      geometry: BoardAnnotation['geometry'];
+      color?: BoardAnnotation['color'];
+    },
+  ) =>
+    post<{ annotation: BoardAnnotation }>(
+      `/api/v1/boards/${encodeURIComponent(board)}/annotations`,
+      body,
+    ),
+  patchBoardAnnotation: (
+    board: string,
+    id: string,
+    body: {
+      workspace: string;
+      expected_updated_at: string;
+      kind?: BoardAnnotation['kind'];
+      geometry?: BoardAnnotation['geometry'];
+      color?: BoardAnnotation['color'];
+    },
+  ) =>
+    api<{ annotation: BoardAnnotation }>(
+      `/api/v1/boards/${encodeURIComponent(board)}/annotations/${encodeURIComponent(id)}`,
+      {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      },
+    ),
+  deleteBoardAnnotation: (board: string, id: string, workspace: string) =>
+    api<{ deleted: boolean }>(
+      `/api/v1/boards/${encodeURIComponent(board)}/annotations/${encodeURIComponent(id)}?workspace=${encodeURIComponent(workspace)}`,
+      { method: 'DELETE' },
+    ),
+  openVoteSession: (
+    board: string,
+    body: { workspace: string; closes_at?: string | null },
+  ) =>
+    post<{ session: BoardVoteSession }>(
+      `/api/v1/boards/${encodeURIComponent(board)}/vote-sessions`,
+      body,
+    ),
+  closeVoteSession: (
+    board: string,
+    id: string,
+    body: { workspace: string; expected_updated_at: string },
+  ) =>
+    api<{ session: BoardVoteSession }>(
+      `/api/v1/boards/${encodeURIComponent(board)}/vote-sessions/${encodeURIComponent(id)}`,
+      {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...body, status: 'closed' }),
+      },
+    ),
+  castBoardVote: (
+    board: string,
+    body: {
+      workspace: string;
+      session_id: string;
+      item_id: string;
+      stamp: BoardVote['stamp'];
+    },
+  ) =>
+    api<{ vote: BoardVote }>(
+      `/api/v1/boards/${encodeURIComponent(board)}/votes`,
+      {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      },
+    ),
   deleteBoardItem: (ws: string, id: string) =>
     api<{ deleted: boolean }>(
       `/api/v1/board-items/${encodeURIComponent(id)}${qs({ workspace: ws })}`,
@@ -1529,4 +1756,65 @@ export const client = {
   /** Queue the `retro` stage on a released|closed release. */
   retroRelease: (ws: string, rel: string) =>
     post<{ run: string }>(`${releasePath(ws, rel)}/retro`, {}),
+
+  // ---- Board Assistant (BOARD-CHAT-TDD REST table, wp-161+) ----
+  assistant: (ws: string, board: string) =>
+    api<BoardAssistantState>(
+      `/api/v1/boards/${encodeURIComponent(board)}/assistant${qs({ workspace: ws })}`,
+    ),
+  /** Answers, freeform commands, and skill text all post here — the
+   *  server routes by thread state (TDD turn pipeline). */
+  assistantMessage: (ws: string, board: string, text: string) =>
+    post<AssistantTurnResult>(
+      `/api/v1/boards/${encodeURIComponent(board)}/assistant/messages`,
+      { workspace: ws, text },
+    ),
+  assistantRun: (
+    ws: string,
+    board: string,
+    body: {
+      skill: 'interview' | 'expand';
+      scope?: { subject?: string; item_ids?: string[] };
+    },
+  ) =>
+    post<AssistantRunResult>(
+      `/api/v1/boards/${encodeURIComponent(board)}/assistant/runs`,
+      { workspace: ws, ...body },
+    ),
+  assistantEndRun: (ws: string, board: string, branch: string) =>
+    post<AssistantRunEndResult>(
+      `/api/v1/boards/${encodeURIComponent(board)}/assistant/runs/${encodeURIComponent(branch)}/end`,
+      { workspace: ws },
+    ),
+  boardProposals: (ws: string, board: string, status?: string) =>
+    api<{ proposals: BoardProposalRow[] }>(
+      `/api/v1/boards/${encodeURIComponent(board)}/proposals${qs({ workspace: ws, status })}`,
+    ),
+  /** Commits the op through single-item legality (OCC on
+   *  `base_updated_at`); 409 → the proposal marks `stale`. */
+  acceptProposal: (ws: string, board: string, proposalId: string) =>
+    post<{ proposal: BoardProposalRow; items: BoardItem[] }>(
+      `/api/v1/boards/${encodeURIComponent(board)}/proposals/${encodeURIComponent(proposalId)}/accept`,
+      { workspace: ws },
+    ),
+  rejectProposal: (
+    ws: string,
+    board: string,
+    proposalId: string,
+    reason?: string,
+  ) =>
+    post<{ proposal: BoardProposalRow }>(
+      `/api/v1/boards/${encodeURIComponent(board)}/proposals/${encodeURIComponent(proposalId)}/reject`,
+      { workspace: ws, ...(reason ? { reason } : {}) },
+    ),
+  /** Atomic batch accept — `{ids}` or `{batch_id}` (TDD). */
+  acceptProposals: (
+    ws: string,
+    board: string,
+    body: { ids?: string[]; batch_id?: string },
+  ) =>
+    post<{ proposals: BoardProposalRow[]; items: BoardItem[] }>(
+      `/api/v1/boards/${encodeURIComponent(board)}/proposals/accept`,
+      { workspace: ws, ...body },
+    ),
 };

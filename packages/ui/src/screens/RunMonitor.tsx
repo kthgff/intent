@@ -31,13 +31,13 @@ export function RunsList() {
   );
   useStreamRefresh(state.reload, ['run_status']);
   return (
-    <section>
+    <section className="runs-list-screen">
       <h1 className="page-title">Runs</h1>
       <p className="page-sub">Detached agent runs watched by the conductor.</p>
-      <div className="row" style={{ marginBottom: 10 }}>
+      <div className="row screen-toolbar runs-toolbar">
         <select
           aria-label="status filter"
-          style={{ width: 'auto' }}
+          className="auto"
           value={status}
           onChange={(e) => setStatus(e.target.value)}
         >
@@ -197,7 +197,7 @@ export default function RunMonitor() {
   };
 
   return (
-    <section>
+    <section className="run-monitor-screen">
       <p className="page-sub" style={{ marginBottom: 2 }}>
         <Link to={projectPath(ws, '/runs')}>← runs</Link>
       </p>
@@ -207,7 +207,7 @@ export default function RunMonitor() {
       {opError != null && <ErrorBox error={opError} />}
       {run && (
         <>
-          <div className="row" style={{ marginBottom: 12 }}>
+          <div className="row run-header-bar">
             <StatusBadge status={run.status} />
             <span className="muted">
               {run.stage} · {run.backend ?? '?'} ·{' '}
@@ -255,7 +255,7 @@ export default function RunMonitor() {
               {run.sentinel ?? run.sentinel_raw}
             </output>
           )}
-          <div className="counters" style={{ marginBottom: 12 }}>
+          <div className="counters run-counters">
             <Counter
               label="tokens in"
               value={live?.tokens_in ?? run.tokens_in}

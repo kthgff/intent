@@ -36,6 +36,9 @@ export type RepoCard = z.infer<typeof RepoCardSchema>;
 
 export const RepoEntrySchema = z.object({
   path: z.string(),
+  /** Origin remote when the repo was connected from a host (GitHub
+   *  clone flow) — canonical https URL, informational only. */
+  url: z.string().optional(),
   card: RepoCardSchema.optional(),
 });
 export type RepoEntry = z.infer<typeof RepoEntrySchema>;
@@ -223,6 +226,19 @@ export const UiConfigSchema = z.object({
   port: z.number().int().default(4711),
   token_file: z.string().optional(),
   remote_access: z.boolean().default(false),
+  /** BOARD-CANVAS rollout gate (BOARD-CANVAS-TDD §Rollout): the v2
+   *  spatial canvas replaces the grouped classic view per board when
+   *  enabled. Default off until dogfood acceptance. */
+  idea_canvas_v2: z.boolean().default(false),
+  /** Drawing-layer gate (BOARD-CANVAS-TOOLS-TDD §5): pen/shapes/
+   *  highlighter annotations — the largest new durable surface — stay
+   *  behind their own rollout flag even when idea_canvas_v2 is on. */
+  canvas_draw: z.boolean().default(false),
+  /** Board Assistant gate (BOARD-CHAT-PRD Rollout, wp-161+): the
+   *  floating assistant panel + proposal affordance. Requires
+   *  idea_canvas_v2 — the chat is a canvas-era surface; flag-off boards
+   *  get neither. Default off until dogfood acceptance. */
+  board_chat: z.boolean().default(false),
   /** Per-column WIP soft limits for the S-01 board (s-01 "WIP
    *  warnings") — `{backlog|spec|build|review|done}: n`. Exceeding a
    *  limit tints the column header amber; it never blocks drops. */

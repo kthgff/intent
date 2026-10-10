@@ -134,12 +134,12 @@ export default function Inbox() {
   };
 
   return (
-    <section>
+    <section className="inbox-screen">
       <h1 className="page-title">Inbox</h1>
       <p className="page-sub">
         Everything that needs your move, blocking first.
       </p>
-      <div className="row" style={{ marginBottom: 12 }}>
+      <div className="row screen-toolbar">
         <span className="muted">project {workspace}</span>
         <span className="spacer" />
         <button type="button" className="small" onClick={load}>

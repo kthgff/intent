@@ -125,7 +125,7 @@ describe('Understanding Panel (wp-147)', () => {
       />,
     );
     expect(screen.getByText('Understanding')).toBeTruthy();
-    expect(screen.getByText('Confirmed')).toBeTruthy();
+    expect(screen.getAllByText('Confirmed').length).toBeGreaterThan(0);
     expect(screen.getByText('Interpretation')).toBeTruthy();
     expect(screen.getByText('Needs clarification')).toBeTruthy();
     expect(screen.getByText('Decision required')).toBeTruthy();
@@ -150,9 +150,9 @@ describe('Understanding Panel (wp-147)', () => {
         onError={() => {}}
       />,
     );
-    expect(screen.getAllByText('confirm').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('correct').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('dispute').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Confirm').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Correct').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Dispute').length).toBeGreaterThan(0);
     // The decision item carries a ruling input + apply buttons.
     expect(screen.getByLabelText('ruling')).toBeTruthy();
   });

@@ -52,7 +52,7 @@ export default function PrPanel() {
   if (!t) return <Empty />;
 
   return (
-    <section>
+    <section className="pr-panel-screen">
       <h1 className="page-title">PR status — {id}</h1>
       <p className="page-sub">
         <Link to={projectPath(ws, `/tickets/${id}`)}>← ticket</Link> ·{' '}
@@ -103,7 +103,7 @@ export default function PrPanel() {
           </div>
         </div>
       ))}
-      <div className="row" style={{ marginTop: 14 }}>
+      <div className="row pr-actions">
         <button
           type="button"
           className="primary"

@@ -35,6 +35,7 @@ import {
   fmtAge,
   humanize,
 } from '../components';
+import { DictationField } from '../dictation';
 import { useLoad, useStreamRefresh } from '../hooks';
 import { projectPath } from '../project';
 
@@ -659,12 +660,14 @@ function ReleaseTab({
               <label htmlFor="feature-exclusions">
                 Known exclusions (one per line — recorded verbatim):
               </label>
-              <textarea
-                id="feature-exclusions"
-                rows={3}
-                value={exclusions}
-                onChange={(e) => setExclusions(e.target.value)}
-              />
+              <DictationField>
+                <textarea
+                  id="feature-exclusions"
+                  rows={3}
+                  value={exclusions}
+                  onChange={(e) => setExclusions(e.target.value)}
+                />
+              </DictationField>
               {err != null && <ErrorBox error={err} />}
               <button
                 type="button"

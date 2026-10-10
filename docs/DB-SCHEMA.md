@@ -68,12 +68,22 @@ board_items(                               -- every card on a canvas;
   board TEXT,                              -- NULL → tray (D27)
   kind TEXT NOT NULL,                      -- idea|initiative|feature|
                                            -- ticket|note|zone|feedback|
-                                           -- retro
+                                           -- retro|text|image|link
+                                           -- (s-16 canvas objects, D57)
   ref TEXT,                                -- linked subject when the
-                                           -- card IS a tkt/feat/init
+                                           -- card IS a tkt/feat/init;
+                                           -- link kind: http(s) URL;
+                                           -- image kind: asset id
   title TEXT, body TEXT,
-  x REAL, y REAL, w REAL, h REAL,          -- canvas geometry
-  zone TEXT,                               -- zone membership
+  x REAL, y REAL, w REAL, h REAL,          -- canvas geometry (absolute)
+  color TEXT,                              -- yellow|pink|blue|green|
+                                           -- orange|purple|gray; NULL =
+                                           -- derive from note_kind (D57)
+  z_index INTEGER,                         -- stacking hint (D57)
+  zone TEXT,                               -- zone membership: a zone
+                                           -- board_item id when written by
+                                           -- the canvas; legacy rows may
+                                           -- carry free-form labels (D57)
   serves TEXT,                             -- D33: goal board_item id(s)
                                            -- this item serves — canonical
                                            -- edge (connectors/zones are
@@ -89,7 +99,66 @@ board_items(                               -- every card on a canvas;
                                            -- stakeholder-verified (wp-139)
   consumed_by TEXT,                        -- synthesis ticket/run that
                                            -- consumed the card
+  presentation_order INTEGER,              -- frame sequence for present
+                                           -- mode; zones only, NULL =
+                                           -- unordered (skipped) (D63)
   created_at TEXT, updated_at TEXT);
+
+-- s-16 drawn connectors (D57): topology hints between two items on the
+-- same board — NOT the canonical goal edge (that stays `serves`).
+board_connectors(
+  id TEXT PRIMARY KEY,
+  workspace TEXT NOT NULL,
+  board TEXT NOT NULL,
+  source_item_id TEXT NOT NULL REFERENCES board_items(id),
+  target_item_id TEXT NOT NULL REFERENCES board_items(id),
+  label TEXT,
+  status TEXT NOT NULL,                    -- active|superseded — never
+                                           -- hard-deleted once drawn
+  created_at TEXT, updated_at TEXT);
+-- one ACTIVE connector per ordered pair per board:
+--   UNIQUE(workspace,board,source_item_id,target_item_id) WHERE active
+-- board_assets (TDD contract, SCHEMAS §): NOT yet migrated — image
+--   upload is disabled pending a Fastify-5-compatible patched
+--   @fastify/multipart (D57); bytes would live under the data root,
+--   never in Postgres.
+
+-- canvas tools (D63, BOARD-CANVAS-TOOLS-TDD §2.6/2.7): the drawing
+-- layer is the only genuinely new durable entity — SVG annotations,
+-- never board_items, never RF nodes.
+board_annotations(
+  id TEXT PRIMARY KEY,
+  workspace TEXT NOT NULL,
+  board TEXT NOT NULL,
+  kind TEXT NOT NULL,                      -- stroke|rect|ellipse|arrow|
+                                           -- highlight
+  geometry TEXT NOT NULL,                  -- JSON validated per kind;
+                                           -- strokes ≤2000 pts
+  color TEXT,                              -- free text (pen palette,
+                                           -- not sticky colors)
+  created_by TEXT, created_at TEXT, updated_at TEXT);
+
+-- vote sessions: one open window per board at a time (partial unique
+-- index WHERE status='open'); closed is terminal — stamping a closed
+-- session 409s server-side. Votes are signal, never authority: no
+-- write path mutates `importance`.
+board_vote_sessions(
+  id TEXT PRIMARY KEY,
+  workspace TEXT NOT NULL,
+  board TEXT NOT NULL,
+  opened_by TEXT, closes_at TEXT,
+  status TEXT NOT NULL,                    -- open|closed
+  created_at TEXT, updated_at TEXT);
+board_item_votes(
+  workspace TEXT NOT NULL,
+  board TEXT NOT NULL,
+  item_id TEXT NOT NULL REFERENCES board_items(id),
+  voter TEXT NOT NULL,
+  session_id TEXT NOT NULL REFERENCES board_vote_sessions(id),
+  stamp TEXT NOT NULL,                     -- up|down|question
+  created_at TEXT, updated_at TEXT,
+  -- one vote per voter per item per session; re-vote = UPDATE
+  PRIMARY KEY(workspace, board, item_id, voter, session_id));
 
 -- --- hierarchy (D26) ---
 initiatives(
@@ -499,7 +568,9 @@ interview_branches(
   PRIMARY KEY(workspace, session_id, branch));
 interview_messages(                       -- append-only transcript
   workspace, org, session_id, seq,        -- per-session monotonic
-  branch, role, content, created_at,      -- user|assistant|system
+  branch, role, content,                  -- user|assistant|system
+  created_by,                             -- NULL on old rows; per-turn actor
+  created_at,                             -- for shared board threads (wp-161)
   PRIMARY KEY(workspace, session_id, seq));
 knowledge_slots(
   workspace, org, session_id, slot,
@@ -518,7 +589,22 @@ session_snapshots(                        -- append-only resume points
   snapshot, reason, created_at,           -- json knowledge state
   PRIMARY KEY(workspace, session_id, version));
 
--- --- review studio (PRD §15.8, wp-148/149/150) ---
+-- --- board assistant (BOARD-CHAT-PRD, wp-161+) ---
+board_proposals(                          -- durable proposal queue: EVERY
+  workspace, org, proposal_id, board,     -- assistant board mutation lands
+  session_id,                             -- here first; committed only on
+  batch_id,                               -- human accept (PRD R3). batch_id
+  seq,                                    -- groups a checkpoint batch;
+  op,                                     -- seq = transcript seq that
+  payload,                                -- drafted it. op ∈
+  base_updated_at,                        -- BOARD_PROPOSAL_OPS; payload =
+  anchor,                                 -- json ProposalOp (payload.op =
+  provenance,                             -- op, enforced). base_updated_at
+  status,                                 -- = OCC fence; anchor = json
+  created_by, decided_by, decided_at,     -- related item ids; provenance =
+  created_at, updated_at,                 -- json {statement_ids, branch}.
+  PRIMARY KEY(workspace, proposal_id));   -- status: pending|accepted|
+-- INDEX (workspace, board, status)       -- rejected|stale|superseded
 review_sessions(
   workspace, org, review_id, subject,
   status,                                 -- open|approved|changes-requested|closed

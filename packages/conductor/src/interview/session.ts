@@ -184,6 +184,10 @@ export async function appendMessage(
     role: InterviewMessageRow['role'];
     content: string;
     branch?: string | null;
+    /** Per-turn actor attribution (BOARD-CHAT amendment 1) — NULL on
+     *  callers that don't pass it (display falls back to the
+     *  session's created_by). */
+    createdBy?: string | null;
   },
 ): Promise<InterviewMessageRow> {
   const ts = ctx.now().toISOString();
@@ -194,6 +198,7 @@ export async function appendMessage(
     branch: args.branch ?? null,
     role: args.role,
     content: args.content,
+    created_by: args.createdBy ?? null,
     created_at: ts,
   });
   return {
@@ -204,6 +209,7 @@ export async function appendMessage(
     branch: args.branch ?? null,
     role: args.role,
     content: args.content,
+    created_by: args.createdBy ?? null,
     created_at: ts,
   };
 }

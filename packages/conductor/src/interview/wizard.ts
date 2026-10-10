@@ -10,11 +10,15 @@
  * Three MVP wizards ship here: solution-discovery, requirements-
  * discovery, tdd-discovery.
  */
-import type {
-  KnowledgeSlotRow,
-  Store,
-  WizardDefinitionRow,
-  WizardVersionRow,
+import {
+  BOARD_TYPES,
+  type BoardItem,
+  type BoardType,
+  type KnowledgeSlotRow,
+  type NoteKind,
+  type Store,
+  type WizardDefinitionRow,
+  type WizardVersionRow,
 } from '@veto/core';
 import { z } from 'zod';
 import {
@@ -495,4 +499,476 @@ export async function seedMvpWizards(
     out.push(await registerWizard(ctx, cfg));
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Board wizard configs (BOARD-CHAT-TDD "Board wizard configs", wp-163)
+// ---------------------------------------------------------------------------
+
+/** Per-type copy — the shared slot shape is fixed; the label/question
+ *  wording and any extra slots vary by board type. */
+type BoardSlotCopy = Pick<WizardSlotSpec, 'label' | 'question'>;
+
+interface BoardWizardVoice {
+  name: string;
+  description: string;
+  goals: BoardSlotCopy;
+  problems: BoardSlotCopy;
+  wants: BoardSlotCopy;
+  constraints: BoardSlotCopy;
+  /** Type-specific extra slots (TDD per-type extras row). */
+  extras?: WizardSlotSpec[];
+}
+
+const BOARD_GENERIC_VOICE: BoardWizardVoice = {
+  name: 'Board discovery',
+  description:
+    'Goals-first discovery for an untyped board — the generic shape every board-<type> wizard shares.',
+  goals: {
+    label: 'Goals',
+    question: 'What is this board for — what are its goals?',
+  },
+  problems: {
+    label: 'Problems',
+    question: 'What problems does this board capture?',
+  },
+  wants: {
+    label: 'Wants',
+    question: 'What does this board want to see happen?',
+  },
+  constraints: {
+    label: 'Constraints',
+    question: 'What constraints apply to this board?',
+  },
+};
+
+const BOARD_WIZARD_VOICES: Record<BoardType, BoardWizardVoice> = {
+  'new-project': {
+    name: 'New project board',
+    description:
+      'Greenfield discovery on a new-project board: goals first, then the coverage synthesis needs.',
+    goals: {
+      label: 'Goals',
+      question:
+        'What is this project trying to achieve — what does done look like?',
+    },
+    problems: {
+      label: 'Problems',
+      question: 'What problem or pain does this project exist to solve?',
+    },
+    wants: {
+      label: 'Wants',
+      question: 'What do stakeholders want out of this project?',
+    },
+    constraints: {
+      label: 'Constraints',
+      question:
+        'What constraints apply — budget, platform, compliance, deadlines?',
+    },
+  },
+  import: {
+    name: 'Import board',
+    description:
+      'Discovery over an imported board: what the imported scope is for and what must survive the import intact.',
+    goals: {
+      label: 'Goals',
+      question: 'What should this imported scope accomplish — what is it for?',
+    },
+    problems: {
+      label: 'Problems',
+      question: 'What is broken, missing, or wrong in the imported set?',
+    },
+    wants: {
+      label: 'Wants',
+      question: 'What do we want to keep, fix, or drop from the source?',
+    },
+    constraints: {
+      label: 'Constraints',
+      question: 'What limits the import — formats, permissions, mapping rules?',
+    },
+    extras: [
+      {
+        slot: 'source-fidelity',
+        label: 'Source fidelity',
+        required: true,
+        scope: 'board',
+        question:
+          'What must match the source exactly — ids, statuses, wording?',
+        accepts: ['requires', 'constraint'],
+        impact: 0.6,
+      },
+    ],
+  },
+  enhancement: {
+    name: 'Enhancement board',
+    description:
+      'Discovery on an enhancement board: what the existing capability should become.',
+    goals: {
+      label: 'Goals',
+      question:
+        'What should this capability become — what does better look like?',
+    },
+    problems: {
+      label: 'Gaps',
+      question: 'What is missing or weak in the current behaviour?',
+    },
+    wants: {
+      label: 'Requests',
+      question: 'What improvements are being asked for?',
+    },
+    constraints: {
+      label: 'Constraints',
+      question:
+        'What must keep working — compatibility, APIs, migration limits?',
+    },
+  },
+  modernization: {
+    name: 'Modernization board',
+    description:
+      'Discovery on a modernization board: the target state and the legacy pain driving it.',
+    goals: {
+      label: 'Target state',
+      question: 'What is the target state — architecture, stack, platform?',
+    },
+    problems: {
+      label: 'Legacy pain',
+      question: 'What legacy pain drives this — debt, scaling, cost?',
+    },
+    wants: {
+      label: 'Wants',
+      question: 'What should the modernization deliver?',
+    },
+    constraints: {
+      label: 'Migration limits',
+      question:
+        'What constrains the migration — downtime, parity, dependencies?',
+    },
+  },
+  quality: {
+    name: 'Quality board',
+    description:
+      'Discovery on a quality board: the quality bar, where it fails, and the gates that must hold.',
+    goals: {
+      label: 'Quality bar',
+      question: 'What quality bar is this board aiming for?',
+    },
+    problems: {
+      label: 'Defects & risks',
+      question: 'Where is quality failing — defects, flake, risk?',
+    },
+    wants: {
+      label: 'Improvements',
+      question: 'What quality improvements are wanted?',
+    },
+    constraints: {
+      label: 'Standards',
+      question: 'What quality gates or standards must hold?',
+    },
+  },
+  feedback: {
+    name: 'Feedback board',
+    description:
+      'Discovery on a feedback board: what the feedback should drive, its themes, and its severity.',
+    goals: {
+      label: 'Goals',
+      question:
+        'What should this feedback drive — a fix, a feature, a decision?',
+    },
+    problems: {
+      label: 'Reported problems',
+      question: 'What problems does the feedback report?',
+    },
+    wants: {
+      label: 'Requests',
+      question: 'What are users asking for?',
+    },
+    constraints: {
+      label: 'Limits',
+      question: 'What limits the response — policy, scope, commitments?',
+    },
+    extras: [
+      {
+        slot: 'themes',
+        label: 'Themes',
+        required: true,
+        scope: 'board',
+        question: 'What themes recur across the feedback?',
+        accepts: ['observation', 'problem'],
+        impact: 0.6,
+      },
+      {
+        slot: 'severity',
+        label: 'Severity',
+        required: true,
+        scope: 'board',
+        question:
+          'How severe is the feedback — what breaks, blocks, or merely annoys?',
+        accepts: ['problem', 'observation'],
+        impact: 0.6,
+      },
+    ],
+  },
+  'release-planning': {
+    name: 'Release-planning board',
+    description:
+      'Discovery on a release-planning board: the targets the release must hit and the criteria for cutting scope.',
+    goals: {
+      label: 'Release goals',
+      question: 'What is this release for — the outcome it must deliver?',
+    },
+    problems: {
+      label: 'Risks',
+      question: 'What risks or gaps threaten the release?',
+    },
+    wants: {
+      label: 'Scope wants',
+      question: 'What do we want in this release?',
+    },
+    constraints: {
+      label: 'Release limits',
+      question: 'What fixes the release — dates, scope, dependencies?',
+    },
+    extras: [
+      {
+        slot: 'targets',
+        label: 'Targets',
+        required: true,
+        scope: 'board',
+        question:
+          'What are the concrete release targets — scope, dates, milestones?',
+        accepts: ['requires', 'decision'],
+        impact: 0.6,
+      },
+      {
+        slot: 'cut-criteria',
+        label: 'Cut criteria',
+        required: true,
+        scope: 'board',
+        question: 'When the release is at risk, what gets cut first?',
+        accepts: ['decision', 'constraint'],
+        impact: 0.6,
+      },
+    ],
+  },
+  exploration: {
+    name: 'Exploration board',
+    description:
+      'Discovery on an exploration board: what it is trying to learn or decide.',
+    goals: {
+      label: 'Goals',
+      question: 'What is this exploration trying to learn or decide?',
+    },
+    problems: {
+      label: 'Unknowns',
+      question: 'What is unclear or unproven?',
+    },
+    wants: {
+      label: 'Wants',
+      question: 'What should come out of the exploration?',
+    },
+    constraints: {
+      label: 'Bounds',
+      question: 'What bounds the exploration — time, budget, scope?',
+    },
+  },
+};
+
+/**
+ * Build one `board-<type>` wizard: the shared slot shape (required
+ * `goals`/`problems`/`wants`/`constraints`, optional
+ * `avoids`/`open-questions`/`decisions`) with per-type copy + extras.
+ * `goals` carries the top impact so the planner asks it first.
+ */
+function boardWizard(wizardId: string, voice: BoardWizardVoice): WizardConfig {
+  const slot = (
+    name: string,
+    copy: BoardSlotCopy,
+    accepts: WizardSlotSpec['accepts'],
+    impact: number,
+  ): WizardSlotSpec => ({
+    slot: name,
+    required: true,
+    scope: 'board',
+    accepts,
+    impact,
+    ...copy,
+  });
+  return {
+    wizard_id: wizardId,
+    name: voice.name,
+    description: voice.description,
+    version: 1,
+    slots: [
+      slot('goals', voice.goals, ['want', 'requires'], 1),
+      slot('problems', voice.problems, ['problem', 'observation'], 0.9),
+      slot('wants', voice.wants, ['want', 'requires'], 0.8),
+      slot('constraints', voice.constraints, ['constraint', 'prohibits'], 0.7),
+      ...(voice.extras ?? []),
+      {
+        slot: 'avoids',
+        label: 'Avoids',
+        required: false,
+        scope: 'board',
+        question: 'What is explicitly out of scope or to be avoided?',
+        accepts: ['avoid', 'prohibits'],
+        impact: 0.5,
+      },
+      {
+        slot: 'open-questions',
+        label: 'Open questions',
+        required: false,
+        scope: 'board',
+        question: 'What is still unknown or undecided?',
+        accepts: ['question'],
+        impact: 0.4,
+      },
+      {
+        slot: 'decisions',
+        label: 'Decisions',
+        required: false,
+        scope: 'board',
+        question: 'What has already been decided?',
+        accepts: ['decision'],
+        impact: 0.4,
+      },
+    ],
+    thresholds: DEFAULT_THRESHOLDS,
+  };
+}
+
+/** The wizard a board resolves: `board-<board_type>`, `board-generic`
+ *  when `board_type` is NULL. */
+export function boardWizardId(boardType: string | null | undefined): string {
+  return boardType ? `board-${boardType}` : 'board-generic';
+}
+
+/** `board-<type>` for every `BOARD_TYPES` value + `board-generic`. */
+export const BOARD_WIZARDS: WizardConfig[] = [
+  boardWizard('board-generic', BOARD_GENERIC_VOICE),
+  ...BOARD_TYPES.map((t) => boardWizard(`board-${t}`, BOARD_WIZARD_VOICES[t])),
+];
+
+/** Seed the board wizard catalog (idempotent — the lazy session-start
+ *  path; GETs stay read-only). */
+export async function seedBoardWizards(
+  ctx: InterviewCtx,
+): Promise<RegisterWizardResult[]> {
+  const out: RegisterWizardResult[] = [];
+  for (const cfg of BOARD_WIZARDS) {
+    out.push(await registerWizard(ctx, cfg));
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Coverage seeding — "goals-first is a seeding rule, not a prompt hack"
+// ---------------------------------------------------------------------------
+
+/**
+ * Slot → `note_kind` coverage map. `goals` is deliberately absent —
+ * the taxonomy has no `goal` note_kind; goal-ness is conferred by
+ * *being a serves target* (D33), checked via {@link goalItemIds}.
+ */
+const BOARD_SLOT_NOTE_KINDS = {
+  problems: 'problem',
+  wants: 'want',
+  constraints: 'constraint',
+  avoids: 'avoid',
+  'open-questions': 'question',
+  decisions: 'decision',
+} as const satisfies Record<string, NoteKind>;
+
+/** The goal set on a board (D33): ids that are `serves` targets —
+ *  `id ∈ ⋃ serves`, restricted to items present. */
+export function goalItemIds(items: readonly BoardItem[]): Set<string> {
+  const ids = new Set(items.map((i) => i.id));
+  const goals = new Set<string>();
+  for (const i of items) {
+    for (const target of i.serves ?? []) {
+      if (ids.has(target)) goals.add(target);
+    }
+  }
+  return goals;
+}
+
+/** Goal-ness derives — an item is a goal iff it is a serves target. */
+export function isGoalItem(
+  itemId: string,
+  items: readonly BoardItem[],
+): boolean {
+  return goalItemIds(items).has(itemId);
+}
+
+/**
+ * Deterministic board coverage: `goals` is covered when ≥1 live item
+ * is a `serves` target; every other mapped slot is covered by ≥1 live
+ * item carrying its `note_kind`. `discarded` items are off the board —
+ * they cover nothing.
+ */
+export function boardSlotCoverage(
+  items: readonly BoardItem[],
+): ReadonlySet<string> {
+  const live = items.filter((i) => i.status !== 'discarded');
+  const covered = new Set<string>();
+  if (goalItemIds(live).size > 0) covered.add('goals');
+  const kinds = new Set(live.map((i) => i.note_kind));
+  for (const [slot, kind] of Object.entries(BOARD_SLOT_NOTE_KINDS)) {
+    if (kinds.has(kind)) covered.add(slot);
+  }
+  return covered;
+}
+
+function boardSlugOfSubject(subject: string | null): string | null {
+  return subject?.startsWith('board:') ? subject.slice('board:'.length) : null;
+}
+
+/**
+ * Coverage seeding at session start / run start: upgrade this board
+ * session's `missing` slots to `inferred` where the board already
+ * covers them — covered slots are confirmable in the Understanding
+ * tab, never re-asked. Only `missing → inferred`; user-set and
+ * derived states are never rewritten. The board defaults to the
+ * session's `board:<slug>` subject.
+ */
+export async function seedBoardSlots(
+  ctx: InterviewCtx,
+  args: { sessionId: string; board?: string | null },
+): Promise<KnowledgeSlotRow[]> {
+  const session = await ctx.store.getInterviewSession({
+    workspace: ctx.workspace,
+    session_id: args.sessionId,
+  });
+  if (!session) {
+    throw notFound(
+      `no interview session '${args.sessionId}' in ${ctx.workspace}`,
+    );
+  }
+  const board = args.board ?? boardSlugOfSubject(session.subject ?? null);
+  if (!board) {
+    throw invalid(
+      `no board for session ${args.sessionId} — pass board or give the session a 'board:<slug>' subject`,
+    );
+  }
+  const items = await ctx.store.listBoardItems({
+    workspace: ctx.workspace,
+    board,
+  });
+  const covered = boardSlotCoverage(items);
+  const ts = ctx.now().toISOString();
+  const seeded: KnowledgeSlotRow[] = [];
+  const rows = await ctx.store.listKnowledgeSlots({
+    workspace: ctx.workspace,
+    session_id: args.sessionId,
+  });
+  for (const row of rows) {
+    if (row.state !== 'missing' || !covered.has(row.slot)) continue;
+    const next: KnowledgeSlotRow = {
+      ...row,
+      state: 'inferred',
+      updated_at: ts,
+    };
+    await ctx.store.upsertKnowledgeSlot(next);
+    seeded.push(next);
+  }
+  return seeded;
 }

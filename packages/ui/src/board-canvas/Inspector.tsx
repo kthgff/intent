@@ -10,14 +10,101 @@
  */
 import type { BoardItem, StatementRow } from '@veto/core';
 import { Lock, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import {
+  type ChangeEvent,
+  type KeyboardEvent,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from 'react';
 import { client } from '../api';
 import { StatusBadge, fmtAge } from '../components';
+import { DictationField } from '../dictation';
 import {
   isConsumedItem,
   noteKindMeta,
   statementProvenance,
 } from '../discovery';
+
+/** Editable text property — label + control as one inspector field.
+ *  Commits on blur (Enter for single-line, ⌘/Ctrl+Enter for the
+ *  textarea, Escape like the canvas editor) through the fenced
+ *  `onPatch`. The draft is local so mid-typing SSE refreshes and the
+ *  post-patch re-render don't clobber it; a clean field re-syncs to
+ *  the item's latest value. `lastCommitted` dedupes commit→blur and
+ *  skips unchanged drafts; the re-sync effect resets it so a failed
+ *  patch (field reverts on reload) can be re-committed. Remounts per
+ *  item via `key` at the call site. */
+function InspectorTextField({
+  label,
+  value,
+  placeholder,
+  multiline,
+  disabled,
+  onCommit,
+}: {
+  label: string;
+  value: string;
+  placeholder?: string;
+  multiline?: boolean;
+  disabled: boolean;
+  onCommit: (text: string) => void;
+}) {
+  const controlId = useId();
+  const [draft, setDraft] = useState(value);
+  const [dirty, setDirty] = useState(false);
+  const lastCommitted = useRef(value);
+  useEffect(() => {
+    if (!dirty) {
+      setDraft(value);
+      lastCommitted.current = value;
+    }
+  }, [value, dirty]);
+  const commit = () => {
+    setDirty(false);
+    if (draft !== lastCommitted.current) {
+      lastCommitted.current = draft;
+      onCommit(draft);
+    }
+  };
+  const shared = {
+    id: controlId,
+    value: draft,
+    disabled,
+    placeholder,
+    onChange: (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      setDraft(e.target.value);
+      setDirty(true);
+    },
+    onBlur: commit,
+    onKeyDown: (e: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      if (
+        e.key === 'Escape' ||
+        (e.key === 'Enter' && (!multiline || e.metaKey || e.ctrlKey))
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        commit();
+        e.currentTarget.blur();
+      }
+    },
+  };
+  return (
+    <label htmlFor={controlId} className="inspector-field inspector-field-wide">
+      <span>{label}</span>
+      {multiline ? (
+        <DictationField>
+          <textarea rows={3} {...shared} />
+        </DictationField>
+      ) : (
+        <DictationField>
+          <input type="text" {...shared} />
+        </DictationField>
+      )}
+    </label>
+  );
+}
 
 export function BoardInspector({
   surface,
@@ -137,13 +224,21 @@ export function BoardInspector({
             : `This item is locked because it is ${item.status}.`}
         </p>
       )}
-      {item.body && <p className="inspector-body">{item.body}</p>}
+      {readOnly && item.body && <p className="inspector-body">{item.body}</p>}
 
       {!readOnly && (
         <>
           <section className="inspector-section">
             <h3 className="inspector-section-title">Properties</h3>
             <div className="inspector-grid">
+              <InspectorTextField
+                key={`title-${item.id}`}
+                label="Title"
+                value={item.title ?? ''}
+                placeholder="Untitled"
+                disabled={ro || busy}
+                onCommit={(t) => onPatch({ title: t.trim() || null })}
+              />
               <label className="inspector-field">
                 <span>Type</span>
                 <select
@@ -175,6 +270,39 @@ export function BoardInspector({
                   ))}
                 </select>
               </label>
+              {/* Frame presentation order (TOOLS-TDD §2.5) — zone
+                  items only; empty = excluded from present mode. */}
+              {item.kind === 'zone' && (
+                <label className="inspector-field">
+                  <span>Slide order</span>
+                  <DictationField>
+                    <input
+                      type="number"
+                      min={1}
+                      step={1}
+                      placeholder="—"
+                      value={item.presentation_order ?? ''}
+                      disabled={ro || busy}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        onPatch({
+                          presentation_order:
+                            v === '' ? null : Math.max(0, Number(v) || 0),
+                        });
+                      }}
+                    />
+                  </DictationField>
+                </label>
+              )}
+              <InspectorTextField
+                key={`body-${item.id}`}
+                label="Body"
+                value={item.body ?? ''}
+                placeholder="Add details…"
+                multiline
+                disabled={ro || busy}
+                onCommit={(t) => onPatch({ body: t || null })}
+              />
             </div>
           </section>
 
@@ -287,18 +415,20 @@ export function BoardInspector({
               {!readOnly &&
                 (editing === s.statement_id ? (
                   <div className="row">
-                    <input
-                      ref={correctionRef}
-                      aria-label="correction"
-                      value={correction}
-                      onChange={(e) => setCorrection(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Escape') {
-                          setEditing(null);
-                          setCorrection('');
-                        }
-                      }}
-                    />
+                    <DictationField onError={onError}>
+                      <input
+                        ref={correctionRef}
+                        aria-label="correction"
+                        value={correction}
+                        onChange={(e) => setCorrection(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Escape') {
+                            setEditing(null);
+                            setCorrection('');
+                          }
+                        }}
+                      />
+                    </DictationField>
                     <button
                       type="button"
                       className="small primary"

@@ -10,6 +10,7 @@ import { Link } from 'react-router-dom';
 import { client } from '../api';
 import type { IdeaBoardRow } from '../api';
 import { Empty, ErrorBox, Field, Loading, StatusBadge } from '../components';
+import { DictationField } from '../dictation';
 import { useBoardItemRefresh, useStreamRefresh } from '../hooks';
 import { projectPath, useProject } from '../project';
 
@@ -118,17 +119,14 @@ export default function Boards() {
   };
 
   return (
-    <section>
+    <section className="boards-screen">
       <h1 className="page-title">Boards</h1>
       <p className="page-sub">
         Idea boards — capture raw intent, synthesize it into governed work
         (S-15/S-16).
       </p>
-      <div className="row" style={{ marginBottom: 12 }}>
+      <div className="row screen-toolbar">
         <span className="spacer" />
-        <Link className="btn" to={projectPath(workspace, '/capture')}>
-          + Quick capture
-        </Link>
         <Link className="btn" to={projectPath(workspace, '/tray')}>
           Tray →
         </Link>
@@ -159,7 +157,7 @@ export default function Boards() {
                 {b.status && <StatusBadge status={b.status} />}
                 {b.org && <span className="badge">org</span>}
               </div>
-              <div className="muted" style={{ marginTop: 4 }}>
+              <div className="card-meta board-card-meta">
                 {b.board}
                 {b.type_config?.outputs?.length
                   ? ` · outputs: ${b.type_config.outputs.join(' · ')}`
@@ -170,34 +168,38 @@ export default function Boards() {
         </div>
       )}
 
-      <div className="card" style={{ marginTop: 16 }}>
-        <h2 style={{ marginTop: 0 }}>New board</h2>
-        <div className="row">
+      <div className="card board-create-card">
+        <h2>New board</h2>
+        <div className="row board-create-form">
           <Field label="slug">
-            <input
-              aria-label="board slug"
-              value={form.board}
-              onChange={(e) => {
-                setSlugTouched(true);
-                setForm({ ...form, board: e.target.value });
-              }}
-              placeholder="q1-goals"
-            />
+            <DictationField>
+              <input
+                aria-label="board slug"
+                value={form.board}
+                onChange={(e) => {
+                  setSlugTouched(true);
+                  setForm({ ...form, board: e.target.value });
+                }}
+                placeholder="q1-goals"
+              />
+            </DictationField>
           </Field>
           <Field label="name">
-            <input
-              aria-label="board name"
-              value={form.name}
-              onChange={(e) =>
-                setForm({
-                  ...form,
-                  name: e.target.value,
-                  // auto-derive the slug until the user overrides it
-                  ...(slugTouched ? {} : { board: slugify(e.target.value) }),
-                })
-              }
-              placeholder="Q1 goals"
-            />
+            <DictationField>
+              <input
+                aria-label="board name"
+                value={form.name}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    name: e.target.value,
+                    // auto-derive the slug until the user overrides it
+                    ...(slugTouched ? {} : { board: slugify(e.target.value) }),
+                  })
+                }
+                placeholder="Q1 goals"
+              />
+            </DictationField>
           </Field>
           <Field label="type">
             <BoardTypePicker
@@ -221,8 +223,8 @@ export default function Boards() {
         </p>
       </div>
 
-      <div className="card" style={{ marginTop: 16 }}>
-        <h2 style={{ marginTop: 0 }}>Discovery sessions</h2>
+      <div className="card board-sessions-card">
+        <h2>Discovery sessions</h2>
         {sessions && sessions.length > 0 ? (
           <ul className="list">
             {sessions.map((s) => (

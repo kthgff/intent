@@ -4,10 +4,43 @@
  * General · Code Repos · Backends & Keys · Models · Gates & Budgets ·
  * Merge · UI.
  */
-import { useState } from 'react';
-import { client } from '../api';
-import { Empty, ErrorBox, Field, Loading } from '../components';
+import { useEffect, useState } from 'react';
+import { ApiError, client } from '../api';
+import {
+  Empty,
+  ErrorBox,
+  Field,
+  Loading,
+  TabPanel,
+  Tabs,
+} from '../components';
+import { DictationField } from '../dictation';
 import { useLoad } from '../hooks';
+
+type ThemeMode = 'system' | 'dark' | 'light';
+
+/** Client-side theme apply — mirrors the index.html bootstrap so a
+ *  change takes effect without reload. `ui.theme` in config is the
+ *  durable source (SETTINGS.md D34); localStorage is the FOUC cache. */
+function applyTheme(mode: ThemeMode) {
+  try {
+    localStorage.setItem('veto.theme', mode);
+  } catch {
+    /* private mode — apply for this session only */
+  }
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  document.documentElement.dataset.theme =
+    mode === 'system' ? (dark ? 'dark' : 'light') : mode;
+}
+
+function themeNow(): ThemeMode {
+  try {
+    const s = localStorage.getItem('veto.theme');
+    return s === 'dark' || s === 'light' ? s : 'system';
+  } catch {
+    return 'system';
+  }
+}
 
 type Config = Record<string, unknown>;
 
@@ -40,6 +73,8 @@ function TextField({
   onChange,
   type = 'text',
   placeholder,
+  min,
+  step,
 }: {
   label: string;
   path: string;
@@ -47,21 +82,27 @@ function TextField({
   onChange: (path: string, v: unknown) => void;
   type?: string;
   placeholder?: string;
+  min?: string;
+  step?: string;
 }) {
   const v = get(config, path);
   return (
     <Field label={label}>
-      <input
-        type={type}
-        value={v === null || v === undefined ? '' : String(v)}
-        placeholder={placeholder}
-        onChange={(e) => {
-          const raw = e.target.value;
-          if (raw === '') return onChange(path, null);
-          if (type === 'number') return onChange(path, Number(raw));
-          return onChange(path, raw);
-        }}
-      />
+      <DictationField>
+        <input
+          type={type}
+          value={v === null || v === undefined ? '' : String(v)}
+          placeholder={placeholder}
+          min={min}
+          step={step}
+          onChange={(e) => {
+            const raw = e.target.value;
+            if (raw === '') return onChange(path, null);
+            if (type === 'number') return onChange(path, Number(raw));
+            return onChange(path, raw);
+          }}
+        />
+      </DictationField>
     </Field>
   );
 }
@@ -107,7 +148,7 @@ const TABS = [
 ] as const;
 
 export default function Settings() {
-  const { data, error, loading } = useLoad(() => client.settings(), []);
+  const { data, error, loading, reload } = useLoad(() => client.settings(), []);
   const [draft, setDraft] = useState<Config | null>(null);
   const [secrets, setSecrets] = useState<Record<string, string>>({});
   const [tab, setTab] = useState<(typeof TABS)[number]>('General');
@@ -116,6 +157,28 @@ export default function Settings() {
   const [saving, setSaving] = useState(false);
 
   const config = draft ?? (data?.config as Config | undefined) ?? {};
+  // ui.theme in config is durable truth — sync the client cache once
+  // settings land so other sessions inherit the operator's choice.
+  useEffect(() => {
+    const t = get(config, 'ui.theme');
+    if (
+      (t === 'dark' || t === 'light' || t === 'system') &&
+      t !== themeNow()
+    ) {
+      applyTheme(t);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+  const dirty = draft !== null || Object.keys(secrets).length > 0;
+  // Warn before abandoning an unsaved draft.
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
   const onChange = (path: string, v: unknown) => {
     setDraft((d) => set(d ?? { ...(data?.config as Config) }, path, v));
     setSaved(null);
@@ -143,7 +206,12 @@ export default function Settings() {
   if (error) return <ErrorBox error={error} />;
   if (!data) return <Empty />;
 
-  const repos = (config.repos as Record<string, { path?: string }>) ?? {};
+  const repos =
+    (config.repos as Record<string, { path?: string; url?: string }>) ?? {};
+  // Repos present only in the draft are new — flag them unsaved.
+  const savedRepos =
+    ((data?.config as Config | undefined)?.repos as Record<string, unknown>) ??
+    {};
 
   return (
     <section>
@@ -152,20 +220,13 @@ export default function Settings() {
         Writes merge into the global config.yaml; secrets land in .env and are
         never read back.
       </p>
-      <div className="tabs" role="tablist">
-        {TABS.map((t) => (
-          <button
-            key={t}
-            type="button"
-            role="tab"
-            aria-selected={tab === t}
-            className={tab === t ? 'active' : ''}
-            onClick={() => setTab(t)}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        ariaLabel="settings sections"
+        active={tab}
+        onChange={(t) => setTab(t as (typeof TABS)[number])}
+        tabs={TABS.map((t) => ({ id: t, label: t }))}
+      />
+      <TabPanel id={tab}>
       {saved?.map((w) => (
         <div key={w} className={w === 'Saved.' ? 'card' : 'warn-banner'}>
           {w}
@@ -176,33 +237,33 @@ export default function Settings() {
       {tab === 'General' && (
         <div>
           <TextField
-            label="actor (this install's identity)"
+            label="Actor (this install's identity)"
             path="actor"
             config={config}
             onChange={onChange}
           />
           <SelectField
-            label="backend"
+            label="Backend"
             path="backend"
             options={['devin', 'aider']}
             config={config}
             onChange={onChange}
           />
           <SelectField
-            label="permission_mode"
+            label="Permission mode"
             path="permission_mode"
             options={['smart', 'bypass', 'accept-edits']}
             config={config}
             onChange={onChange}
           />
           <TextField
-            label="storage_url"
+            label="Storage URL"
             path="storage_url"
             config={config}
             onChange={onChange}
           />
           <SelectField
-            label="voice"
+            label="Voice"
             path="voice"
             options={['auto', 'off']}
             config={config}
@@ -220,18 +281,42 @@ export default function Settings() {
             <div className="card" key={name}>
               <div className="card-title">
                 <strong>{name}</strong>
+                {savedRepos[name] === undefined && (
+                  <span className="badge spec-warn">unsaved</span>
+                )}
+                {r.url && (
+                  <a
+                    className="muted mono"
+                    href={r.url}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {r.url}
+                  </a>
+                )}
                 <span className="muted mono">{r.path}</span>
               </div>
             </div>
           ))}
+          <h3 className="group-title">Add from GitHub</h3>
+          <p className="muted">
+            Paste a GitHub URL — Veto clones it into its managed data dir and
+            registers it. Private repos need GITHUB_TOKEN (Backends &amp; Keys).
+          </p>
+          <GithubAdder onCloned={() => reload()} />
           <h3 className="group-title">Add repo</h3>
           <RepoAdder
             onAdd={(name, path) => onChange(`repos.${name}.path`, path)}
           />
           <h3 className="group-title">Products</h3>
-          <pre className="terminal">
-            {JSON.stringify(config.products ?? {}, null, 2)}
-          </pre>
+          <details>
+            <summary className="muted">
+              Managed products (read-only mapping)
+            </summary>
+            <pre className="terminal">
+              {JSON.stringify(config.products ?? {}, null, 2)}
+            </pre>
+          </details>
         </div>
       )}
 
@@ -254,19 +339,19 @@ export default function Settings() {
             </Field>
           ))}
           <TextField
-            label="github token_env"
+            label="GitHub token env var"
             path="importers.github.token_env"
             config={config}
             onChange={onChange}
           />
           <TextField
-            label="jira base_url"
+            label="Jira base URL"
             path="importers.jira.base_url"
             config={config}
             onChange={onChange}
           />
           <TextField
-            label="jira token_env"
+            label="Jira token env var"
             path="importers.jira.token_env"
             config={config}
             onChange={onChange}
@@ -277,25 +362,25 @@ export default function Settings() {
       {tab === 'Models' && (
         <div>
           <TextField
-            label="main_model"
+            label="Main model"
             path="main_model"
             config={config}
             onChange={onChange}
           />
           <TextField
-            label="review_model"
+            label="Review model"
             path="review_model"
             config={config}
             onChange={onChange}
           />
           <TextField
-            label="escalation_model"
+            label="Escalation model"
             path="escalation_model"
             config={config}
             onChange={onChange}
           />
           <SelectField
-            label="spec_depth"
+            label="Spec depth"
             path="spec_depth"
             options={['light', 'standard', 'deep']}
             config={config}
@@ -307,51 +392,58 @@ export default function Settings() {
       {tab === 'Gates & Budgets' && (
         <div>
           <SelectField
-            label="gates"
+            label="Gates"
             path="gates"
             options={['full', 'plan-package', 'minimal']}
             config={config}
             onChange={onChange}
           />
           <TextField
-            label="spend cap usd / ticket"
+            label="Spend cap (USD per ticket)"
             path="budgets.spend_cap_usd_per_ticket"
             type="number"
+            min="0"
+            step="0.01"
             config={config}
             onChange={onChange}
           />
           <TextField
-            label="tokens cap / ticket"
+            label="Tokens cap per ticket"
             path="budgets.tokens_cap_per_ticket"
             type="number"
+            min="0"
             config={config}
             onChange={onChange}
           />
           <TextField
-            label="shepherd max cycles"
+            label="Shepherd max cycles"
             path="budgets.shepherd_max_cycles"
             type="number"
+            min="0"
             config={config}
             onChange={onChange}
           />
           <TextField
-            label="fix dismissal cap"
+            label="Fix dismissal cap"
             path="budgets.fix_dismissal_cap"
             type="number"
+            min="0"
             config={config}
             onChange={onChange}
           />
           <TextField
-            label="split max children"
+            label="Split max children"
             path="budgets.split_max_children"
             type="number"
+            min="1"
             config={config}
             onChange={onChange}
           />
           <TextField
-            label="implement concurrency"
+            label="Implement concurrency"
             path="concurrency.implement"
             type="number"
+            min="1"
             config={config}
             onChange={onChange}
           />
@@ -361,32 +453,49 @@ export default function Settings() {
       {tab === 'Merge & UI' && (
         <div>
           <SelectField
-            label="merge_strategy"
+            label="Merge strategy"
             path="merge_strategy"
             options={['squash', 'merge', 'rebase']}
             config={config}
             onChange={onChange}
           />
           <TextField
-            label="worktree_root"
+            label="Worktree root"
             path="worktree_root"
             config={config}
             onChange={onChange}
           />
+          <h3 className="group-title">UI</h3>
+          <Field label="Theme">
+            <select
+              value={String(get(config, 'ui.theme') ?? themeNow())}
+              onChange={(e) => {
+                const v = e.target.value as ThemeMode;
+                onChange('ui.theme', v);
+                applyTheme(v);
+              }}
+              style={{ width: 'auto' }}
+            >
+              <option value="system">system</option>
+              <option value="dark">dark</option>
+              <option value="light">light</option>
+            </select>
+          </Field>
           <TextField
-            label="ui.bind"
+            label="UI bind host"
             path="ui.bind"
             config={config}
             onChange={onChange}
           />
           <TextField
-            label="ui.port"
+            label="UI port"
             path="ui.port"
             type="number"
+            min="1"
             config={config}
             onChange={onChange}
           />
-          <Field label="ui.remote_access (widens bind — warns on save)">
+          <Field label="Remote access (widens bind — warns on save)">
             <select
               value={String(get(config, 'ui.remote_access') ?? false)}
               onChange={(e) =>
@@ -397,35 +506,41 @@ export default function Settings() {
               <option value="true">true</option>
             </select>
           </Field>
-          <h3 className="group-title">Board WIP soft limits</h3>
+          <h3 className="group-title">Board</h3>
           <p className="muted">
-            Per-column soft caps — the board column count renders amber when
-            exceeded. Empty = no limit.
+            Per-column WIP soft caps — the board column count renders amber
+            when exceeded. Empty = no limit.
           </p>
           <div className="row">
             {(['backlog', 'spec', 'build', 'review', 'done'] as const).map(
               (phase) => (
-                <Field key={phase} label={phase}>
-                  <input
-                    type="number"
-                    min={1}
-                    style={{ width: 90 }}
-                    value={String(get(config, `ui.wip_limits.${phase}`) ?? '')}
-                    onChange={(e) =>
-                      onChange(
-                        `ui.wip_limits.${phase}`,
-                        e.target.value === ''
-                          ? undefined
-                          : Number(e.target.value),
-                      )
-                    }
-                  />
+                <Field
+                  key={phase}
+                  label={phase.slice(0, 1).toUpperCase() + phase.slice(1)}
+                >
+                  <DictationField style={{ width: 90, flex: '0 0 auto' }}>
+                    <input
+                      type="number"
+                      min={1}
+                      value={String(
+                        get(config, `ui.wip_limits.${phase}`) ?? '',
+                      )}
+                      onChange={(e) =>
+                        onChange(
+                          `ui.wip_limits.${phase}`,
+                          e.target.value === ''
+                            ? undefined
+                            : Number(e.target.value),
+                        )
+                      }
+                    />
+                  </DictationField>
                 </Field>
               ),
             )}
           </div>
           <TextField
-            label="shepherd poll interval (s)"
+            label="Shepherd poll interval (seconds)"
             path="shepherd.poll_interval_s"
             type="number"
             config={config}
@@ -434,7 +549,9 @@ export default function Settings() {
         </div>
       )}
 
-      <div className="row" style={{ marginTop: 16 }}>
+      </TabPanel>
+
+      <div className="save-bar">
         <button
           type="button"
           className="primary"
@@ -443,13 +560,92 @@ export default function Settings() {
         >
           {saving ? 'Saving…' : 'Save settings'}
         </button>
-        {draft && (
-          <button type="button" onClick={() => setDraft(null)}>
+        {(draft || Object.keys(secrets).length > 0) && (
+          <button
+            type="button"
+            onClick={() => {
+              setDraft(null);
+              setSecrets({});
+            }}
+          >
             Discard changes
           </button>
         )}
+        {(draft || Object.keys(secrets).length > 0) && (
+          <span className="badge spec-warn">
+            unsaved{Object.keys(secrets).length > 0 ? ' (+ secrets)' : ''}
+          </span>
+        )}
       </div>
     </section>
+  );
+}
+
+function GithubAdder({ onCloned }: { onCloned: () => void }) {
+  const [url, setUrl] = useState('');
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<unknown>(null);
+  const [done, setDone] = useState<string | null>(null);
+  const submit = async () => {
+    setBusy(true);
+    setErr(null);
+    setDone(null);
+    try {
+      const { repo } = await client.cloneRepo({
+        url,
+        ...(name.trim() ? { name: name.trim() } : {}),
+      });
+      setDone(`Cloned ${repo.url} → ${repo.path}`);
+      setUrl('');
+      setName('');
+      onCloned();
+    } catch (e) {
+      // 5xx bodies carry a generic 'internal error' message (API.md
+      // scrub) — map the code to something actionable.
+      setErr(
+        e instanceof ApiError && e.code === 'clone_failed'
+          ? new Error(
+              'Clone failed — check the URL; for a private repo set ' +
+                'GITHUB_TOKEN under Backends & Keys.',
+            )
+          : e,
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div>
+      <div className="row">
+        <DictationField style={{ flex: 1, minWidth: 280 }}>
+          <input
+            aria-label="github repo url"
+            placeholder="https://github.com/org/repo"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+          />
+        </DictationField>
+        <DictationField style={{ width: 200, flex: '0 0 auto' }}>
+          <input
+            aria-label="repo name (optional)"
+            placeholder="name (defaults to repo)"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </DictationField>
+        <button
+          type="button"
+          className="primary"
+          disabled={busy || !url.trim()}
+          onClick={() => void submit()}
+        >
+          {busy ? 'Cloning…' : 'Clone'}
+        </button>
+      </div>
+      {err != null && <ErrorBox error={err} />}
+      {done && <p className="muted">{done}</p>}
+    </div>
   );
 }
 
@@ -458,19 +654,22 @@ function RepoAdder({ onAdd }: { onAdd: (name: string, path: string) => void }) {
   const [path, setPath] = useState('');
   return (
     <div className="row">
-      <input
-        aria-label="repo name"
-        placeholder="name"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        style={{ width: 160 }}
-      />
-      <input
-        aria-label="repo path"
-        placeholder="/abs/path"
-        value={path}
-        onChange={(e) => setPath(e.target.value)}
-      />
+      <DictationField style={{ width: 160, flex: '0 0 auto' }}>
+        <input
+          aria-label="repo name"
+          placeholder="name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+      </DictationField>
+      <DictationField>
+        <input
+          aria-label="repo path"
+          placeholder="/abs/path"
+          value={path}
+          onChange={(e) => setPath(e.target.value)}
+        />
+      </DictationField>
       <button
         type="button"
         disabled={!name || !path}

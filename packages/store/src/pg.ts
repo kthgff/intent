@@ -24,8 +24,13 @@ import type {
   AlignmentFindingRow,
   AlignmentRunRow,
   AssumptionRow,
+  BoardAnnotation,
+  BoardConnector,
   BoardItem,
+  BoardProposalRow,
   BoardRow,
+  BoardVote,
+  BoardVoteSession,
   ChangesetItemRow,
   ChangesetRow,
   Claim,
@@ -1698,20 +1703,24 @@ export class PostgresStore implements Store {
       item.provenance ?? null,
       item.created_at ?? null,
       item.updated_at ?? null,
+      item.color ?? null,
+      item.z_index ?? null,
+      item.presentation_order ?? null,
     ];
     await this.db.query(
       `INSERT INTO board_items (id, workspace, org, board, kind, ref,
          title, body, x, y, w, h, zone, serves, status, consumed_by,
          note_kind, topic, importance, applies_to, note_status,
-         rationale, provenance, created_at, updated_at)
+         rationale, provenance, created_at, updated_at, color, z_index,
+         presentation_order)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
-         $18,$19,$20,$21,$22,$23,$24,$25)
+         $18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)
        ON CONFLICT (id) DO UPDATE SET
          org=$3, board=$4, kind=$5, ref=$6, title=$7, body=$8, x=$9,
          y=$10, w=$11, h=$12, zone=$13, serves=$14, status=$15,
          consumed_by=$16, note_kind=$17, topic=$18, importance=$19,
          applies_to=$20, note_status=$21, rationale=$22, provenance=$23,
-         updated_at=$25`,
+         updated_at=$25, color=$26, z_index=$27, presentation_order=$28`,
       p,
     );
   }
@@ -1744,6 +1753,9 @@ export class PostgresStore implements Store {
       item.note_status ?? null,
       item.rationale ?? null,
       item.provenance ?? null,
+      item.color ?? null,
+      item.z_index ?? null,
+      item.presentation_order ?? null,
       item.updated_at ?? null,
       expectedUpdatedAt,
     ];
@@ -1753,8 +1765,8 @@ export class PostgresStore implements Store {
          y=$10, w=$11, h=$12, zone=$13, serves=$14, status=$15,
          consumed_by=$16, note_kind=$17, topic=$18, importance=$19,
          applies_to=$20, note_status=$21, rationale=$22, provenance=$23,
-         updated_at=$24
-       WHERE id=$1 AND workspace=$2 AND updated_at=$25
+         color=$24, z_index=$25, presentation_order=$26, updated_at=$27
+       WHERE id=$1 AND workspace=$2 AND updated_at=$28
        RETURNING *`,
       p,
     );
@@ -1793,6 +1805,346 @@ export class PostgresStore implements Store {
 
   async deleteBoardItem(id: string): Promise<void> {
     await this.db.query('DELETE FROM board_items WHERE id=$1', [id]);
+  }
+
+  async upsertBoardConnector(row: BoardConnector): Promise<void> {
+    await this.db.query(
+      `INSERT INTO board_connectors
+         (id, workspace, board, source_item_id, target_item_id, label, status,
+          created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       ON CONFLICT (id) DO UPDATE SET
+         label=$6, status=$7, updated_at=$9`,
+      [
+        row.id,
+        row.workspace,
+        row.board,
+        row.source_item_id,
+        row.target_item_id,
+        row.label ?? null,
+        row.status,
+        row.created_at ?? null,
+        row.updated_at ?? null,
+      ],
+    );
+  }
+
+  async getBoardConnector(id: string): Promise<BoardConnector | null> {
+    const rows = await this.db.query(
+      'SELECT * FROM board_connectors WHERE id=$1',
+      [id],
+    );
+    return rows[0] ? rowToBoardConnector(rows[0]) : null;
+  }
+
+  async listBoardConnectors(filter: {
+    workspace: string;
+    board: string;
+    status?: string;
+  }): Promise<BoardConnector[]> {
+    const args: unknown[] = [filter.workspace, filter.board];
+    let sql = 'SELECT * FROM board_connectors WHERE workspace=$1 AND board=$2';
+    if (filter.status !== undefined) {
+      args.push(filter.status);
+      sql += ` AND status=$${args.length}`;
+    }
+    sql += ' ORDER BY created_at, id';
+    return (await this.db.query(sql, args)).map(rowToBoardConnector);
+  }
+
+  async updateBoardConnectorExpected(
+    row: BoardConnector,
+    expectedUpdatedAt: string,
+  ): Promise<BoardConnector | null> {
+    const rows = await this.db.query(
+      `UPDATE board_connectors SET
+         source_item_id=$4, target_item_id=$5, label=$6, status=$7,
+         updated_at=$8
+       WHERE id=$1 AND workspace=$2 AND board=$3 AND updated_at=$9
+       RETURNING *`,
+      [
+        row.id,
+        row.workspace,
+        row.board,
+        row.source_item_id,
+        row.target_item_id,
+        row.label ?? null,
+        row.status,
+        row.updated_at ?? null,
+        expectedUpdatedAt,
+      ],
+    );
+    return rows[0] ? rowToBoardConnector(rows[0]) : null;
+  }
+
+  // ---- canvas drawing layer (TOOLS-TDD §2.6) ----
+
+  async upsertBoardAnnotation(row: BoardAnnotation): Promise<void> {
+    await this.db.query(
+      `INSERT INTO board_annotations
+         (id, workspace, board, kind, geometry, color, created_by,
+          created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       ON CONFLICT (id) DO UPDATE SET
+         kind=$4, geometry=$5, color=$6, updated_at=$9`,
+      [
+        row.id,
+        row.workspace,
+        row.board,
+        row.kind,
+        j(row.geometry),
+        row.color ?? null,
+        row.created_by ?? null,
+        row.created_at ?? null,
+        row.updated_at ?? null,
+      ],
+    );
+  }
+
+  async getBoardAnnotation(id: string): Promise<BoardAnnotation | null> {
+    const rows = await this.db.query(
+      'SELECT * FROM board_annotations WHERE id=$1',
+      [id],
+    );
+    return rows[0] ? rowToBoardAnnotation(rows[0]) : null;
+  }
+
+  async listBoardAnnotations(filter: {
+    workspace: string;
+    board: string;
+  }): Promise<BoardAnnotation[]> {
+    const rows = await this.db.query(
+      `SELECT * FROM board_annotations
+       WHERE workspace=$1 AND board=$2
+       ORDER BY created_at, id`,
+      [filter.workspace, filter.board],
+    );
+    return rows.map(rowToBoardAnnotation);
+  }
+
+  async updateBoardAnnotationExpected(
+    row: BoardAnnotation,
+    expectedUpdatedAt: string,
+  ): Promise<BoardAnnotation | null> {
+    const rows = await this.db.query(
+      `UPDATE board_annotations SET
+         kind=$4, geometry=$5, color=$6, updated_at=$7
+       WHERE id=$1 AND workspace=$2 AND board=$3 AND updated_at=$8
+       RETURNING *`,
+      [
+        row.id,
+        row.workspace,
+        row.board,
+        row.kind,
+        j(row.geometry),
+        row.color ?? null,
+        row.updated_at ?? null,
+        expectedUpdatedAt,
+      ],
+    );
+    return rows[0] ? rowToBoardAnnotation(rows[0]) : null;
+  }
+
+  async deleteBoardAnnotation(id: string): Promise<void> {
+    await this.db.query('DELETE FROM board_annotations WHERE id=$1', [id]);
+  }
+
+  // ---- vote sessions + stamps (TOOLS-TDD §2.4) ----
+
+  async upsertBoardVoteSession(row: BoardVoteSession): Promise<void> {
+    await this.db.query(
+      `INSERT INTO board_vote_sessions
+         (id, workspace, board, opened_by, closes_at, status,
+          created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       ON CONFLICT (id) DO UPDATE SET
+         closes_at=$5, status=$6, updated_at=$8`,
+      [
+        row.id,
+        row.workspace,
+        row.board,
+        row.opened_by ?? null,
+        row.closes_at ?? null,
+        row.status,
+        row.created_at ?? null,
+        row.updated_at ?? null,
+      ],
+    );
+  }
+
+  async getBoardVoteSession(id: string): Promise<BoardVoteSession | null> {
+    const rows = await this.db.query(
+      'SELECT * FROM board_vote_sessions WHERE id=$1',
+      [id],
+    );
+    return rows[0] ? rowToBoardVoteSession(rows[0]) : null;
+  }
+
+  async listBoardVoteSessions(filter: {
+    workspace: string;
+    board: string;
+  }): Promise<BoardVoteSession[]> {
+    const rows = await this.db.query(
+      `SELECT * FROM board_vote_sessions
+       WHERE workspace=$1 AND board=$2
+       ORDER BY created_at, id`,
+      [filter.workspace, filter.board],
+    );
+    return rows.map(rowToBoardVoteSession);
+  }
+
+  async updateBoardVoteSessionExpected(
+    row: BoardVoteSession,
+    expectedUpdatedAt: string,
+  ): Promise<BoardVoteSession | null> {
+    const rows = await this.db.query(
+      `UPDATE board_vote_sessions SET
+         closes_at=$4, status=$5, updated_at=$6
+       WHERE id=$1 AND workspace=$2 AND board=$3 AND updated_at=$7
+       RETURNING *`,
+      [
+        row.id,
+        row.workspace,
+        row.board,
+        row.closes_at ?? null,
+        row.status,
+        row.updated_at ?? null,
+        expectedUpdatedAt,
+      ],
+    );
+    return rows[0] ? rowToBoardVoteSession(rows[0]) : null;
+  }
+
+  /** One vote per PK — a re-vote updates `stamp` in place and bumps
+   *  `updated_at` (TOOLS-TDD §2.4). */
+  async upsertBoardVote(vote: BoardVote): Promise<void> {
+    await this.db.query(
+      `INSERT INTO board_item_votes
+         (workspace, board, item_id, voter, session_id, stamp,
+          created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       ON CONFLICT (workspace, board, item_id, voter, session_id)
+       DO UPDATE SET stamp=$6, updated_at=$8`,
+      [
+        vote.workspace,
+        vote.board,
+        vote.item_id,
+        vote.voter,
+        vote.session_id,
+        vote.stamp,
+        vote.created_at ?? null,
+        vote.updated_at ?? null,
+      ],
+    );
+  }
+
+  async listBoardVotes(filter: {
+    workspace: string;
+    board: string;
+    session_id?: string;
+  }): Promise<BoardVote[]> {
+    const args: unknown[] = [filter.workspace, filter.board];
+    let sql = 'SELECT * FROM board_item_votes WHERE workspace=$1 AND board=$2';
+    if (filter.session_id !== undefined) {
+      args.push(filter.session_id);
+      sql += ` AND session_id=$${args.length}`;
+    }
+    sql += ' ORDER BY created_at, item_id, voter';
+    return (await this.db.query(sql, args)).map(rowToBoardVote);
+  }
+
+  // ---- board assistant proposals (BOARD-CHAT-PRD R3, wp-161) ----
+
+  async upsertBoardProposal(row: BoardProposalRow): Promise<void> {
+    await this.db.query(
+      `INSERT INTO board_proposals (workspace, org, proposal_id, board,
+         session_id, batch_id, seq, op, payload, base_updated_at,
+         anchor, provenance, status, created_by, decided_by, decided_at,
+         created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
+         $17,$18)
+       ON CONFLICT (workspace, proposal_id) DO UPDATE SET
+         batch_id=$6, seq=$7, op=$8, payload=$9, base_updated_at=$10,
+         anchor=$11, provenance=$12, status=$13, decided_by=$15,
+         decided_at=$16, updated_at=$18`,
+      [
+        row.workspace,
+        row.org ?? null,
+        row.proposal_id,
+        row.board,
+        row.session_id,
+        row.batch_id ?? null,
+        row.seq ?? null,
+        row.op,
+        j(row.payload),
+        row.base_updated_at ?? null,
+        row.anchor ? j(row.anchor) : null,
+        row.provenance ? j(row.provenance) : null,
+        row.status,
+        row.created_by,
+        row.decided_by ?? null,
+        row.decided_at ?? null,
+        row.created_at ?? null,
+        row.updated_at ?? null,
+      ],
+    );
+  }
+
+  async getBoardProposal(key: {
+    workspace: string;
+    proposal_id: string;
+  }): Promise<BoardProposalRow | null> {
+    const rows = await this.db.query(
+      `SELECT * FROM board_proposals
+       WHERE workspace=$1 AND proposal_id=$2`,
+      [key.workspace, key.proposal_id],
+    );
+    return rows[0] ? rowToBoardProposal(rows[0]) : null;
+  }
+
+  async listBoardProposals(filter: {
+    workspace: string;
+    board: string;
+    status?: string;
+  }): Promise<BoardProposalRow[]> {
+    const args: unknown[] = [filter.workspace, filter.board];
+    let sql = 'SELECT * FROM board_proposals WHERE workspace=$1 AND board=$2';
+    if (filter.status !== undefined) {
+      args.push(filter.status);
+      sql += ` AND status=$${args.length}`;
+    }
+    sql += ' ORDER BY created_at, proposal_id';
+    return (await this.db.query(sql, args)).map(rowToBoardProposal);
+  }
+
+  async supersedePendingProposals(filter: {
+    workspace: string;
+    board: string;
+    itemId: string;
+    op?: string;
+  }): Promise<number> {
+    const args: unknown[] = [filter.workspace, filter.board];
+    let sql = `SELECT * FROM board_proposals
+       WHERE workspace=$1 AND board=$2 AND status='pending'`;
+    if (filter.op !== undefined) {
+      args.push(filter.op);
+      sql += ` AND op=$${args.length}`;
+    }
+    const pending = (await this.db.query(sql, args)).map(rowToBoardProposal);
+    const hit = pending.filter((p) => proposalTargetId(p) === filter.itemId);
+    if (hit.length === 0) return 0;
+    const at = now();
+    return this.db.transaction(async (tx) => {
+      for (const p of hit) {
+        await tx.query(
+          `UPDATE board_proposals
+           SET status='superseded', decided_at=$3, updated_at=$3
+           WHERE workspace=$1 AND proposal_id=$2 AND status='pending'`,
+          [filter.workspace, p.proposal_id, at],
+        );
+      }
+      return hit.length;
+    });
   }
 
   // ---- initiatives / features ----
@@ -2028,6 +2380,9 @@ export class PostgresStore implements Store {
          target, client_ref, created_by, created_at, updated_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
        ON CONFLICT (workspace, release_id) DO UPDATE SET
+         -- client_ref deliberately NOT in the SET list — the
+         -- idempotency key is create-time metadata; a later upsert
+         -- must not rebind (or clear) it.
          org=$2, title=$4, status=$5, target=$6, updated_at=$10`,
       [
         row.workspace,
@@ -2562,6 +2917,16 @@ export class PostgresStore implements Store {
     if (expected.updated_at !== undefined) {
       p.push(expected.updated_at);
       conds.push(`updated_at = $${p.length}`);
+    }
+    // Fail closed: an `expected` that yields no predicates would make
+    // this an unconditional UPDATE that always "wins" — callers think
+    // they're fenced when they aren't. A no-predicate call is a caller
+    // bug (e.g. `updated_at: row.updated_at ?? undefined` on a null
+    // column); refuse it loudly rather than dropping the fence.
+    if (conds.length === 0) {
+      throw new Error(
+        'updateChangesetExpected: expected produced no predicates — refusing an unfenced write',
+      );
     }
     const rows = await this.db.query(
       `UPDATE changesets SET
@@ -3189,13 +3554,13 @@ export class PostgresStore implements Store {
       await lockKey(tx, `interview:${row.workspace}:${row.session_id}`);
       const rows = await tx.query<{ seq: number }>(
         `INSERT INTO interview_messages (workspace, org, session_id, seq,
-           branch, role, content, created_at)
+           branch, role, content, created_by, created_at)
          SELECT $1,$2,$3,
            COALESCE((
              SELECT MAX(seq) FROM interview_messages
              WHERE workspace=$1 AND session_id=$3
            ), 0) + 1,
-           $4,$5,$6,$7
+           $4,$5,$6,$7,$8
          RETURNING seq`,
         [
           row.workspace,
@@ -3204,6 +3569,7 @@ export class PostgresStore implements Store {
           row.branch ?? null,
           row.role,
           row.content,
+          row.created_by ?? null,
           row.created_at ?? now(),
         ],
       );
@@ -5531,6 +5897,9 @@ function rowToBoardItem(row: Row): BoardItem {
     y: (row.y as number | null) ?? null,
     w: (row.w as number | null) ?? null,
     h: (row.h as number | null) ?? null,
+    color: (row.color as BoardItem['color']) ?? null,
+    z_index: (row.z_index as number | null) ?? null,
+    presentation_order: (row.presentation_order as number | null) ?? null,
     zone: (row.zone as string | null) ?? null,
     serves: unj(row.serves, null),
     status: row.status as BoardItem['status'],
@@ -5542,6 +5911,92 @@ function rowToBoardItem(row: Row): BoardItem {
     note_status: (row.note_status as BoardItem['note_status']) ?? null,
     rationale: (row.rationale as string | null) ?? null,
     provenance: (row.provenance as BoardItem['provenance']) ?? null,
+    created_at: (row.created_at as string | null) ?? null,
+    updated_at: (row.updated_at as string | null) ?? null,
+  };
+}
+
+function rowToBoardConnector(row: Row): BoardConnector {
+  return {
+    id: row.id as string,
+    workspace: row.workspace as string,
+    board: row.board as string,
+    source_item_id: row.source_item_id as string,
+    target_item_id: row.target_item_id as string,
+    label: (row.label as string | null) ?? null,
+    status: row.status as BoardConnector['status'],
+    created_at: (row.created_at as string | null) ?? null,
+    updated_at: (row.updated_at as string | null) ?? null,
+  };
+}
+
+function rowToBoardAnnotation(row: Row): BoardAnnotation {
+  return {
+    id: row.id as string,
+    workspace: row.workspace as string,
+    board: row.board as string,
+    kind: row.kind as BoardAnnotation['kind'],
+    geometry: unj(row.geometry, {}) as BoardAnnotation['geometry'],
+    color: (row.color as BoardAnnotation['color']) ?? null,
+    created_by: (row.created_by as string | null) ?? null,
+    created_at: (row.created_at as string | null) ?? null,
+    updated_at: (row.updated_at as string | null) ?? null,
+  };
+}
+
+function rowToBoardProposal(row: Row): BoardProposalRow {
+  return {
+    workspace: row.workspace as string,
+    org: (row.org as string | null) ?? null,
+    proposal_id: row.proposal_id as string,
+    board: row.board as string,
+    session_id: row.session_id as string,
+    batch_id: (row.batch_id as string | null) ?? null,
+    seq: (row.seq as number | null) ?? null,
+    op: row.op as BoardProposalRow['op'],
+    // NOT NULL column — a corrupt payload throws on parse (fail-closed,
+    // never a fabricated op).
+    payload: JSON.parse(row.payload as string) as BoardProposalRow['payload'],
+    base_updated_at: (row.base_updated_at as string | null) ?? null,
+    anchor: unj<BoardProposalRow['anchor']>(row.anchor, null),
+    provenance: unj<BoardProposalRow['provenance']>(row.provenance, null),
+    status: row.status as BoardProposalRow['status'],
+    created_by: row.created_by as string,
+    decided_by: (row.decided_by as string | null) ?? null,
+    decided_at: (row.decided_at as string | null) ?? null,
+    created_at: (row.created_at as string | null) ?? null,
+    updated_at: (row.updated_at as string | null) ?? null,
+  };
+}
+
+/** The item a proposal op targets (`id`/`source_item_id`) — null for
+ *  untargeted ops (`create-item`). Used by supersedePendingProposals. */
+function proposalTargetId(p: BoardProposalRow): string | null {
+  const pl = p.payload as { id?: string; source_item_id?: string };
+  return pl.id ?? pl.source_item_id ?? null;
+}
+
+function rowToBoardVoteSession(row: Row): BoardVoteSession {
+  return {
+    id: row.id as string,
+    workspace: row.workspace as string,
+    board: row.board as string,
+    opened_by: (row.opened_by as string | null) ?? null,
+    closes_at: (row.closes_at as string | null) ?? null,
+    status: row.status as BoardVoteSession['status'],
+    created_at: (row.created_at as string | null) ?? null,
+    updated_at: (row.updated_at as string | null) ?? null,
+  };
+}
+
+function rowToBoardVote(row: Row): BoardVote {
+  return {
+    workspace: row.workspace as string,
+    board: row.board as string,
+    item_id: row.item_id as string,
+    voter: row.voter as string,
+    session_id: row.session_id as string,
+    stamp: row.stamp as BoardVote['stamp'],
     created_at: (row.created_at as string | null) ?? null,
     updated_at: (row.updated_at as string | null) ?? null,
   };
@@ -5948,6 +6403,7 @@ function rowToInterviewMessage(row: Row): InterviewMessageRow {
     branch: (row.branch as string | null) ?? null,
     role: row.role as InterviewMessageRow['role'],
     content: row.content as string,
+    created_by: (row.created_by as string | null) ?? null,
     created_at: (row.created_at as string | null) ?? null,
   };
 }

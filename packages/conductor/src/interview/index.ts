@@ -17,15 +17,22 @@
  *   two thresholds              ──► draft_ready ≠ approval_ready
  */
 export {
+  BOARD_WIZARDS,
   MVP_WIZARDS,
   REQUIREMENTS_DISCOVERY,
   SOLUTION_DISCOVERY,
   TDD_DISCOVERY,
   WizardConfigSchema,
+  boardSlotCoverage,
+  boardWizardId,
+  goalItemIds,
   initialSlots,
+  isGoalItem,
   loadWizardConfig,
   parseWizardConfig,
   registerWizard,
+  seedBoardSlots,
+  seedBoardWizards,
   seedMvpWizards,
   slotSpec,
   thresholdsOf,

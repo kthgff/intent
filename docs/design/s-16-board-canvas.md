@@ -1,8 +1,10 @@
 # S-16 — Board canvas
 
 Design doc companion to `UI-INVENTORY.md` §2 + `FEATURES.md` §2.
-Status: draft 2026-10-04. Stack: React+Vite · Tailwind · shadcn/ui ·
-canvas impl TBD (tldraw SDK recommended). Style: Linear-inspired app
+Status: draft 2026-10-04; Miro-inspired canvas refinement proposed
+2026-10-06 in [`BOARD-CANVAS-TDD.md`](BOARD-CANVAS-TDD.md). Stack:
+React+Vite · React Flow 12 (binding `ARCHITECTURE.md` decision). Style:
+Linear-inspired app
 chrome; canvas layer = Miro/FigJam visual language (color, paper,
 soft shadows) — the two palettes deliberately contrast: chrome is
 machine, canvas is human.
@@ -71,7 +73,11 @@ S-16 delivery = the work this idea board spawned.
    replacement). `~agent:<run>` source chip on agent-added items.
 4. **Canvas surface** — pan/zoom, marquee select, dbl-click creates a
    sticky at cursor, drag-connect items, zones are resizeable labeled
-   frames; comments thread on any item.
+   frames; comments thread on any item. The white surface has major grid
+   lines every 96 canvas pixels, subdivided into four rows and four
+   columns by lighter lines every 24 pixels. Both grid layers remain
+   transparent so the major grid cannot obscure the subdivisions;
+   minor lines fade below 0.6× zoom and disappear at 0.25× to avoid moiré.
 5. **Delivery view** — the shared pipeline-board kanban (5 phase
    columns, per `s-01-board.md`), scoped by the board's saved filter.
    Cards = live ticket/feature objects with **full actions** (open
@@ -134,8 +140,9 @@ shipped entity.
 
 ## Style notes
 
-- Canvas bg warm zinc-925 (slightly lighter than app chrome) — the
-  "paper" zone; stickies: classic 6 (yellow/pink/blue/green/orange/
-  purple) with soft shadow + slight rotation.
+- Canvas is theme-aware: soft neutral gray "paper" in light mode and
+  warm zinc-925 in dark mode. A note type supplies its initial color;
+  users may override it while the authoritative type chip remains.
+  Stickies use the classic six-color palette with restrained shadows.
 - Kanban columns zinc-900 headers, cards same anatomy as inbox rows.
 - Synthesize button: indigo primary, item-count suffix.

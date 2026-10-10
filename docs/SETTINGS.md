@@ -39,12 +39,37 @@ capabilities:                  # per-backend flags; override only if you must
   devin:  {can_exec: true,  can_write_outside_tree: true,  has_gh: true}
   aider:  {can_exec: true,  can_write_outside_tree: false, has_gh: false}
 
+# --- model routing registry (SCHEMAS §21, wp-155) ---
+# Every AI interaction KIND resolves through this table — never a
+# hardcoded model. `default` is the base layer; a kind's unset fields
+# inherit from it, then legacy knobs, then main_model.
+models:
+  default:
+    primary: null              # bare provider id, e.g. anthropic/claude-…
+    fallback: []               # ordered failover candidates
+    max_output_tokens: null    # per-turn output ceiling
+    schema_required: false     # caller demands JSON-schema output
+    providers: []              # non-empty = provider allowlist (fail-closed)
+    latency_class: null        # instant | interactive | background
+  assistant:                   # Board Assistant turns (BOARD-CHAT-TDD)
+    primary: qwen/qwen3-30b-a3b-instruct-2507
+    providers: [openrouter]    # v1 is OpenRouter-only — a route pinned
+                             # elsewhere errors loudly at wiring time
+    max_output_tokens: 2048
+    # latency_class defaults to `interactive` for this kind
+    # OPENROUTER_API_KEY lives in .env (secrets), never here —
+    # missing key/model → the assistant degrades deterministically
+
 # --- repos ---
 # (projects/workspaces live in the DB `projects` table — created via
 #  UI/API, not config. D29.)
 repos:                         # code repos tickets may target
   backend:
     path: /abs/path/backend
+    url: https://github.com/me/backend   # origin remote — set by the
+                                         # Settings → "Add from GitHub"
+                                         # clone flow (D60); optional,
+                                         # informational
     card:                      # AUTO-PROBE writes this — probed by an agent
       test: make verify        #   run that EXECUTES the commands to verify
       lint: make lint          #   (detection + verification, no human step)
@@ -243,6 +268,16 @@ ui:
                                # everywhere, ?token= bootstrap refused
                                # off-loopback. Tunnel/LAN use (approve
                                # from the couch) — warns on save
+  idea_canvas_v2: false        # s-16 spatial canvas on idea boards (D57);
+                               # default off until dogfood — flag-off keeps
+                               # the grouped classic view (rollback = flip)
+  canvas_draw: false           # drawing layer on the v2 canvas (D63) —
+                               # pen/shapes/highlighter → board_annotations;
+                               # requires idea_canvas_v2
+  board_chat: false            # Board Assistant panel + ghost proposals
+                               # (BOARD-CHAT-PRD); requires idea_canvas_v2 —
+                               # flag-off keeps the board read-only to the
+                               # assistant (no panel, no proposal surface)
   draft_recovery: true         # versioned non-secret localStorage drafts;
                                # reconnect protection, NOT offline sync
 voice: auto                    # auto | off  (webview speech api — shell-
